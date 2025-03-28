@@ -1,609 +1,664 @@
 #include "lexer.h"
 #include <cctype>
 #include <iostream>
-#include <fstream>  // 添加这个头文件
-namespace llvmpy
-{
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+#include <cmath>
 
-Lexer::Lexer(const std::string& source)
-    : sourceCode(source), position(0), currentLine(1), currentColumn(1), currentIndent(0), tokenIndex(0)
-{
-    // 初始化关键字映射
-    keywords["def"] = TOK_DEF;
-    keywords["if"] = TOK_IF;
-    keywords["else"] = TOK_ELSE;
-    keywords["elif"] = TOK_ELIF;
-    keywords["return"] = TOK_RETURN;
-    keywords["while"] = TOK_WHILE;
-    keywords["for"] = TOK_FOR;
-    keywords["in"] = TOK_IN;
-    keywords["print"] = TOK_PRINT;
+namespace llvmpy {
 
-    // 初始化缩进栈
-    indentStack.push_back(0);
+//===----------------------------------------------------------------------===//
+// Token 方法实现
+//===----------------------------------------------------------------------===//
 
-    // 扫描所有token
-    while (!isAtEnd())
-    {
-        tokens.push_back(scanToken());
-    }
-
-    // 添加EOF token
-    tokens.push_back(Token(TOK_EOF, "", currentLine, currentColumn));
+std::string Token::toString() const {
+    std::string typeName = TokenRegistry::getTokenName(type);
+    std::stringstream ss;
+    ss << "Token(" << typeName << ", \"" << value << "\", line=" 
+       << line << ", col=" << column << ")";
+    return ss.str();
 }
 
-/* char Lexer::peek() const {
+//===----------------------------------------------------------------------===//
+// TokenRegistry 静态成员定义
+//===----------------------------------------------------------------------===//
+
+std::unordered_map<std::string, TokenType> TokenRegistry::keywordMap;
+std::unordered_map<TokenType, std::string> TokenRegistry::tokenNames;
+std::unordered_map<char, TokenType> TokenRegistry::simpleOperators;
+std::unordered_map<std::string, TokenType> TokenRegistry::compoundOperators;
+
+void TokenRegistry::initialize() {
+    // 注册关键字
+    registerKeyword("def", TOK_DEF);
+    registerKeyword("if", TOK_IF);
+    registerKeyword("else", TOK_ELSE);
+    registerKeyword("elif", TOK_ELIF);
+    registerKeyword("return", TOK_RETURN);
+    registerKeyword("while", TOK_WHILE);
+    registerKeyword("for", TOK_FOR);
+    registerKeyword("in", TOK_IN);
+    registerKeyword("print", TOK_PRINT);
+    registerKeyword("import", TOK_IMPORT);
+    registerKeyword("class", TOK_CLASS);
+    registerKeyword("pass", TOK_PASS);
+    registerKeyword("break", TOK_BREAK);
+    registerKeyword("continue", TOK_CONTINUE);
+    registerKeyword("lambda", TOK_LAMBDA);
+    registerKeyword("try", TOK_TRY);
+    registerKeyword("except", TOK_EXCEPT);
+    registerKeyword("finally", TOK_FINALLY);
+    registerKeyword("with", TOK_WITH);
+    registerKeyword("as", TOK_AS);
+    registerKeyword("assert", TOK_ASSERT);
+    registerKeyword("from", TOK_FROM);
+    registerKeyword("global", TOK_GLOBAL);
+    registerKeyword("nonlocal", TOK_NONLOCAL);
+    registerKeyword("raise", TOK_RAISE);
+    registerKeyword("True", TOK_BOOL);
+    registerKeyword("False", TOK_BOOL);
+    registerKeyword("None", TOK_NONE);
+    
+    // 注册简单操作符
+    registerSimpleOperator('(', TOK_LPAREN);
+    registerSimpleOperator(')', TOK_RPAREN);
+    registerSimpleOperator('[', TOK_LBRACK);
+    registerSimpleOperator(']', TOK_RBRACK);
+    registerSimpleOperator('{', TOK_LBRACE);
+    registerSimpleOperator('}', TOK_RBRACE);
+    registerSimpleOperator(':', TOK_COLON);
+    registerSimpleOperator(',', TOK_COMMA);
+    registerSimpleOperator('.', TOK_DOT);
+    registerSimpleOperator('+', TOK_PLUS);
+    registerSimpleOperator('-', TOK_MINUS);
+    registerSimpleOperator('*', TOK_MUL);
+    registerSimpleOperator('/', TOK_DIV);
+    registerSimpleOperator('%', TOK_MOD);
+    registerSimpleOperator('<', TOK_LT);
+    registerSimpleOperator('>', TOK_GT);
+    registerSimpleOperator('=', TOK_ASSIGN);
+    registerSimpleOperator('@', TOK_AT);
+    
+    // 注册复合操作符
+    registerCompoundOperator("<=", TOK_LE);
+    registerCompoundOperator(">=", TOK_GE);
+    registerCompoundOperator("==", TOK_EQ);
+    registerCompoundOperator("!=", TOK_NEQ);
+    registerCompoundOperator("+=", TOK_PLUS_ASSIGN);
+    registerCompoundOperator("-=", TOK_MINUS_ASSIGN);
+    registerCompoundOperator("*=", TOK_MUL_ASSIGN);
+    registerCompoundOperator("/=", TOK_DIV_ASSIGN);
+    registerCompoundOperator("%=", TOK_MOD_ASSIGN);
+    registerCompoundOperator("**", TOK_POWER);
+    registerCompoundOperator("//", TOK_FLOOR_DIV);
+    registerCompoundOperator("->", TOK_ARROW);
+    
+    // 注册token名称
+    tokenNames[TOK_EOF] = "EOF";
+    tokenNames[TOK_NEWLINE] = "NEWLINE";
+    tokenNames[TOK_INDENT] = "INDENT";
+    tokenNames[TOK_DEDENT] = "DEDENT";
+    tokenNames[TOK_ERROR] = "ERROR";
+    
+    // 关键字名称
+    tokenNames[TOK_DEF] = "DEF";
+    tokenNames[TOK_IF] = "IF";
+    tokenNames[TOK_ELSE] = "ELSE";
+    tokenNames[TOK_ELIF] = "ELIF";
+    tokenNames[TOK_RETURN] = "RETURN";
+    tokenNames[TOK_WHILE] = "WHILE";
+    tokenNames[TOK_FOR] = "FOR";
+    tokenNames[TOK_IN] = "IN";
+    tokenNames[TOK_PRINT] = "PRINT";
+    tokenNames[TOK_IMPORT] = "IMPORT";
+    tokenNames[TOK_CLASS] = "CLASS";
+    tokenNames[TOK_PASS] = "PASS";
+    tokenNames[TOK_BREAK] = "BREAK";
+    tokenNames[TOK_CONTINUE] = "CONTINUE";
+    tokenNames[TOK_LAMBDA] = "LAMBDA";
+    tokenNames[TOK_TRY] = "TRY";
+    tokenNames[TOK_EXCEPT] = "EXCEPT";
+    tokenNames[TOK_FINALLY] = "FINALLY";
+    tokenNames[TOK_WITH] = "WITH";
+    tokenNames[TOK_AS] = "AS";
+    tokenNames[TOK_ASSERT] = "ASSERT";
+    tokenNames[TOK_FROM] = "FROM";
+    tokenNames[TOK_GLOBAL] = "GLOBAL";
+    tokenNames[TOK_NONLOCAL] = "NONLOCAL";
+    tokenNames[TOK_RAISE] = "RAISE";
+    
+    // 操作符名称
+    tokenNames[TOK_LPAREN] = "LPAREN";
+    tokenNames[TOK_RPAREN] = "RPAREN";
+    tokenNames[TOK_LBRACK] = "LBRACK";
+    tokenNames[TOK_RBRACK] = "RBRACK";
+    tokenNames[TOK_LBRACE] = "LBRACE";
+    tokenNames[TOK_RBRACE] = "RBRACE";
+    tokenNames[TOK_COLON] = "COLON";
+    tokenNames[TOK_COMMA] = "COMMA";
+    tokenNames[TOK_DOT] = "DOT";
+    tokenNames[TOK_PLUS] = "PLUS";
+    tokenNames[TOK_MINUS] = "MINUS";
+    tokenNames[TOK_MUL] = "MUL";
+    tokenNames[TOK_DIV] = "DIV";
+    tokenNames[TOK_MOD] = "MOD";
+    tokenNames[TOK_LT] = "LT";
+    tokenNames[TOK_GT] = "GT";
+    tokenNames[TOK_LE] = "LE";
+    tokenNames[TOK_GE] = "GE";
+    tokenNames[TOK_EQ] = "EQ";
+    tokenNames[TOK_NEQ] = "NEQ";
+    tokenNames[TOK_ASSIGN] = "ASSIGN";
+    tokenNames[TOK_PLUS_ASSIGN] = "PLUS_ASSIGN";
+    tokenNames[TOK_MINUS_ASSIGN] = "MINUS_ASSIGN";
+    tokenNames[TOK_MUL_ASSIGN] = "MUL_ASSIGN";
+    tokenNames[TOK_DIV_ASSIGN] = "DIV_ASSIGN";
+    tokenNames[TOK_MOD_ASSIGN] = "MOD_ASSIGN";
+    tokenNames[TOK_POWER] = "POWER";
+    tokenNames[TOK_FLOOR_DIV] = "FLOOR_DIV";
+    tokenNames[TOK_ARROW] = "ARROW";
+    tokenNames[TOK_AT] = "AT";
+    
+    // 字面量名称
+    tokenNames[TOK_IDENTIFIER] = "IDENTIFIER";
+    tokenNames[TOK_NUMBER] = "NUMBER";
+    tokenNames[TOK_INTEGER] = "INTEGER";
+    tokenNames[TOK_FLOAT] = "FLOAT";
+    tokenNames[TOK_STRING] = "STRING";
+    tokenNames[TOK_BYTES] = "BYTES";
+    tokenNames[TOK_BOOL] = "BOOL";
+    tokenNames[TOK_NONE] = "NONE";
+}
+
+void TokenRegistry::registerKeyword(const std::string& keyword, TokenType type) {
+    keywordMap[keyword] = type;
+}
+
+void TokenRegistry::registerSimpleOperator(char op, TokenType type) {
+    simpleOperators[op] = type;
+}
+
+void TokenRegistry::registerCompoundOperator(const std::string& op, TokenType type) {
+    compoundOperators[op] = type;
+}
+
+TokenType TokenRegistry::getKeywordType(const std::string& keyword) {
+    auto it = keywordMap.find(keyword);
+    return (it != keywordMap.end()) ? it->second : TOK_IDENTIFIER;
+}
+
+TokenType TokenRegistry::getSimpleOperatorType(char op) {
+    auto it = simpleOperators.find(op);
+    return (it != simpleOperators.end()) ? it->second : TOK_ERROR;
+}
+
+TokenType TokenRegistry::getCompoundOperatorType(const std::string& op) {
+    auto it = compoundOperators.find(op);
+    return (it != compoundOperators.end()) ? it->second : TOK_ERROR;
+}
+
+std::string TokenRegistry::getTokenName(TokenType type) {
+    auto it = tokenNames.find(type);
+    if (it != tokenNames.end()) {
+        return it->second;
+    }
+    return "UNKNOWN";
+}
+
+bool TokenRegistry::isKeyword(const std::string& word) {
+    return keywordMap.find(word) != keywordMap.end();
+}
+
+bool TokenRegistry::isSimpleOperator(char c) {
+    return simpleOperators.find(c) != simpleOperators.end();
+}
+
+bool TokenRegistry::isCompoundOperatorStart(char c) {
+    for (const auto& pair : compoundOperators) {
+        if (!pair.first.empty() && pair.first[0] == c) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool TokenRegistry::needsSpaceBetween(TokenType curr, TokenType next) {
+    // 一些操作符与标识符之间不需要空格
+    if (curr == TOK_IDENTIFIER && (next == TOK_LPAREN || next == TOK_LBRACK || next == TOK_DOT)) {
+        return false;
+    }
+    // 括号之间不需要空格
+    if (curr == TOK_RPAREN && (next == TOK_RPAREN || next == TOK_COMMA || next == TOK_COLON)) {
+        return false;
+    }
+    if (curr == TOK_LPAREN && next == TOK_RPAREN) {
+        return false;
+    }
+    // 默认情况下，如果两个token都是操作符或分隔符，通常不需要空格
+    bool currIsOp = curr <= TOK_AT && curr >= TOK_LPAREN;
+    bool nextIsOp = next <= TOK_AT && next >= TOK_LPAREN;
+    return !(currIsOp && nextIsOp);
+}
+
+//===----------------------------------------------------------------------===//
+// LexerError 方法实现
+//===----------------------------------------------------------------------===//
+
+std::string LexerError::formatError() const {
+    std::stringstream ss;
+    ss << "Lexer error at line " << line << ", column " << column << ": " << what();
+    return ss.str();
+}
+
+//===----------------------------------------------------------------------===//
+// Lexer 方法实现
+//===----------------------------------------------------------------------===//
+
+Lexer::Lexer(const std::string& source, const LexerConfig& config)
+    : sourceCode(source), position(0), currentLine(1), currentColumn(1),
+      currentIndent(0), tokenIndex(0), config(config) {
+      
+    // 确保TokenRegistry已初始化
+    static bool initialized = false;
+    if (!initialized) {
+        TokenRegistry::initialize();
+        initialized = true;
+    }
+    
+    // 初始化缩进栈
+    indentStack.push_back(0);
+    
+    // 对源代码进行分词
+    tokenizeSource();
+}
+
+Lexer Lexer::fromFile(const std::string& filePath, const LexerConfig& config) {
+    std::ifstream file(filePath);
+    if (!file.is_open()) {
+        throw std::runtime_error("Cannot open file: " + filePath);
+    }
+    
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return Lexer(buffer.str(), config);
+}
+
+char Lexer::peek() const {
     if (isAtEnd()) return '\0';
     return sourceCode[position];
 }
 
+char Lexer::peekNext() const {
+    if (position + 1 >= sourceCode.length()) return '\0';
+    return sourceCode[position + 1];
+}
+
 char Lexer::advance() {
-    char current = sourceCode[position++];
-    if (current == '\n') {
+    char c = peek();
+    position++;
+    
+    if (c == '\n') {
         currentLine++;
         currentColumn = 1;
     } else {
         currentColumn++;
     }
-    return current;
-} */
-// 修改peek()方法来处理多种换行符
-char Lexer::peek() const
-{
-    if (isAtEnd()) return '\0';
-
-    // 当前字符
-    char current = sourceCode[position];
-
-    // 如果是回车符，并且下一个字符是换行符，只返回换行符
-    if (current == '\r' && position + 1 < sourceCode.length() && sourceCode[position + 1] == '\n')
-    {
-        return '\n';
-    }
-
-    // 将单独的回车符也视为换行符
-    if (current == '\r')
-    {
-        return '\n';
-    }
-
-    return current;
+    
+    return c;
 }
 
-// 修改advance()方法来正确处理换行符
-char Lexer::advance()
-{
-    char current = sourceCode[position++];
-
-    // 处理CRLF换行符
-    if (current == '\r' && !isAtEnd() && sourceCode[position] == '\n')
-    {
-        position++;  // 跳过LF部分
-        current = '\n';
-    }
-    else if (current == '\r')
-    {
-        // 将单独的CR视为换行符
-        current = '\n';
-    }
-
-    if (current == '\n')
-    {
-        currentLine++;
-        currentColumn = 1;
-    }
-    else
-    {
-        currentColumn++;
-    }
-    return current;
-}
-
-bool Lexer::match(char expected)
-{
-    if (isAtEnd() || sourceCode[position] != expected) return false;
-    position++;
-    currentColumn++;
+bool Lexer::match(char expected) {
+    if (isAtEnd() || peek() != expected) return false;
+    advance();
     return true;
 }
 
-void Lexer::skipWhitespace()
-{
-    while (!isAtEnd())
-    {
+bool Lexer::isAtEnd() const {
+    return position >= sourceCode.length();
+}
+
+void Lexer::skipWhitespace() {
+    while (!isAtEnd()) {
         char c = peek();
-        if (c == ' ' || c == '\r' || c == '\t')
-        {
+        if (c == ' ' || c == '\r' || c == '\t') {
             advance();
-        }
-        else
-        {
+        } else if (c == '#') {
+            skipComment();
+        } else {
             break;
         }
     }
 }
 
-void Lexer::skipComment()
-{
-    // 跳过注释直到行尾
-    while (peek() != '\n' && !isAtEnd())
-    {
+void Lexer::skipComment() {
+    // 注释一直持续到行尾
+    while (peek() != '\n' && !isAtEnd()) {
         advance();
     }
 }
 
-void Lexer::processIndentation()
-{
+int Lexer::calculateIndent() {
     int indent = 0;
-    while (peek() == ' ' || peek() == '\t')
-    {
-        if (peek() == ' ')
+    size_t pos = position;
+    
+    while (pos < sourceCode.length()) {
+        char c = sourceCode[pos++];
+        if (c == ' ') {
             indent++;
-        else if (peek() == '\t')
-            indent += 8;  // Tab算8个空格
+        } else if (c == '\t') {
+            indent += config.tabWidth;
+        } else {
+            break;
+        }
+    }
+    
+    return indent;
+}
+
+void Lexer::processIndentation() {
+    int indent = calculateIndent();
+    
+    if (indent > indentStack.back()) {
+        // 增加缩进级别
+        indentStack.push_back(indent);
+        tokens.emplace_back(TOK_INDENT, "", currentLine, currentColumn);
+    } else if (indent < indentStack.back()) {
+        // 减少缩进级别，可能需要多个 DEDENT token
+        while (!indentStack.empty() && indent < indentStack.back()) {
+            indentStack.pop_back();
+            tokens.emplace_back(TOK_DEDENT, "", currentLine, currentColumn);
+        }
+        
+        // 验证缩进一致性
+        if (config.strictIndentation && !indentStack.empty() && indent != indentStack.back()) {
+            error("Inconsistent indentation");
+        }
+    }
+    
+    // 跳过缩进空白
+    position += indent;
+    currentColumn += indent;
+}
+
+bool Lexer::isDigit(char c) const {
+    return c >= '0' && c <= '9';
+}
+
+bool Lexer::isAlpha(char c) const {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+
+bool Lexer::isAlphaNumeric(char c) const {
+    return isAlpha(c) || isDigit(c);
+}
+
+Token Lexer::errorToken(const std::string& message) {
+    return Token(TOK_ERROR, message, currentLine, currentColumn);
+}
+
+void Lexer::error(const std::string& message) const {
+    throw LexerError(message, currentLine, currentColumn);
+}
+
+Token Lexer::handleIdentifier() {
+    size_t start = position;
+    while (isAlphaNumeric(peek())) {
         advance();
     }
-
-    // 忽略空行或者只有注释的行
-    if (peek() == '\n' || peek() == '#')
-    {
-        return;
-    }
-
-    // 处理缩进变化
-    if (indent > indentStack.back())
-    {
-        indentStack.push_back(indent);
-        tokens.push_back(Token(TOK_INDENT, "", currentLine, currentColumn));
-    }
-    else if (indent < indentStack.back())
-    {
-        while (indent < indentStack.back())
-        {
-            indentStack.pop_back();
-            tokens.push_back(Token(TOK_DEDENT, "", currentLine, currentColumn));
-        }
-        if (indent != indentStack.back())
-        {
-            std::cerr << "Error: inconsistent indentation at line " << currentLine << std::endl;
-        }
-    }
-}
-
-
-
-
-
-Token Lexer::handleIdentifier()
-{
-    std::string identifier;
-    int startColumn = currentColumn;
-
-    while (isalnum(peek()) || peek() == '_')
-    {
-        identifier += advance();
-    }
-
+    
+    std::string identifier = sourceCode.substr(start, position - start);
+    
     // 检查是否是关键字
-    if (keywords.find(identifier) != keywords.end())
-    {
-        return Token(keywords[identifier], identifier, currentLine, startColumn);
+    if (TokenRegistry::isKeyword(identifier)) {
+        TokenType keywordType = TokenRegistry::getKeywordType(identifier);
+        return Token(keywordType, identifier, currentLine, currentColumn - identifier.length());
     }
-
-    return Token(TOK_IDENTIFIER, identifier, currentLine, startColumn);
+    
+    return Token(TOK_IDENTIFIER, identifier, currentLine, currentColumn - identifier.length());
 }
 
-Token Lexer::handleNumber()
-{
-    std::string numStr;
-    int startColumn = currentColumn;
+Token Lexer::handleNumber() {
+    size_t start = position;
     bool isFloat = false;
-
-    while (isdigit(peek()) || peek() == '.')
-    {
-        if (peek() == '.')
-        {
-            if (isFloat) break;  // 已经有一个小数点了
-            isFloat = true;
-        }
-        numStr += advance();
+    
+    // 整数部分
+    while (isDigit(peek())) {
+        advance();
     }
-
-    return Token(TOK_NUMBER, numStr, currentLine, startColumn);
+    
+    // 小数部分
+    if (peek() == '.' && isDigit(peekNext())) {
+        isFloat = true;
+        advance(); // 消费 '.'
+        
+        while (isDigit(peek())) {
+            advance();
+        }
+    }
+    
+    // 指数部分
+    if (peek() == 'e' || peek() == 'E') {
+        isFloat = true;
+        advance(); // 消费 'e' 或 'E'
+        
+        if (peek() == '+' || peek() == '-') {
+            advance(); // 消费符号
+        }
+        
+        if (!isDigit(peek())) {
+            return errorToken("Invalid exponential notation");
+        }
+        
+        while (isDigit(peek())) {
+            advance();
+        }
+    }
+    
+    std::string number = sourceCode.substr(start, position - start);
+    TokenType type = isFloat ? TOK_FLOAT : TOK_INTEGER;
+    
+    return Token(type, number, currentLine, currentColumn - number.length());
 }
 
-Token Lexer::handleString()
-{
-    std::string str;
-    int startColumn = currentColumn;
-
-    // 跳过开始的引号
-    advance();
-
-    while (peek() != '"' && !isAtEnd())
-    {
-        if (peek() == '\\')
-        {
-            advance();  // 跳过转义字符
-            switch (peek())
-            {
-                case 'n':
-                    str += '\n';
-                    break;
-                case 't':
-                    str += '\t';
-                    break;
-                case 'r':
-                    str += '\r';
-                    break;
-                case '\\':
-                    str += '\\';
-                    break;
-                case '"':
-                    str += '"';
-                    break;
-                default:
-                    str += peek();
+Token Lexer::handleString() {
+    char quote = peek();
+    advance(); // 消费开始引号
+    
+    size_t start = position;
+    while (!isAtEnd() && peek() != quote) {
+        if (peek() == '\\') {
+            advance(); // 跳过转义字符
+            if (isAtEnd()) {
+                return errorToken("Unterminated string");
             }
         }
-        else
-        {
-            str += peek();
-        }
         advance();
     }
-
-    if (isAtEnd())
-    {
-        std::cerr << "Error: unterminated string at line " << currentLine << std::endl;
-        return Token(TOK_STRING, str, currentLine, startColumn);
+    
+    if (isAtEnd()) {
+        return errorToken("Unterminated string");
     }
-
-    // 跳过结束的引号
-    advance();
-
-    return Token(TOK_STRING, str, currentLine, startColumn);
+    
+    std::string str = sourceCode.substr(start, position - start);
+    advance(); // 消费结束引号
+    
+    return Token(TOK_STRING, str, currentLine, currentColumn - str.length() - 2);
 }
 
-Token Lexer::scanToken()
-{
-    skipWhitespace();
+Token Lexer::handleOperator() {
+    char c = peek();
+    
+    // 检查是否可能是复合操作符的开始
+    if (TokenRegistry::isCompoundOperatorStart(c)) {
+        // 尝试识别复合操作符
+        for (int len = 3; len >= 2; len--) { // 当前支持最多3字符的复合操作符
+            if (position + len <= sourceCode.length()) {
+                std::string op = sourceCode.substr(position, len);
+                TokenType type = TokenRegistry::getCompoundOperatorType(op);
+                if (type != TOK_ERROR) {
+                    // 找到匹配的复合操作符
+                    for (int i = 0; i < len; i++) {
+                        advance();
+                    }
+                    return Token(type, op, currentLine, currentColumn - len);
+                }
+            }
+        }
+    }
+    
+    // 单字符操作符
+    TokenType type = TokenRegistry::getSimpleOperatorType(c);
+    if (type != TOK_ERROR) {
+        advance();
+        return Token(type, std::string(1, c), currentLine, currentColumn - 1);
+    }
+    
+    // 未识别的操作符
+    advance();
+    return errorToken("Unexpected character");
+}
 
-    if (isAtEnd())
-    {
+Token Lexer::scanToken() {
+    skipWhitespace();
+    
+    if (isAtEnd()) {
         return Token(TOK_EOF, "", currentLine, currentColumn);
     }
-
+    
     char c = peek();
-    int startColumn = currentColumn;
-
-    // 处理新行和缩进
-    if (c == '\n')
-    {
+    
+    // 处理换行
+    if (c == '\n') {
         advance();
-        int newlineLineNum = currentLine - 1;
-        int newlineColNum = startColumn;
-
-        // 处理连续的空行
-        while (peek() == '\n')
-        {
-            advance();
-        }
-
-        // 先检查行是否为空或只包含注释
-        int tempPos = position;
-        int tempIndent = 0;
-
-        // 计算缩进
-        while (position < sourceCode.length() && (sourceCode[position] == ' ' || sourceCode[position] == '\t'))
-        {
-            if (sourceCode[position] == ' ')
-                tempIndent++;
-            else if (sourceCode[position] == '\t')
-                tempIndent += 8;
-            position++;
-        }
-
-        // 检查是否是空行或注释行
-        bool emptyOrCommentLine = position >= sourceCode.length() || sourceCode[position] == '\n' || sourceCode[position] == '#';
-
-        // 重置位置
-        position = tempPos;
-
-        // 先添加NEWLINE标记
-        tokens.push_back(Token(TOK_NEWLINE, "\n", newlineLineNum, newlineColNum));
-
-        // 如果不是空行或注释行，处理缩进
-        if (!emptyOrCommentLine)
-            processIndentation();
-
-        // 返回下一个token
-        return scanToken();
+        return Token(TOK_NEWLINE, "\n", currentLine - 1, currentColumn);
     }
-
-    // 处理注释
-    if (c == '#')
-    {
-        skipComment();
-        return scanToken();
-    }
-
-    // 处理标识符和关键字
-    if (isalpha(c) || c == '_')
-    {
+    
+    // 处理标识符
+    if (isAlpha(c)) {
         return handleIdentifier();
     }
-
+    
     // 处理数字
-    if (isdigit(c))
-    {
+    if (isDigit(c)) {
         return handleNumber();
     }
-
+    
     // 处理字符串
-    if (c == '"')
-    {
+    if (c == '"' || c == '\'') {
         return handleString();
     }
-
+    
     // 处理操作符和分隔符
-    advance();  // 消费当前字符
-    switch (c)
-    {
-        case '(':
-            return Token(TOK_LPAREN, "(", currentLine, startColumn);
-        case ')':
-            return Token(TOK_RPAREN, ")", currentLine, startColumn);
-        case ':':
-            return Token(TOK_COLON, ":", currentLine, startColumn);
-        case ',':
-            return Token(TOK_COMMA, ",", currentLine, startColumn);
-        case '+':
-            return Token(TOK_PLUS, "+", currentLine, startColumn);
-        case '-':
-            return Token(TOK_MINUS, "-", currentLine, startColumn);
-        case '*':
-            return Token(TOK_MUL, "*", currentLine, startColumn);
-        case '/':
-            return Token(TOK_DIV, "/", currentLine, startColumn);
-        case '<':
-            if (match('=')) return Token(TOK_LE, "<=", currentLine, startColumn);
-            return Token(TOK_LT, "<", currentLine, startColumn);
-        case '>':
-            if (match('=')) return Token(TOK_GE, ">=", currentLine, startColumn);
-            return Token(TOK_GT, ">", currentLine, startColumn);
-        case '=':
-            if (match('=')) return Token(TOK_EQ, "==", currentLine, startColumn);
-            return Token(TOK_ASSIGN, "=", currentLine, startColumn);
-        case '!':
-            if (match('=')) return Token(TOK_NEQ, "!=", currentLine, startColumn);
-            break;
-    }
-
-    std::cerr << "Error: unknown character '" << c << "' at line " << currentLine << ", column " << startColumn << std::endl;
-    return scanToken();  // 跳过未知字符，继续扫描
+    return handleOperator();
 }
 
-Token Lexer::getNextToken()
-{
-    if (tokenIndex < tokens.size())
-    {
+void Lexer::tokenizeSource() {
+    bool atLineStart = true;
+    
+    while (!isAtEnd()) {
+        // 处理行首的缩进
+        if (atLineStart && peek() != '\n') {
+            processIndentation();
+            atLineStart = false;
+        }
+        
+        // 扫描token
+        Token token = scanToken();
+        tokens.push_back(token);
+        
+        // 检查是否需要在行尾添加NEWLINE
+        if (token.type == TOK_NEWLINE) {
+            atLineStart = true;
+        } else if (token.type == TOK_EOF) {
+            // 文件结束时确保所有缩进级别都正确关闭
+            while (indentStack.size() > 1) {
+                indentStack.pop_back();
+                tokens.emplace_back(TOK_DEDENT, "", currentLine, currentColumn);
+            }
+            break;
+        }
+    }
+    
+    // 确保最后一个token是EOF
+    if (tokens.empty() || tokens.back().type != TOK_EOF) {
+        tokens.emplace_back(TOK_EOF, "", currentLine, currentColumn);
+    }
+}
+
+Token Lexer::getNextToken() {
+    if (tokenIndex < tokens.size()) {
         return tokens[tokenIndex++];
     }
     return Token(TOK_EOF, "", currentLine, currentColumn);
 }
 
-Token Lexer::peekToken()
-{
-    if (tokenIndex < tokens.size())
-    {
+Token Lexer::peekToken() const {
+    if (tokenIndex < tokens.size()) {
         return tokens[tokenIndex];
     }
     return Token(TOK_EOF, "", currentLine, currentColumn);
 }
-Token Lexer::peekTokenAt(size_t index) const
-{
-    if (index < tokens.size())
-    {
-        return tokens[index];
+
+Token Lexer::peekTokenAt(size_t offset) const {
+    if (tokenIndex + offset < tokens.size()) {
+        return tokens[tokenIndex + offset];
     }
     return Token(TOK_EOF, "", currentLine, currentColumn);
 }
 
-bool Lexer::isAtEnd() const
-{
-    return position >= sourceCode.length();
-}
-
-std::string Lexer::getTokenName(TokenType type) const
-{
-    switch (type)
-    {
-        case TOK_EOF:
-            return "EOF";
-        case TOK_NEWLINE:
-            return "NEWLINE";
-        case TOK_INDENT:
-            return "INDENT";
-        case TOK_DEDENT:
-            return "DEDENT";
-        case TOK_DEF:
-            return "DEF";
-        case TOK_IF:
-            return "IF";
-        case TOK_ELSE:
-            return "ELSE";
-        case TOK_ELIF:
-            return "ELIF";
-        case TOK_RETURN:
-            return "RETURN";
-        case TOK_WHILE:
-            return "WHILE";
-        case TOK_FOR:
-            return "FOR";
-        case TOK_IN:
-            return "IN";
-        case TOK_PRINT:
-            return "PRINT";
-        case TOK_LPAREN:
-            return "(";
-        case TOK_RPAREN:
-            return ")";
-        case TOK_COLON:
-            return ":";
-        case TOK_COMMA:
-            return ",";
-        case TOK_PLUS:
-            return "+";
-        case TOK_MINUS:
-            return "-";
-        case TOK_MUL:
-            return "*";
-        case TOK_DIV:
-            return "/";
-        case TOK_LT:
-            return "<";
-        case TOK_GT:
-            return ">";
-        case TOK_LE:
-            return "<=";
-        case TOK_GE:
-            return ">=";
-        case TOK_EQ:
-            return "==";
-        case TOK_NEQ:
-            return "!=";
-        case TOK_ASSIGN:
-            return "=";
-        case TOK_IDENTIFIER:
-            return "IDENTIFIER";
-        case TOK_NUMBER:
-            return "NUMBER";
-        case TOK_STRING:
-            return "STRING";
-        default:
-            return "UNKNOWN";
-    }
-}
-
-
-
-// 判断是否是关键字（可以添加在类实现内部）
-bool isKeyword(TokenType type)
-{
-    return (type == TOK_DEF || type == TOK_IF || type == TOK_ELSE || type == TOK_ELIF ||
-            type == TOK_RETURN || type == TOK_WHILE || type == TOK_FOR || type == TOK_IN ||
-            type == TOK_PRINT);
-}
-// 判断两个token之间是否需要空格（可以添加在类实现内部）
-bool needsSpaceBetween(TokenType curr, TokenType next)
-{
-    // 这些token后通常不需要空格
-    if (curr == TOK_LPAREN || curr == TOK_COLON)
-    {
-        return false;
-    }
-    
-    // 这些token前通常不需要空格
-    if (next == TOK_RPAREN || next == TOK_COMMA || next == TOK_COLON ||
-        next == TOK_NEWLINE || next == TOK_EOF)
-    {
-        return false;
-    }
-    
-    // 操作符前后通常需要空格
-    if ((curr == TOK_PLUS || curr == TOK_MINUS || curr == TOK_MUL || curr == TOK_DIV ||
-         curr == TOK_LT || curr == TOK_GT || curr == TOK_LE || curr == TOK_GE ||
-         curr == TOK_EQ || curr == TOK_NEQ || curr == TOK_ASSIGN) ||
-        (next == TOK_PLUS || next == TOK_MINUS || next == TOK_MUL || next == TOK_DIV ||
-         next == TOK_LT || next == TOK_GT || next == TOK_LE || next == TOK_GE ||
-         next == TOK_EQ || next == TOK_NEQ || next == TOK_ASSIGN))
-    {
-        return true;
-    }
-    
-    // 关键字前后通常需要空格
-    if (isKeyword(curr) || isKeyword(next))
-    {
-        return true;
-    }
-    
-    // 默认情况下返回true，确保标识符之间有空格
-    return true;
-}
-void Lexer::recoverSourceFromTokens() const
-{
-    std::ofstream outFile("Token_recovery.py");
-    if (!outFile.is_open())
-    {
-        std::cerr << "错误: 无法打开 Token_recovery.py 进行写入" << std::endl;
+void Lexer::recoverSourceFromTokens(const std::string& filename) const {
+#ifdef RECOVER_SOURCE_FROM_TOKENS
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file for writing: " << filename << std::endl;
         return;
     }
     
     int currentIndent = 0;
-    bool needIndent = true;
+    bool atLineStart = true;
     
-    size_t idx = 0;
-    Token tok = peekTokenAt(idx++);
-    
-    while (tok.type != TOK_EOF)
-    {
-        switch (tok.type)
-        {
+    for (size_t i = 0; i < tokens.size(); i++) {
+        const Token& token = tokens[i];
+        
+        switch (token.type) {
             case TOK_INDENT:
-                currentIndent += 4;  // 使用4个空格表示一个缩进级别
+                currentIndent += 4; // 使用4个空格作为缩进
                 break;
                 
             case TOK_DEDENT:
-                currentIndent -= 4;
-                if (currentIndent < 0) currentIndent = 0;
+                currentIndent = std::max(0, currentIndent - 4);
                 break;
                 
             case TOK_NEWLINE:
-                outFile << "\n";
-                needIndent = true;
+                file << "\n";
+                atLineStart = true;
                 break;
                 
-            case TOK_STRING:
-                if (needIndent)
-                {
-                    outFile << std::string(currentIndent, ' ');
-                    needIndent = false;
-                }
-                outFile << "\"" << tok.value << "\"";
+            case TOK_EOF:
+                // 忽略EOF
                 break;
                 
             default:
-                if (needIndent)
-                {
-                    outFile << std::string(currentIndent, ' ');
-                    needIndent = false;
+                if (atLineStart) {
+                    // 添加缩进
+                    file << std::string(currentIndent, ' ');
+                    atLineStart = false;
+                } else if (i > 0 && TokenRegistry::needsSpaceBetween(tokens[i-1].type, token.type)) {
+                    file << " ";
                 }
                 
-                // 根据token类型输出值
-                outFile << tok.value;
-                
-                // 在某些token后添加空格
-                if (idx < tokens.size())
-                {
-                    Token nextTok = peekTokenAt(idx);
-                    // 判断是否需要在当前token和下一个token之间添加空格
-                    if (needsSpaceBetween(tok.type, nextTok.type))
-                    {
-                        outFile << " ";
-                    }
-                }
+                // 写入token的值
+                file << token.value;
                 break;
         }
-        
-        tok = peekTokenAt(idx++);
     }
     
-    outFile.close();
-    std::cout << "源代码已恢复至 Token_recovery.py" << std::endl;
+    file.close();
+    std::cout << "Source code recovered to: " << filename << std::endl;
+#else
+    std::cerr << "Source recovery disabled. Define RECOVER_SOURCE_FROM_TOKENS to enable." << std::endl;
+#endif
 }
 
-
-
-
-}  // namespace llvmpy
+} // namespace llvmpy

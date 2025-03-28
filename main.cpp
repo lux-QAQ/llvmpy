@@ -97,7 +97,7 @@ int main(int argc, char** argv)
     CodeGen codegen;
     codegen.generateModule(module.get());
 
-    // 优化LLVM IR (可选)
+/*     // 优化LLVM IR (可选)
     llvm::legacy::FunctionPassManager passManager(codegen.getModule());
 
     // 添加基本优化
@@ -112,7 +112,7 @@ int main(int argc, char** argv)
     for (auto& F : *codegen.getModule())
     {
         passManager.run(F);
-    }
+    } */
 
     // 将LLVM IR输出到文件
     std::error_code EC;

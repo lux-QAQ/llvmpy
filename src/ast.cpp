@@ -3,6 +3,10 @@
 
 namespace llvmpy {
 
+
+
+
+
 // NumberExprAST实现
 void NumberExprAST::accept(CodeGen& codegen) {
     codegen.visit(this);
@@ -88,4 +92,57 @@ void ModuleAST::accept(CodeGen& codegen) {
 void WhileStmtAST::accept(CodeGen& codegen) {
     codegen.visit(this);
 }
+
+// ListExprAST实现
+void ListExprAST::accept(CodeGen& codegen) {
+    codegen.visit(this);
+}
+
+std::shared_ptr<Type> ListExprAST::getType() const {
+    // 列表类型，实际上应该是一个复合类型
+    // 但我们目前使用指针类型表示
+    return Type::getString(); // 使用String类型表示指针
+}
+
+// IndexExprAST实现
+void IndexExprAST::accept(CodeGen& codegen) {
+    codegen.visit(this);
+}
+// IndexAssignStmtAST实现
+void IndexAssignStmtAST::accept(CodeGen& codegen) {
+    codegen.visit(this);
+}
+std::shared_ptr<Type> IndexExprAST::getType() const {
+    // 索引操作返回的元素类型
+    // 目前简化为Double
+    return Type::getDouble();
+}
+
+// 添加新类型的accept方法实现 TODO
+// PassStmtAST实现
+void PassStmtAST::accept(CodeGen& codegen) {
+    // 空操作，不做任何事
+    // 实际应该是: codegen.visit(this);
+}
+
+// ImportStmtAST实现
+void ImportStmtAST::accept(CodeGen& codegen) {
+    // codegen.visit(this);
+}
+
+// ClassStmtAST实现
+void ClassStmtAST::accept(CodeGen& codegen) {
+    // codegen.visit(this);
+}
+
+// UnaryExprAST实现
+void UnaryExprAST::accept(CodeGen& codegen) {
+    // codegen.visit(this);
+}
+
+std::shared_ptr<Type> UnaryExprAST::getType() const {
+    // 简化处理，返回与操作数相同的类型
+    return operand->getType();
+}
+
 } // namespace llvmpy

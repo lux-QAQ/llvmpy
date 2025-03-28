@@ -1,62 +1,48 @@
 ; ModuleID = 'llvmpy'
 source_filename = "llvmpy"
 
-@fmt_double = private unnamed_addr constant [4 x i8] c"%f\0A\00", align 1
-
-define double @f(double %x) {
-entry:
-  %multmp = fmul double %x, 2.000000e+00
-  %multmp4 = fmul double %x, %multmp
-  %addtmp = fadd double %x, %multmp4
-  ret double %addtmp
-}
-
-define double @find() {
-entry:
-  %mid = alloca double, align 8
-  %r = alloca double, align 8
-  %l = alloca double, align 8
-  store double -1.000000e+01, ptr %l, align 8
-  store double 0.000000e+00, ptr %r, align 8
-  br label %while.cond
-
-while.cond:                                       ; preds = %ifcont, %entry
-  %l4 = phi double [ %l419, %ifcont ], [ -1.000000e+01, %entry ]
-  %r3 = phi double [ %r317, %ifcont ], [ 0.000000e+00, %entry ]
-  %subtmp = fsub double %r3, %l4
-  %cmptmp = fcmp ugt double %subtmp, 1.000000e-05
-  br i1 %cmptmp, label %while.body, label %while.end
-
-while.body:                                       ; preds = %while.cond
-  %divtmp = fmul double %subtmp, 5.000000e-01
-  %addtmp = fadd double %l4, %divtmp
-  store double %addtmp, ptr %mid, align 8
-  %calltmp = call double @f(double %addtmp)
-  %cmptmp8 = fcmp ugt double %calltmp, 0.000000e+00
-  br i1 %cmptmp8, label %then, label %else
-
-then:                                             ; preds = %while.body
-  store double %addtmp, ptr %l, align 8
-  br label %ifcont
-
-else:                                             ; preds = %while.body
-  store double %addtmp, ptr %r, align 8
-  br label %ifcont
-
-ifcont:                                           ; preds = %else, %then
-  %l419 = phi double [ %l4, %else ], [ %addtmp, %then ]
-  %r317 = phi double [ %addtmp, %else ], [ %r3, %then ]
-  br label %while.cond
-
-while.end:                                        ; preds = %while.cond
-  ret double %l4
-}
+@str = private unnamed_addr constant [37 x i8] c"IndexError: list index out of range\0A\00", align 1
+@str.1 = private unnamed_addr constant [4 x i8] c"%f\0A\00", align 1
 
 define i32 @main() {
 entry:
-  %calltmp = call double @find()
-  %0 = call i32 (ptr, ...) @printf(ptr nonnull @fmt_double, double %calltmp)
+  %a = alloca ptr, align 8
+  %list = alloca { i32, ptr }, align 8
+  %length_ptr = getelementptr inbounds nuw { i32, ptr }, ptr %list, i32 0, i32 0
+  store i32 2, ptr %length_ptr, align 4
+  %list_data = call ptr @malloc(i32 16)
+  %data_ptr_ptr = getelementptr inbounds nuw { i32, ptr }, ptr %list, i32 0, i32 1
+  store ptr %list_data, ptr %data_ptr_ptr, align 8
+  %elem_ptr_0 = getelementptr double, ptr %list_data, i32 0
+  store double 1.000000e+00, ptr %elem_ptr_0, align 8
+  %elem_ptr_1 = getelementptr double, ptr %list_data, i32 1
+  store double 2.000000e+00, ptr %elem_ptr_1, align 8
+  store ptr %list, ptr %a, align 8
+  %a1 = load double, ptr %a, align 8
+  %a_ptr = load ptr, ptr %a, align 8
+  br label %bounds_check
+
+bounds_check:                                     ; preds = %entry
+  %length_ptr2 = getelementptr inbounds nuw { i32, ptr }, ptr %a_ptr, i32 0, i32 0
+  %length = load i32, ptr %length_ptr2, align 4
+  %is_too_large = icmp sge i32 0, %length
+  %is_out_of_bounds = or i1 false, %is_too_large
+  br i1 %is_out_of_bounds, label %out_of_bounds, label %in_bounds
+
+in_bounds:                                        ; preds = %out_of_bounds, %bounds_check
+  %safe_index = phi i32 [ 0, %out_of_bounds ], [ 0, %bounds_check ]
+  %data_ptr_ptr3 = getelementptr inbounds nuw { i32, ptr }, ptr %a_ptr, i32 0, i32 1
+  %data_ptr = load ptr, ptr %data_ptr_ptr3, align 8
+  %a_elem_ptr = getelementptr double, ptr %data_ptr, i32 %safe_index
+  %elem_value = load double, ptr %a_elem_ptr, align 8
+  %0 = call i32 (ptr, ...) @printf(ptr @str.1, double %elem_value)
   ret i32 0
+
+out_of_bounds:                                    ; preds = %bounds_check
+  %1 = call i32 (ptr, ...) @printf(ptr @str)
+  br label %in_bounds
 }
+
+declare ptr @malloc(i32)
 
 declare i32 @printf(ptr, ...)
