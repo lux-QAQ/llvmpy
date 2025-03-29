@@ -1,3 +1,6 @@
-a=[1,2]
-a[0]=3
-print(a[0])
+def ff(b):
+    return b + 1
+def main():
+    a=ff(1)
+    print(a)
+    return 0

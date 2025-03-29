@@ -13,7 +13,7 @@
 namespace llvmpy {
 
 // 明确的Token类型分类，便于扩展
-enum TokenType {
+enum PyTokenType {
     // 基础标记 (-1 到 -9)
     TOK_EOF = -1,      // 文件结束
     TOK_NEWLINE = -2,  // 换行
@@ -94,54 +94,108 @@ enum TokenType {
 };
 
 // Token 结构
-struct Token {
-    TokenType type;
+struct PyToken {
+    PyTokenType type;
     std::string value;
     int line;
     int column;
 
-    Token(TokenType t, const std::string& v, int l, int c)
+    PyToken(PyTokenType t, const std::string& v, int l, int c)
         : type(t), value(v), line(l), column(c) {}
     
     // 默认构造函数
-    Token() : type(TOK_ERROR), value(""), line(0), column(0) {}
+    PyToken() : type(TOK_ERROR), value(""), line(0), column(0) {}
     
     // 用于调试的友好字符串表示
     std::string toString() const;
 };
 
-// Token注册和管理类
-class TokenRegistry {
+// 通用注册表模板 - 与Parser使用相同设计
+template<typename KeyType, typename ValueType>
+class PyRegistry {
 private:
-    static std::unordered_map<std::string, TokenType> keywordMap;
-    static std::unordered_map<TokenType, std::string> tokenNames;
-    static std::unordered_map<char, TokenType> simpleOperators;
-    static std::unordered_map<std::string, TokenType> compoundOperators;
+    std::unordered_map<KeyType, ValueType> items;
+
+public:
+    // 注册项
+    void registerItem(const KeyType& key, ValueType value) {
+        items[key] = std::move(value);
+    }
+
+    // 检查是否存在
+    bool hasItem(const KeyType& key) const {
+        return items.find(key) != items.end();
+    }
+
+    // 获取项
+    ValueType getItem(const KeyType& key) const {
+        auto it = items.find(key);
+        if (it != items.end()) {
+            return it->second;
+        }
+        // 返回默认值
+        return ValueType();
+    }
+    
+    // 获取所有项
+    const std::unordered_map<KeyType, ValueType>& getAllItems() const {
+        return items;
+    }
+    
+    // 清空注册表
+    void clear() {
+        items.clear();
+    }
+};
+
+// Token处理器类型
+using PyTokenHandlerFunc = std::function<PyToken(class PyLexer&)>;
+
+// Token注册和管理类
+class PyTokenRegistry {
+private:
+    // 各种Token类型的注册表
+    static PyRegistry<std::string, PyTokenType> keywordRegistry;
+    static PyRegistry<PyTokenType, std::string> tokenNameRegistry;
+    static PyRegistry<char, PyTokenType> simpleOperatorRegistry;
+    static PyRegistry<std::string, PyTokenType> compoundOperatorRegistry;
+    
+    // Token处理器注册表
+    static PyRegistry<PyTokenType, PyTokenHandlerFunc> tokenHandlerRegistry;
+    
+    // 已初始化标志
+    static bool isInitialized;
 
 public:
     // 初始化注册表
     static void initialize();
     
     // 注册一个关键字
-    static void registerKeyword(const std::string& keyword, TokenType type);
+    static void registerKeyword(const std::string& keyword, PyTokenType type);
     
     // 注册一个简单操作符
-    static void registerSimpleOperator(char op, TokenType type);
+    static void registerSimpleOperator(char op, PyTokenType type);
     
     // 注册一个复合操作符
-    static void registerCompoundOperator(const std::string& op, TokenType type);
+    static void registerCompoundOperator(const std::string& op, PyTokenType type);
+    
+    // 注册一个Token处理器
+    static void registerTokenHandler(PyTokenType type, PyTokenHandlerFunc handler);
     
     // 获取关键字对应的TokenType
-    static TokenType getKeywordType(const std::string& keyword);
+    static PyTokenType getKeywordType(const std::string& keyword);
     
     // 获取简单操作符对应的TokenType
-    static TokenType getSimpleOperatorType(char op);
+    static PyTokenType getSimpleOperatorType(char op);
     
     // 获取复合操作符对应的TokenType
-    static TokenType getCompoundOperatorType(const std::string& op);
+    static PyTokenType getCompoundOperatorType(const std::string& op);
     
     // 获取TokenType对应的名称
-    static std::string getTokenName(TokenType type);
+    static std::string getTokenName(PyTokenType type);
+    
+    // 获取Token处理器
+    static PyTokenHandlerFunc getTokenHandler(PyTokenType type);
     
     // 检查是否是关键字
     static bool isKeyword(const std::string& word);
@@ -153,32 +207,31 @@ public:
     static bool isCompoundOperatorStart(char c);
     
     // 获取所有关键字映射
-    static const std::unordered_map<std::string, TokenType>& getKeywords() {
-        return keywordMap;
-    }
+    static const std::unordered_map<std::string, PyTokenType>& getKeywords();
     
     // 判断两个token之间是否需要空格
-    static bool needsSpaceBetween(TokenType curr, TokenType next);
+    static bool needsSpaceBetween(PyTokenType curr, PyTokenType next);
 };
 
 // 词法分析器配置
-struct LexerConfig {
+struct PyLexerConfig {
     int tabWidth = 4;                // Tab宽度
     bool useTabsForIndent = false;   // 是否使用Tab作为缩进
     bool strictIndentation = true;   // 是否强制检查一致的缩进
     bool ignoreComments = true;      // 是否忽略注释
+    bool supportTypeAnnotations = true; // 是否支持类型注解
     
-    LexerConfig() = default;
+    PyLexerConfig() = default;
 };
 
 // 词法分析器错误
-class LexerError : public std::runtime_error {
+class PyLexerError : public std::runtime_error {
 private:
     int line;
     int column;
     
 public:
-    LexerError(const std::string& message, int line, int column)
+    PyLexerError(const std::string& message, int line, int column)
         : std::runtime_error(message), line(line), column(column) {}
     
     int getLine() const { return line; }
@@ -187,8 +240,19 @@ public:
     std::string formatError() const;
 };
 
+// 词法分析器状态 - 用于保存和恢复状态
+struct PyLexerState {
+    size_t position;
+    int line;
+    int column;
+    size_t tokenIndex;
+    
+    PyLexerState(size_t pos = 0, int l = 1, int c = 1, size_t idx = 0)
+        : position(pos), line(l), column(c), tokenIndex(idx) {}
+};
+
 // 词法分析器类
-class Lexer {
+class PyLexer {
 private:
     std::string sourceCode;          // 源代码
     size_t position;                 // 当前位置
@@ -196,9 +260,9 @@ private:
     int currentColumn;               // 当前列号
     int currentIndent;               // 当前缩进级别
     std::vector<int> indentStack;    // 缩进栈
-    std::vector<Token> tokens;       // 已处理的tokens
+    std::vector<PyToken> tokens;     // 已处理的tokens
     size_t tokenIndex;               // 当前读取的token索引
-    LexerConfig config;              // 配置
+    PyLexerConfig config;            // 配置
 
     // 字符处理
     char peek() const;               // 查看当前字符
@@ -213,12 +277,7 @@ private:
     void processIndentation();       // 处理缩进/取消缩进
     int calculateIndent();           // 计算当前行的缩进级别
     
-    // Token扫描
-    Token scanToken();               // 扫描单个token
-    Token handleIdentifier();        // 处理标识符或关键字
-    Token handleNumber();            // 处理数字
-    Token handleString();            // 处理字符串
-    Token handleOperator();          // 处理操作符
+
     
     // 辅助方法
     bool isDigit(char c) const;      // 是否是数字
@@ -227,19 +286,30 @@ private:
     void tokenizeSource();           // 将整个源码标记化
     
     // 错误处理
-    Token errorToken(const std::string& message);
+    PyToken errorToken(const std::string& message);
 
 public:
     // 构造函数
-    explicit Lexer(const std::string& source, const LexerConfig& config = LexerConfig());
+    explicit PyLexer(const std::string& source, const PyLexerConfig& config = PyLexerConfig());
     
     // 从文件构造
-    static Lexer fromFile(const std::string& filePath, const LexerConfig& config = LexerConfig());
-    
+    static PyLexer fromFile(const std::string& filePath, const PyLexerConfig& config = PyLexerConfig());
+        // Token扫描
+        PyToken scanToken();             // 扫描单个token
+        PyToken handleIdentifier();      // 处理标识符或关键字
+        PyToken handleNumber();          // 处理数字
+        PyToken handleString();          // 处理字符串
+        PyToken handleOperator();        // 处理操作符
     // Token访问
-    Token getNextToken();            // 获取下一个token
-    Token peekToken() const;         // 查看当前token
-    Token peekTokenAt(size_t offset) const; // 查看偏移位置的token
+    PyToken getNextToken();            // 获取下一个token
+    PyToken peekToken() const;         // 查看当前token
+    PyToken peekTokenAt(size_t offset) const; // 查看偏移位置的token
+    
+    // 状态管理
+    PyLexerState saveState() const;    // 保存当前状态
+    void restoreState(const PyLexerState& state); // 恢复状态
+    size_t peekPosition() const { return position; } // 获取当前位置
+    void resetPosition(size_t pos);   // 重置位置
     
     // 错误处理
     [[noreturn]] void error(const std::string& message) const;
@@ -248,8 +318,24 @@ public:
     void recoverSourceFromTokens(const std::string& filename = "recovered_source.py") const;
     
     // 调试辅助
-    const std::vector<Token>& getAllTokens() const { return tokens; }
-    std::string getTokenName(TokenType type) const { return TokenRegistry::getTokenName(type); }
+    const std::vector<PyToken>& getAllTokens() const { return tokens; }
+    std::string getTokenName(PyTokenType type) const { return PyTokenRegistry::getTokenName(type); }
+    
+    // 类型注解支持
+    bool hasTypeAnnotation(size_t tokenPos) const;
+    std::pair<size_t, std::string> extractTypeAnnotation(size_t startPos) const;
+};
+
+// 位置信息 - 用于错误报告和调试
+struct PySourceLocation {
+    int line;
+    int column;
+    
+    PySourceLocation(int l = 0, int c = 0) : line(l), column(c) {}
+    
+    std::string toString() const {
+        return "line " + std::to_string(line) + ", column " + std::to_string(column);
+    }
 };
 
 } // namespace llvmpy

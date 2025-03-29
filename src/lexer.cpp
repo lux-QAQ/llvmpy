@@ -9,27 +9,31 @@
 namespace llvmpy {
 
 //===----------------------------------------------------------------------===//
-// Token 方法实现
+// PyToken 方法实现
 //===----------------------------------------------------------------------===//
 
-std::string Token::toString() const {
-    std::string typeName = TokenRegistry::getTokenName(type);
+std::string PyToken::toString() const {
+    std::string typeName = PyTokenRegistry::getTokenName(type);
     std::stringstream ss;
-    ss << "Token(" << typeName << ", \"" << value << "\", line=" 
+    ss << "PyToken(" << typeName << ", \"" << value << "\", line=" 
        << line << ", col=" << column << ")";
     return ss.str();
 }
 
 //===----------------------------------------------------------------------===//
-// TokenRegistry 静态成员定义
+// PyTokenRegistry 静态成员初始化
 //===----------------------------------------------------------------------===//
 
-std::unordered_map<std::string, TokenType> TokenRegistry::keywordMap;
-std::unordered_map<TokenType, std::string> TokenRegistry::tokenNames;
-std::unordered_map<char, TokenType> TokenRegistry::simpleOperators;
-std::unordered_map<std::string, TokenType> TokenRegistry::compoundOperators;
+PyRegistry<std::string, PyTokenType> PyTokenRegistry::keywordRegistry;
+PyRegistry<PyTokenType, std::string> PyTokenRegistry::tokenNameRegistry;
+PyRegistry<char, PyTokenType> PyTokenRegistry::simpleOperatorRegistry;
+PyRegistry<std::string, PyTokenType> PyTokenRegistry::compoundOperatorRegistry;
+PyRegistry<PyTokenType, PyTokenHandlerFunc> PyTokenRegistry::tokenHandlerRegistry;
+bool PyTokenRegistry::isInitialized = false;
 
-void TokenRegistry::initialize() {
+void PyTokenRegistry::initialize() {
+    if (isInitialized) return;
+    
     // 注册关键字
     registerKeyword("def", TOK_DEF);
     registerKeyword("if", TOK_IF);
@@ -95,127 +99,163 @@ void TokenRegistry::initialize() {
     registerCompoundOperator("->", TOK_ARROW);
     
     // 注册token名称
-    tokenNames[TOK_EOF] = "EOF";
-    tokenNames[TOK_NEWLINE] = "NEWLINE";
-    tokenNames[TOK_INDENT] = "INDENT";
-    tokenNames[TOK_DEDENT] = "DEDENT";
-    tokenNames[TOK_ERROR] = "ERROR";
+    tokenNameRegistry.registerItem(TOK_EOF, "EOF");
+    tokenNameRegistry.registerItem(TOK_NEWLINE, "NEWLINE");
+    tokenNameRegistry.registerItem(TOK_INDENT, "INDENT");
+    tokenNameRegistry.registerItem(TOK_DEDENT, "DEDENT");
+    tokenNameRegistry.registerItem(TOK_ERROR, "ERROR");
     
     // 关键字名称
-    tokenNames[TOK_DEF] = "DEF";
-    tokenNames[TOK_IF] = "IF";
-    tokenNames[TOK_ELSE] = "ELSE";
-    tokenNames[TOK_ELIF] = "ELIF";
-    tokenNames[TOK_RETURN] = "RETURN";
-    tokenNames[TOK_WHILE] = "WHILE";
-    tokenNames[TOK_FOR] = "FOR";
-    tokenNames[TOK_IN] = "IN";
-    tokenNames[TOK_PRINT] = "PRINT";
-    tokenNames[TOK_IMPORT] = "IMPORT";
-    tokenNames[TOK_CLASS] = "CLASS";
-    tokenNames[TOK_PASS] = "PASS";
-    tokenNames[TOK_BREAK] = "BREAK";
-    tokenNames[TOK_CONTINUE] = "CONTINUE";
-    tokenNames[TOK_LAMBDA] = "LAMBDA";
-    tokenNames[TOK_TRY] = "TRY";
-    tokenNames[TOK_EXCEPT] = "EXCEPT";
-    tokenNames[TOK_FINALLY] = "FINALLY";
-    tokenNames[TOK_WITH] = "WITH";
-    tokenNames[TOK_AS] = "AS";
-    tokenNames[TOK_ASSERT] = "ASSERT";
-    tokenNames[TOK_FROM] = "FROM";
-    tokenNames[TOK_GLOBAL] = "GLOBAL";
-    tokenNames[TOK_NONLOCAL] = "NONLOCAL";
-    tokenNames[TOK_RAISE] = "RAISE";
+    tokenNameRegistry.registerItem(TOK_DEF, "DEF");
+    tokenNameRegistry.registerItem(TOK_IF, "IF");
+    tokenNameRegistry.registerItem(TOK_ELSE, "ELSE");
+    tokenNameRegistry.registerItem(TOK_ELIF, "ELIF");
+    tokenNameRegistry.registerItem(TOK_RETURN, "RETURN");
+    tokenNameRegistry.registerItem(TOK_WHILE, "WHILE");
+    tokenNameRegistry.registerItem(TOK_FOR, "FOR");
+    tokenNameRegistry.registerItem(TOK_IN, "IN");
+    tokenNameRegistry.registerItem(TOK_PRINT, "PRINT");
+    tokenNameRegistry.registerItem(TOK_IMPORT, "IMPORT");
+    tokenNameRegistry.registerItem(TOK_CLASS, "CLASS");
+    tokenNameRegistry.registerItem(TOK_PASS, "PASS");
+    tokenNameRegistry.registerItem(TOK_BREAK, "BREAK");
+    tokenNameRegistry.registerItem(TOK_CONTINUE, "CONTINUE");
+    tokenNameRegistry.registerItem(TOK_LAMBDA, "LAMBDA");
+    tokenNameRegistry.registerItem(TOK_TRY, "TRY");
+    tokenNameRegistry.registerItem(TOK_EXCEPT, "EXCEPT");
+    tokenNameRegistry.registerItem(TOK_FINALLY, "FINALLY");
+    tokenNameRegistry.registerItem(TOK_WITH, "WITH");
+    tokenNameRegistry.registerItem(TOK_AS, "AS");
+    tokenNameRegistry.registerItem(TOK_ASSERT, "ASSERT");
+    tokenNameRegistry.registerItem(TOK_FROM, "FROM");
+    tokenNameRegistry.registerItem(TOK_GLOBAL, "GLOBAL");
+    tokenNameRegistry.registerItem(TOK_NONLOCAL, "NONLOCAL");
+    tokenNameRegistry.registerItem(TOK_RAISE, "RAISE");
     
     // 操作符名称
-    tokenNames[TOK_LPAREN] = "LPAREN";
-    tokenNames[TOK_RPAREN] = "RPAREN";
-    tokenNames[TOK_LBRACK] = "LBRACK";
-    tokenNames[TOK_RBRACK] = "RBRACK";
-    tokenNames[TOK_LBRACE] = "LBRACE";
-    tokenNames[TOK_RBRACE] = "RBRACE";
-    tokenNames[TOK_COLON] = "COLON";
-    tokenNames[TOK_COMMA] = "COMMA";
-    tokenNames[TOK_DOT] = "DOT";
-    tokenNames[TOK_PLUS] = "PLUS";
-    tokenNames[TOK_MINUS] = "MINUS";
-    tokenNames[TOK_MUL] = "MUL";
-    tokenNames[TOK_DIV] = "DIV";
-    tokenNames[TOK_MOD] = "MOD";
-    tokenNames[TOK_LT] = "LT";
-    tokenNames[TOK_GT] = "GT";
-    tokenNames[TOK_LE] = "LE";
-    tokenNames[TOK_GE] = "GE";
-    tokenNames[TOK_EQ] = "EQ";
-    tokenNames[TOK_NEQ] = "NEQ";
-    tokenNames[TOK_ASSIGN] = "ASSIGN";
-    tokenNames[TOK_PLUS_ASSIGN] = "PLUS_ASSIGN";
-    tokenNames[TOK_MINUS_ASSIGN] = "MINUS_ASSIGN";
-    tokenNames[TOK_MUL_ASSIGN] = "MUL_ASSIGN";
-    tokenNames[TOK_DIV_ASSIGN] = "DIV_ASSIGN";
-    tokenNames[TOK_MOD_ASSIGN] = "MOD_ASSIGN";
-    tokenNames[TOK_POWER] = "POWER";
-    tokenNames[TOK_FLOOR_DIV] = "FLOOR_DIV";
-    tokenNames[TOK_ARROW] = "ARROW";
-    tokenNames[TOK_AT] = "AT";
+    tokenNameRegistry.registerItem(TOK_LPAREN, "LPAREN");
+    tokenNameRegistry.registerItem(TOK_RPAREN, "RPAREN");
+    tokenNameRegistry.registerItem(TOK_LBRACK, "LBRACK");
+    tokenNameRegistry.registerItem(TOK_RBRACK, "RBRACK");
+    tokenNameRegistry.registerItem(TOK_LBRACE, "LBRACE");
+    tokenNameRegistry.registerItem(TOK_RBRACE, "RBRACE");
+    tokenNameRegistry.registerItem(TOK_COLON, "COLON");
+    tokenNameRegistry.registerItem(TOK_COMMA, "COMMA");
+    tokenNameRegistry.registerItem(TOK_DOT, "DOT");
+    tokenNameRegistry.registerItem(TOK_PLUS, "PLUS");
+    tokenNameRegistry.registerItem(TOK_MINUS, "MINUS");
+    tokenNameRegistry.registerItem(TOK_MUL, "MUL");
+    tokenNameRegistry.registerItem(TOK_DIV, "DIV");
+    tokenNameRegistry.registerItem(TOK_MOD, "MOD");
+    tokenNameRegistry.registerItem(TOK_LT, "LT");
+    tokenNameRegistry.registerItem(TOK_GT, "GT");
+    tokenNameRegistry.registerItem(TOK_LE, "LE");
+    tokenNameRegistry.registerItem(TOK_GE, "GE");
+    tokenNameRegistry.registerItem(TOK_EQ, "EQ");
+    tokenNameRegistry.registerItem(TOK_NEQ, "NEQ");
+    tokenNameRegistry.registerItem(TOK_ASSIGN, "ASSIGN");
+    tokenNameRegistry.registerItem(TOK_PLUS_ASSIGN, "PLUS_ASSIGN");
+    tokenNameRegistry.registerItem(TOK_MINUS_ASSIGN, "MINUS_ASSIGN");
+    tokenNameRegistry.registerItem(TOK_MUL_ASSIGN, "MUL_ASSIGN");
+    tokenNameRegistry.registerItem(TOK_DIV_ASSIGN, "DIV_ASSIGN");
+    tokenNameRegistry.registerItem(TOK_MOD_ASSIGN, "MOD_ASSIGN");
+    tokenNameRegistry.registerItem(TOK_POWER, "POWER");
+    tokenNameRegistry.registerItem(TOK_FLOOR_DIV, "FLOOR_DIV");
+    tokenNameRegistry.registerItem(TOK_ARROW, "ARROW");
+    tokenNameRegistry.registerItem(TOK_AT, "AT");
     
     // 字面量名称
-    tokenNames[TOK_IDENTIFIER] = "IDENTIFIER";
-    tokenNames[TOK_NUMBER] = "NUMBER";
-    tokenNames[TOK_INTEGER] = "INTEGER";
-    tokenNames[TOK_FLOAT] = "FLOAT";
-    tokenNames[TOK_STRING] = "STRING";
-    tokenNames[TOK_BYTES] = "BYTES";
-    tokenNames[TOK_BOOL] = "BOOL";
-    tokenNames[TOK_NONE] = "NONE";
+    tokenNameRegistry.registerItem(TOK_IDENTIFIER, "IDENTIFIER");
+    tokenNameRegistry.registerItem(TOK_NUMBER, "NUMBER");
+    tokenNameRegistry.registerItem(TOK_INTEGER, "INTEGER");
+    tokenNameRegistry.registerItem(TOK_FLOAT, "FLOAT");
+    tokenNameRegistry.registerItem(TOK_STRING, "STRING");
+    tokenNameRegistry.registerItem(TOK_BYTES, "BYTES");
+    tokenNameRegistry.registerItem(TOK_BOOL, "BOOL");
+    tokenNameRegistry.registerItem(TOK_NONE, "NONE");
+    
+    // 注册token处理函数
+    registerTokenHandler(TOK_IDENTIFIER, [](PyLexer& lexer) -> PyToken {
+        return lexer.handleIdentifier();
+    });
+    
+    registerTokenHandler(TOK_INTEGER, [](PyLexer& lexer) -> PyToken {
+        return lexer.handleNumber();
+    });
+    
+    registerTokenHandler(TOK_FLOAT, [](PyLexer& lexer) -> PyToken {
+        return lexer.handleNumber();
+    });
+    
+    registerTokenHandler(TOK_STRING, [](PyLexer& lexer) -> PyToken {
+        return lexer.handleString();
+    });
+    
+    isInitialized = true;
 }
 
-void TokenRegistry::registerKeyword(const std::string& keyword, TokenType type) {
-    keywordMap[keyword] = type;
+void PyTokenRegistry::registerKeyword(const std::string& keyword, PyTokenType type) {
+    keywordRegistry.registerItem(keyword, type);
 }
 
-void TokenRegistry::registerSimpleOperator(char op, TokenType type) {
-    simpleOperators[op] = type;
+void PyTokenRegistry::registerSimpleOperator(char op, PyTokenType type) {
+    simpleOperatorRegistry.registerItem(op, type);
 }
 
-void TokenRegistry::registerCompoundOperator(const std::string& op, TokenType type) {
-    compoundOperators[op] = type;
+void PyTokenRegistry::registerCompoundOperator(const std::string& op, PyTokenType type) {
+    compoundOperatorRegistry.registerItem(op, type);
 }
 
-TokenType TokenRegistry::getKeywordType(const std::string& keyword) {
-    auto it = keywordMap.find(keyword);
-    return (it != keywordMap.end()) ? it->second : TOK_IDENTIFIER;
+void PyTokenRegistry::registerTokenHandler(PyTokenType type, PyTokenHandlerFunc handler) {
+    tokenHandlerRegistry.registerItem(type, std::move(handler));
 }
 
-TokenType TokenRegistry::getSimpleOperatorType(char op) {
-    auto it = simpleOperators.find(op);
-    return (it != simpleOperators.end()) ? it->second : TOK_ERROR;
+PyTokenType PyTokenRegistry::getKeywordType(const std::string& keyword) {
+    if (keywordRegistry.hasItem(keyword)) {
+        return keywordRegistry.getItem(keyword);
+    }
+    return TOK_IDENTIFIER;
 }
 
-TokenType TokenRegistry::getCompoundOperatorType(const std::string& op) {
-    auto it = compoundOperators.find(op);
-    return (it != compoundOperators.end()) ? it->second : TOK_ERROR;
+PyTokenType PyTokenRegistry::getSimpleOperatorType(char op) {
+    if (simpleOperatorRegistry.hasItem(op)) {
+        return simpleOperatorRegistry.getItem(op);
+    }
+    return TOK_ERROR;
 }
 
-std::string TokenRegistry::getTokenName(TokenType type) {
-    auto it = tokenNames.find(type);
-    if (it != tokenNames.end()) {
-        return it->second;
+PyTokenType PyTokenRegistry::getCompoundOperatorType(const std::string& op) {
+    if (compoundOperatorRegistry.hasItem(op)) {
+        return compoundOperatorRegistry.getItem(op);
+    }
+    return TOK_ERROR;
+}
+
+std::string PyTokenRegistry::getTokenName(PyTokenType type) {
+    if (tokenNameRegistry.hasItem(type)) {
+        return tokenNameRegistry.getItem(type);
     }
     return "UNKNOWN";
 }
 
-bool TokenRegistry::isKeyword(const std::string& word) {
-    return keywordMap.find(word) != keywordMap.end();
+PyTokenHandlerFunc PyTokenRegistry::getTokenHandler(PyTokenType type) {
+    if (tokenHandlerRegistry.hasItem(type)) {
+        return tokenHandlerRegistry.getItem(type);
+    }
+    return nullptr;
 }
 
-bool TokenRegistry::isSimpleOperator(char c) {
-    return simpleOperators.find(c) != simpleOperators.end();
+bool PyTokenRegistry::isKeyword(const std::string& word) {
+    return keywordRegistry.hasItem(word);
 }
 
-bool TokenRegistry::isCompoundOperatorStart(char c) {
-    for (const auto& pair : compoundOperators) {
+bool PyTokenRegistry::isSimpleOperator(char c) {
+    return simpleOperatorRegistry.hasItem(c);
+}
+
+bool PyTokenRegistry::isCompoundOperatorStart(char c) {
+    auto& operators = compoundOperatorRegistry.getAllItems();
+    for (const auto& pair : operators) {
         if (!pair.first.empty() && pair.first[0] == c) {
             return true;
         }
@@ -223,7 +263,11 @@ bool TokenRegistry::isCompoundOperatorStart(char c) {
     return false;
 }
 
-bool TokenRegistry::needsSpaceBetween(TokenType curr, TokenType next) {
+const std::unordered_map<std::string, PyTokenType>& PyTokenRegistry::getKeywords() {
+    return keywordRegistry.getAllItems();
+}
+
+bool PyTokenRegistry::needsSpaceBetween(PyTokenType curr, PyTokenType next) {
     // 一些操作符与标识符之间不需要空格
     if (curr == TOK_IDENTIFIER && (next == TOK_LPAREN || next == TOK_LBRACK || next == TOK_DOT)) {
         return false;
@@ -242,29 +286,25 @@ bool TokenRegistry::needsSpaceBetween(TokenType curr, TokenType next) {
 }
 
 //===----------------------------------------------------------------------===//
-// LexerError 方法实现
+// PyLexerError 方法实现
 //===----------------------------------------------------------------------===//
 
-std::string LexerError::formatError() const {
+std::string PyLexerError::formatError() const {
     std::stringstream ss;
     ss << "Lexer error at line " << line << ", column " << column << ": " << what();
     return ss.str();
 }
 
 //===----------------------------------------------------------------------===//
-// Lexer 方法实现
+// PyLexer 方法实现
 //===----------------------------------------------------------------------===//
 
-Lexer::Lexer(const std::string& source, const LexerConfig& config)
+PyLexer::PyLexer(const std::string& source, const PyLexerConfig& config)
     : sourceCode(source), position(0), currentLine(1), currentColumn(1),
       currentIndent(0), tokenIndex(0), config(config) {
       
-    // 确保TokenRegistry已初始化
-    static bool initialized = false;
-    if (!initialized) {
-        TokenRegistry::initialize();
-        initialized = true;
-    }
+    // 确保PyTokenRegistry已初始化
+    PyTokenRegistry::initialize();
     
     // 初始化缩进栈
     indentStack.push_back(0);
@@ -273,7 +313,7 @@ Lexer::Lexer(const std::string& source, const LexerConfig& config)
     tokenizeSource();
 }
 
-Lexer Lexer::fromFile(const std::string& filePath, const LexerConfig& config) {
+PyLexer PyLexer::fromFile(const std::string& filePath, const PyLexerConfig& config) {
     std::ifstream file(filePath);
     if (!file.is_open()) {
         throw std::runtime_error("Cannot open file: " + filePath);
@@ -281,20 +321,20 @@ Lexer Lexer::fromFile(const std::string& filePath, const LexerConfig& config) {
     
     std::stringstream buffer;
     buffer << file.rdbuf();
-    return Lexer(buffer.str(), config);
+    return PyLexer(buffer.str(), config);
 }
 
-char Lexer::peek() const {
+char PyLexer::peek() const {
     if (isAtEnd()) return '\0';
     return sourceCode[position];
 }
 
-char Lexer::peekNext() const {
+char PyLexer::peekNext() const {
     if (position + 1 >= sourceCode.length()) return '\0';
     return sourceCode[position + 1];
 }
 
-char Lexer::advance() {
+char PyLexer::advance() {
     char c = peek();
     position++;
     
@@ -308,17 +348,17 @@ char Lexer::advance() {
     return c;
 }
 
-bool Lexer::match(char expected) {
+bool PyLexer::match(char expected) {
     if (isAtEnd() || peek() != expected) return false;
     advance();
     return true;
 }
 
-bool Lexer::isAtEnd() const {
+bool PyLexer::isAtEnd() const {
     return position >= sourceCode.length();
 }
 
-void Lexer::skipWhitespace() {
+void PyLexer::skipWhitespace() {
     while (!isAtEnd()) {
         char c = peek();
         if (c == ' ' || c == '\r' || c == '\t') {
@@ -331,14 +371,14 @@ void Lexer::skipWhitespace() {
     }
 }
 
-void Lexer::skipComment() {
+void PyLexer::skipComment() {
     // 注释一直持续到行尾
     while (peek() != '\n' && !isAtEnd()) {
         advance();
     }
 }
 
-int Lexer::calculateIndent() {
+int PyLexer::calculateIndent() {
     int indent = 0;
     size_t pos = position;
     
@@ -356,7 +396,7 @@ int Lexer::calculateIndent() {
     return indent;
 }
 
-void Lexer::processIndentation() {
+void PyLexer::processIndentation() {
     int indent = calculateIndent();
     
     if (indent > indentStack.back()) {
@@ -381,27 +421,27 @@ void Lexer::processIndentation() {
     currentColumn += indent;
 }
 
-bool Lexer::isDigit(char c) const {
+bool PyLexer::isDigit(char c) const {
     return c >= '0' && c <= '9';
 }
 
-bool Lexer::isAlpha(char c) const {
+bool PyLexer::isAlpha(char c) const {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
-bool Lexer::isAlphaNumeric(char c) const {
+bool PyLexer::isAlphaNumeric(char c) const {
     return isAlpha(c) || isDigit(c);
 }
 
-Token Lexer::errorToken(const std::string& message) {
-    return Token(TOK_ERROR, message, currentLine, currentColumn);
+PyToken PyLexer::errorToken(const std::string& message) {
+    return PyToken(TOK_ERROR, message, currentLine, currentColumn);
 }
 
-void Lexer::error(const std::string& message) const {
-    throw LexerError(message, currentLine, currentColumn);
+void PyLexer::error(const std::string& message) const {
+    throw PyLexerError(message, currentLine, currentColumn);
 }
 
-Token Lexer::handleIdentifier() {
+PyToken PyLexer::handleIdentifier() {
     size_t start = position;
     while (isAlphaNumeric(peek())) {
         advance();
@@ -410,15 +450,15 @@ Token Lexer::handleIdentifier() {
     std::string identifier = sourceCode.substr(start, position - start);
     
     // 检查是否是关键字
-    if (TokenRegistry::isKeyword(identifier)) {
-        TokenType keywordType = TokenRegistry::getKeywordType(identifier);
-        return Token(keywordType, identifier, currentLine, currentColumn - identifier.length());
+    if (PyTokenRegistry::isKeyword(identifier)) {
+        PyTokenType keywordType = PyTokenRegistry::getKeywordType(identifier);
+        return PyToken(keywordType, identifier, currentLine, currentColumn - identifier.length());
     }
     
-    return Token(TOK_IDENTIFIER, identifier, currentLine, currentColumn - identifier.length());
+    return PyToken(TOK_IDENTIFIER, identifier, currentLine, currentColumn - identifier.length());
 }
 
-Token Lexer::handleNumber() {
+PyToken PyLexer::handleNumber() {
     size_t start = position;
     bool isFloat = false;
     
@@ -456,12 +496,12 @@ Token Lexer::handleNumber() {
     }
     
     std::string number = sourceCode.substr(start, position - start);
-    TokenType type = isFloat ? TOK_FLOAT : TOK_INTEGER;
+    PyTokenType type = isFloat ? TOK_FLOAT : TOK_INTEGER;
     
-    return Token(type, number, currentLine, currentColumn - number.length());
+    return PyToken(type, number, currentLine, currentColumn - number.length());
 }
 
-Token Lexer::handleString() {
+PyToken PyLexer::handleString() {
     char quote = peek();
     advance(); // 消费开始引号
     
@@ -483,35 +523,35 @@ Token Lexer::handleString() {
     std::string str = sourceCode.substr(start, position - start);
     advance(); // 消费结束引号
     
-    return Token(TOK_STRING, str, currentLine, currentColumn - str.length() - 2);
+    return PyToken(TOK_STRING, str, currentLine, currentColumn - str.length() - 2);
 }
 
-Token Lexer::handleOperator() {
+PyToken PyLexer::handleOperator() {
     char c = peek();
     
     // 检查是否可能是复合操作符的开始
-    if (TokenRegistry::isCompoundOperatorStart(c)) {
+    if (PyTokenRegistry::isCompoundOperatorStart(c)) {
         // 尝试识别复合操作符
         for (int len = 3; len >= 2; len--) { // 当前支持最多3字符的复合操作符
             if (position + len <= sourceCode.length()) {
                 std::string op = sourceCode.substr(position, len);
-                TokenType type = TokenRegistry::getCompoundOperatorType(op);
+                PyTokenType type = PyTokenRegistry::getCompoundOperatorType(op);
                 if (type != TOK_ERROR) {
                     // 找到匹配的复合操作符
                     for (int i = 0; i < len; i++) {
                         advance();
                     }
-                    return Token(type, op, currentLine, currentColumn - len);
+                    return PyToken(type, op, currentLine, currentColumn - len);
                 }
             }
         }
     }
     
     // 单字符操作符
-    TokenType type = TokenRegistry::getSimpleOperatorType(c);
+    PyTokenType type = PyTokenRegistry::getSimpleOperatorType(c);
     if (type != TOK_ERROR) {
         advance();
-        return Token(type, std::string(1, c), currentLine, currentColumn - 1);
+        return PyToken(type, std::string(1, c), currentLine, currentColumn - 1);
     }
     
     // 未识别的操作符
@@ -519,11 +559,11 @@ Token Lexer::handleOperator() {
     return errorToken("Unexpected character");
 }
 
-Token Lexer::scanToken() {
+PyToken PyLexer::scanToken() {
     skipWhitespace();
     
     if (isAtEnd()) {
-        return Token(TOK_EOF, "", currentLine, currentColumn);
+        return PyToken(TOK_EOF, "", currentLine, currentColumn);
     }
     
     char c = peek();
@@ -531,7 +571,7 @@ Token Lexer::scanToken() {
     // 处理换行
     if (c == '\n') {
         advance();
-        return Token(TOK_NEWLINE, "\n", currentLine - 1, currentColumn);
+        return PyToken(TOK_NEWLINE, "\n", currentLine - 1, currentColumn);
     }
     
     // 处理标识符
@@ -553,7 +593,7 @@ Token Lexer::scanToken() {
     return handleOperator();
 }
 
-void Lexer::tokenizeSource() {
+void PyLexer::tokenizeSource() {
     bool atLineStart = true;
     
     while (!isAtEnd()) {
@@ -564,7 +604,7 @@ void Lexer::tokenizeSource() {
         }
         
         // 扫描token
-        Token token = scanToken();
+        PyToken token = scanToken();
         tokens.push_back(token);
         
         // 检查是否需要在行尾添加NEWLINE
@@ -586,28 +626,105 @@ void Lexer::tokenizeSource() {
     }
 }
 
-Token Lexer::getNextToken() {
+PyToken PyLexer::getNextToken() {
     if (tokenIndex < tokens.size()) {
         return tokens[tokenIndex++];
     }
-    return Token(TOK_EOF, "", currentLine, currentColumn);
+    return PyToken(TOK_EOF, "", currentLine, currentColumn);
 }
 
-Token Lexer::peekToken() const {
+PyToken PyLexer::peekToken() const {
     if (tokenIndex < tokens.size()) {
         return tokens[tokenIndex];
     }
-    return Token(TOK_EOF, "", currentLine, currentColumn);
+    return PyToken(TOK_EOF, "", currentLine, currentColumn);
 }
 
-Token Lexer::peekTokenAt(size_t offset) const {
+PyToken PyLexer::peekTokenAt(size_t offset) const {
     if (tokenIndex + offset < tokens.size()) {
         return tokens[tokenIndex + offset];
     }
-    return Token(TOK_EOF, "", currentLine, currentColumn);
+    return PyToken(TOK_EOF, "", currentLine, currentColumn);
 }
 
-void Lexer::recoverSourceFromTokens(const std::string& filename) const {
+PyLexerState PyLexer::saveState() const {
+    return PyLexerState(position, currentLine, currentColumn, tokenIndex);
+}
+
+void PyLexer::restoreState(const PyLexerState& state) {
+    position = state.position;
+    currentLine = state.line;
+    currentColumn = state.column;
+    tokenIndex = state.tokenIndex;
+}
+
+void PyLexer::resetPosition(size_t pos) {
+    // 需要重新计算行和列
+    size_t oldPos = position;
+    position = 0;
+    currentLine = 1;
+    currentColumn = 1;
+    
+    // 向前扫描直到指定位置，更新行和列
+    while (position < pos && position < sourceCode.length()) {
+        if (sourceCode[position++] == '\n') {
+            currentLine++;
+            currentColumn = 1;
+        } else {
+            currentColumn++;
+        }
+    }
+}
+
+bool PyLexer::hasTypeAnnotation(size_t tokenPos) const {
+    if (tokenPos >= tokens.size()) return false;
+    
+    // 检查当前位置是否是冒号，后面跟着类型
+    return tokens[tokenPos].type == TOK_COLON && 
+           tokenPos + 1 < tokens.size() && 
+           tokens[tokenPos + 1].type == TOK_IDENTIFIER;
+}
+
+std::pair<size_t, std::string> PyLexer::extractTypeAnnotation(size_t startPos) const {
+    if (!hasTypeAnnotation(startPos)) {
+        return {startPos, ""};
+    }
+    
+    // 跳过冒号
+    size_t pos = startPos + 1;
+    std::string typeName = tokens[pos].value;
+    pos++;
+    
+    // 处理泛型参数，如list[int]
+    if (pos < tokens.size() && tokens[pos].type == TOK_LBRACK) {
+        std::string fullType = typeName + "[";
+        pos++;
+        
+        // 处理泛型参数内容
+        while (pos < tokens.size() && tokens[pos].type != TOK_RBRACK) {
+            fullType += tokens[pos].value;
+            pos++;
+            
+            // 如果遇到逗号，添加空格以提高可读性
+            if (pos < tokens.size() && tokens[pos].type == TOK_COMMA) {
+                fullType += ", ";
+                pos++;
+            }
+        }
+        
+        // 添加闭括号
+        if (pos < tokens.size() && tokens[pos].type == TOK_RBRACK) {
+            fullType += "]";
+            pos++;
+        }
+        
+        return {pos, fullType};
+    }
+    
+    return {pos, typeName};
+}
+
+void PyLexer::recoverSourceFromTokens(const std::string& filename) const {
 #ifdef RECOVER_SOURCE_FROM_TOKENS
     std::ofstream file(filename);
     if (!file.is_open()) {
@@ -619,7 +736,7 @@ void Lexer::recoverSourceFromTokens(const std::string& filename) const {
     bool atLineStart = true;
     
     for (size_t i = 0; i < tokens.size(); i++) {
-        const Token& token = tokens[i];
+        const PyToken& token = tokens[i];
         
         switch (token.type) {
             case TOK_INDENT:
@@ -644,7 +761,7 @@ void Lexer::recoverSourceFromTokens(const std::string& filename) const {
                     // 添加缩进
                     file << std::string(currentIndent, ' ');
                     atLineStart = false;
-                } else if (i > 0 && TokenRegistry::needsSpaceBetween(tokens[i-1].type, token.type)) {
+                } else if (i > 0 && PyTokenRegistry::needsSpaceBetween(tokens[i-1].type, token.type)) {
                     file << " ";
                 }
                 

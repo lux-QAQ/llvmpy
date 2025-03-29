@@ -29,6 +29,9 @@ std::string readFile(const std::string& filename)
 #include "Debugdefine.h"
 int main(int argc, char** argv)
 {
+        // 确保类型系统已初始化
+        TypeRegistry::getInstance().ensureBasicTypesRegistered();
+        TypeFeatureChecker::registerBuiltinFeatureChecks();
 #ifndef DEBUG
     if (argc < 2)
     {
@@ -52,17 +55,16 @@ int main(int argc, char** argv)
     }
 
     // 词法分析
-    Lexer lexer(sourceCode);
+    PyLexer lexer(sourceCode);
 
 #ifdef DEBUG
-#include "lexer.h"
     // 在main函数或解析前添加
     std::cerr << "\n···Main中尝试DUMP所有TOKEN···\n"
               << std::endl;
 
     std::cerr << "Debug: Dumping all tokens:" << std::endl;
     int idx = 0;
-    Token tok = lexer.peekTokenAt(idx++);  // 正确初始化Token对象
+    PyToken tok = lexer.peekTokenAt(idx++);  // 正确初始化Token对象
     while (tok.type != TOK_EOF)
     {
         std::cerr << "Token #" << idx << ": '" << tok.value
@@ -84,7 +86,7 @@ int main(int argc, char** argv)
 #endif
 
     // 语法分析
-    Parser parser(lexer);
+    PyParser parser(lexer);
     auto module = parser.parseModule();
 
     if (!module)
@@ -94,7 +96,7 @@ int main(int argc, char** argv)
     }
 
     // 代码生成
-    CodeGen codegen;
+    PyCodeGen codegen;
     codegen.generateModule(module.get());
 
 /*     // 优化LLVM IR (可选)

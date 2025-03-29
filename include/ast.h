@@ -5,12 +5,22 @@
 #include <vector>
 #include <memory>
 #include <optional>
+#include <unordered_map>
+#include <functional>
+#include <typeindex>
+
+#include <llvm/IR/Value.h>
+#include <llvm/IR/LLVMContext.h>
+
+#include<ObjectType.h>
+
 namespace llvmpy
 {
 // 前向声明
-class CodeGen;
-struct Type;
+class PyCodeGen;
+class PyType;
 
+// AST节点类型枚举
 enum class ASTKind
 {
     Module,
@@ -23,38 +33,90 @@ enum class ASTKind
     ExprStmt,
     PassStmt,
     ImportStmt,
-    ClassStmt,  // 添加新类型
+    ClassStmt,
     BinaryExpr,
     UnaryExpr,
     NumberExpr,
     StringExpr,
     VariableExpr,
     CallExpr,
-    ListExpr,    // 列表字面量 [1, 2, 3]
-    IndexExpr,   // 索引操作 a[i]
-    IndexAssignStmt,  // 新增：索引赋值语句
+    ListExpr,
+    IndexExpr,
+    IndexAssignStmt,
+    BoolExpr,       // 添加布尔表达式
+    NoneExpr,       // 添加None表达式
     Unknown
-
 };
 
+// 注册器模板 - 用于各种组件的注册管理
+template<typename KeyType, typename ValueType>
+class Registry {
+public:
+    using CreatorFunc = std::function<std::unique_ptr<ValueType>()>;
+    
+    static Registry& getInstance() {
+        static Registry instance;
+        return instance;
+    }
+    
+    template<typename T, typename... Args>
+    void registerType(const KeyType& key, Args&&... args) {
+        creators[key] = [args...](){ 
+            return std::make_unique<T>(args...); 
+        };
+    }
+    
+    std::unique_ptr<ValueType> create(const KeyType& key) const {
+        auto it = creators.find(key);
+        if (it != creators.end()) {
+            return it->second();
+        }
+        return nullptr;
+    }
+    
+    bool isRegistered(const KeyType& key) const {
+        return creators.find(key) != creators.end();
+    }
+    
+private:
+    Registry() = default;
+    std::unordered_map<KeyType, CreatorFunc> creators;
+};
 
+// AST节点工厂
+class ASTFactory;
 
-
-
-
+// 基础AST节点类
 class ASTNode
 {
 public:
     virtual ~ASTNode() = default;
     virtual ASTKind kind() const = 0;
-    virtual void accept(CodeGen& codegen) = 0;
+    virtual void accept(PyCodeGen& codegen) = 0;
 
     // 可选的源码信息（用于报错）
     std::optional<int> line;
     std::optional<int> column;
+    
+    // 设置源码位置的工具方法
+    ASTNode* setLocation(int lineNum, int colNum) {
+        line = lineNum;
+        column = colNum;
+        return this;
+    }
+    
+    // 对象内存管理标记
+    bool needsHeapAllocation() const { return heapAllocation; }
+    void setHeapAllocation(bool value) { heapAllocation = value; }
+    
+protected:
+    // 内存管理标志 - 表示该节点的结果需要堆分配
+    bool heapAllocation = false;
 };
 
 using ASTNodePtr = std::unique_ptr<ASTNode>;
+
+
 
 // ======================== Expression Base ========================
 
@@ -63,143 +125,272 @@ class ExprAST : public ASTNode
 {
 public:
     virtual ~ExprAST() = default;
-    virtual void accept(CodeGen& codegen) override = 0;
-    virtual std::shared_ptr<Type> getType() const = 0;
-};
-// ======================== Literal: Number ========================
-// 数字字面量
-class NumberExprAST : public ExprAST
-{
-    double value;
-
-public:
-    NumberExprAST(double val) : value(val)
-    {
-    }
-    double getValue() const
-    {
-        return value;
-    }
-    std::shared_ptr<Type> getType() const override;
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override
-    {
-        return ASTKind::NumberExpr;
-    }
+    virtual void accept(PyCodeGen& codegen) override = 0;
+    virtual std::shared_ptr<PyType> getType() const = 0;
+    
+    // 值复制和引用管理的辅助方法
+    virtual bool needsCopy() const { return false; }
+    virtual bool isLValue() const { return false; }
 };
 
-
-
-
-// 变量引用类的修改
-class VariableExprAST : public ExprAST
-{
-    std::string name;
-
-public:
-    VariableExprAST(const std::string& n) : name(n)
-    {
-    }
-    const std::string& getName() const
-    {
-        return name;
-    }
-    void accept(CodeGen& codegen) override;
-    std::shared_ptr<Type> getType() const override;
-    ASTKind kind() const override
-    {
-        return ASTKind::VariableExpr;
-    }  // 添加这一行
-};
-
-// 二元运算
-// 二元运算类的修改
-class BinaryExprAST : public ExprAST
-{
-    char op;
-    std::unique_ptr<ExprAST> lhs, rhs;
-
-public:
-    BinaryExprAST(char op, std::unique_ptr<ExprAST> lhs, std::unique_ptr<ExprAST> rhs)
-        : op(op), lhs(std::move(lhs)), rhs(std::move(rhs))
-    {
-    }
-    char getOp() const
-    {
-        return op;
-    }
-    const ExprAST* getLHS() const
-    {
-        return lhs.get();
-    }
-    const ExprAST* getRHS() const
-    {
-        return rhs.get();
-    }
-    void accept(CodeGen& codegen) override;
-    std::shared_ptr<Type> getType() const override;
-    ASTKind kind() const override
-    {
-        return ASTKind::BinaryExpr;
-    }  // 添加这一行
-};
-
-// 函数调用类的修改
-class CallExprAST : public ExprAST
-{
-    std::string callee;
-    std::vector<std::unique_ptr<ExprAST>> args;
-
-public:
-    CallExprAST(const std::string& callee, std::vector<std::unique_ptr<ExprAST>> args)
-        : callee(callee), args(std::move(args))
-    {
-    }
-    const std::string& getCallee() const
-    {
-        return callee;
-    }
-    const std::vector<std::unique_ptr<ExprAST>>& getArgs() const
-    {
-        return args;
-    }
-    void accept(CodeGen& codegen) override;
-    std::shared_ptr<Type> getType() const override;
-    ASTKind kind() const override
-    {
-        return ASTKind::CallExpr;
-    }  // 添加这一行
-};
 // ======================== Statement Base ========================
+
+
+
+
 // 语句基类
 class StmtAST : public ASTNode
 {
 public:
     virtual ~StmtAST() = default;
-    virtual void accept(CodeGen& codegen) override = 0;
+    virtual void accept(PyCodeGen& codegen) override = 0;
+    
+    // 资源清理和作用域管理
+    virtual void cleanup(PyCodeGen& codegen) {}
 };
-// ======================== Return ========================
-// 表达式语句类的修改
-class ExprStmtAST : public StmtAST
+
+
+
+
+// ======================== 基础模板类 ========================
+
+// CRTP基础模板 - 提供kind()方法统一实现
+template<typename Derived, ASTKind K>
+class ASTNodeBase : public ASTNode {
+public:
+    ASTKind kind() const override { return K; }
+    
+    // 通过CRTP实现子类获取
+    Derived& asDerived() { return static_cast<Derived&>(*this); }
+    const Derived& asDerived() const { return static_cast<const Derived&>(*this); }
+};
+
+// 表达式基类模板
+template<typename Derived, ASTKind K>
+class ExprASTBase : public ExprAST {
+public:
+      // 实现kind()方法解决抽象类问题
+      ASTKind kind() const override { return K; }
+    virtual std::shared_ptr<PyType> getType() const = 0;
+    
+
+  
+    // 类型推断相关的辅助方法
+    bool isNumeric() const;
+    bool isList() const;
+    bool isString() const;
+    bool isReference() const;
+};
+
+// 语句基类模板
+template<typename Derived, ASTKind K>
+class StmtASTBase : public StmtAST {
+public:
+    // 实现kind()方法解决抽象类问题
+    ASTKind kind() const override { return K; }
+    // 语句作用域管理
+    virtual void beginScope(PyCodeGen& codegen);
+    virtual void endScope(PyCodeGen& codegen);
+};
+
+
+// ======================== 具体表达式类 ========================
+
+// 数字字面量
+class NumberExprAST : public ExprASTBase<NumberExprAST, ASTKind::NumberExpr>
+{
+    double value;
+
+public:
+        // 添加默认构造函数
+        NumberExprAST() : value(0.0) {}
+        NumberExprAST(double val) : value(val) {}
+    
+    double getValue() const { return value; }
+    std::shared_ptr<PyType> getType() const override;
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
+};
+
+// 字符串字面量
+class StringExprAST : public ExprASTBase<StringExprAST, ASTKind::StringExpr>
+{
+    std::string value;
+
+public:
+    StringExprAST(const std::string& val) : value(val) {}
+    
+    const std::string& getValue() const { return value; }
+    std::shared_ptr<PyType> getType() const override; // 只保留声明，不要内联实现
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
+};
+
+// 布尔字面量
+class BoolExprAST : public ExprASTBase<BoolExprAST, ASTKind::BoolExpr>
+{
+    bool value;
+
+public:
+    BoolExprAST(bool val) : value(val) {}
+    
+    bool getValue() const { return value; }
+    std::shared_ptr<PyType> getType() const override; // 只保留声明，不要内联实现
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
+};
+
+// None值
+class NoneExprAST : public ExprASTBase<NoneExprAST, ASTKind::NoneExpr>
+{
+public:
+    NoneExprAST() {}
+    
+    std::shared_ptr<PyType> getType() const override; // 只保留声明，不要内联实现
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
+};
+
+// 变量引用
+class VariableExprAST : public ExprASTBase<VariableExprAST, ASTKind::VariableExpr>
+{
+    std::string name;
+    mutable std::shared_ptr<PyType> cachedType;
+
+public:
+        // 添加默认构造函数
+        VariableExprAST() : name("") {}
+        VariableExprAST(const std::string& n) : name(n) {}
+    
+    const std::string& getName() const { return name; }
+    std::shared_ptr<PyType> getType() const override;
+    void accept(PyCodeGen& codegen) override;
+    bool isLValue() const override { return true; }
+    
+    static void registerWithFactory();
+};
+
+// 二元运算
+class BinaryExprAST : public ExprASTBase<BinaryExprAST, ASTKind::BinaryExpr>
+{
+    char op;
+    std::unique_ptr<ExprAST> lhs, rhs;
+    mutable std::shared_ptr<PyType> cachedType;
+
+public:
+    BinaryExprAST(char op, std::unique_ptr<ExprAST> lhs, std::unique_ptr<ExprAST> rhs)
+        : op(op), lhs(std::move(lhs)), rhs(std::move(rhs)) {}
+    
+    char getOp() const { return op; }
+    const ExprAST* getLHS() const { return lhs.get(); }
+    const ExprAST* getRHS() const { return rhs.get(); }
+    std::shared_ptr<PyType> getType() const override;
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
+};
+
+// 一元操作符
+class UnaryExprAST : public ExprASTBase<UnaryExprAST, ASTKind::UnaryExpr>
+{
+private:
+    char opCode;
+    std::unique_ptr<ExprAST> operand;
+    mutable std::shared_ptr<PyType> cachedType;
+
+public:
+    UnaryExprAST(char opcode, std::unique_ptr<ExprAST> operand)
+        : opCode(opcode), operand(std::move(operand)) {}
+
+    char getOpCode() const { return opCode; }
+    const ExprAST* getOperand() const { return operand.get(); }
+    std::shared_ptr<PyType> getType() const override;
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
+};
+
+// 函数调用
+class CallExprAST : public ExprASTBase<CallExprAST, ASTKind::CallExpr>
+{
+    std::string callee;
+    std::vector<std::unique_ptr<ExprAST>> args;
+    mutable std::shared_ptr<PyType> cachedType;
+
+public:
+    CallExprAST(const std::string& callee, std::vector<std::unique_ptr<ExprAST>> args)
+        : callee(callee), args(std::move(args)) {}
+    
+    const std::string& getCallee() const { return callee; }
+    const std::vector<std::unique_ptr<ExprAST>>& getArgs() const { return args; }
+    std::shared_ptr<PyType> getType() const override;
+    void accept(PyCodeGen& codegen) override;
+    bool needsCopy() const override { return true; } // 函数调用结果通常需要复制
+    
+    static void registerWithFactory();
+};
+
+// 列表字面量表达式
+class ListExprAST : public ExprASTBase<ListExprAST, ASTKind::ListExpr>
+{
+    std::vector<std::unique_ptr<ExprAST>> elements;
+    mutable std::shared_ptr<PyType> cachedType;
+
+public:
+    ListExprAST(std::vector<std::unique_ptr<ExprAST>> elems)
+        : elements(std::move(elems)) { setHeapAllocation(true); }
+    
+    const std::vector<std::unique_ptr<ExprAST>>& getElements() const { return elements; }
+    std::shared_ptr<PyType> getType() const override;
+    void accept(PyCodeGen& codegen) override;
+    bool needsCopy() const override { return false; } // 新创建的列表不需要复制
+    
+    static void registerWithFactory();
+};
+
+// 索引表达式
+class IndexExprAST : public ExprASTBase<IndexExprAST, ASTKind::IndexExpr>
+{
+    std::unique_ptr<ExprAST> target;
+    std::unique_ptr<ExprAST> index;
+    mutable std::shared_ptr<PyType> cachedType;
+
+public:
+    IndexExprAST(std::unique_ptr<ExprAST> target, std::unique_ptr<ExprAST> index)
+        : target(std::move(target)), index(std::move(index)) {}
+    
+    const ExprAST* getTarget() const { return target.get(); }
+    const ExprAST* getIndex() const { return index.get(); }
+    std::shared_ptr<PyType> getType() const override;
+    void accept(PyCodeGen& codegen) override;
+    bool isLValue() const override { return true; }
+    
+    static void registerWithFactory();
+};
+
+// ======================== 具体语句类 ========================
+
+// 表达式语句
+class ExprStmtAST : public StmtASTBase<ExprStmtAST, ASTKind::ExprStmt>
 {
     std::unique_ptr<ExprAST> expr;
 
 public:
-    ExprStmtAST(std::unique_ptr<ExprAST> expr) : expr(std::move(expr))
-    {
-    }
-    const ExprAST* getExpr() const
-    {
-        return expr.get();
-    }
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override
-    {
-        return ASTKind::ExprStmt;
-    }  // 添加这一行
+    ExprStmtAST(std::unique_ptr<ExprAST> expr) : expr(std::move(expr)) {}
+    
+    const ExprAST* getExpr() const { return expr.get(); }
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
 };
-// 新增索引赋值语句类型
-class IndexAssignStmtAST : public StmtAST {
+
+// 索引赋值语句
+class IndexAssignStmtAST : public StmtASTBase<IndexAssignStmtAST, ASTKind::IndexAssignStmt>
+{
     std::unique_ptr<ExprAST> target;
     std::unique_ptr<ExprAST> index;
     std::unique_ptr<ExprAST> value;
@@ -213,62 +404,28 @@ public:
     const ExprAST* getTarget() const { return target.get(); }
     const ExprAST* getIndex() const { return index.get(); }
     const ExprAST* getValue() const { return value.get(); }
+    void accept(PyCodeGen& codegen) override;
     
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override { return ASTKind::IndexAssignStmt; }
+    static void registerWithFactory();
 };
-// return语句类的修改
-class ReturnStmtAST : public StmtAST
+
+// return语句
+class ReturnStmtAST : public StmtASTBase<ReturnStmtAST, ASTKind::ReturnStmt>
 {
     std::unique_ptr<ExprAST> value;
 
 public:
-    ReturnStmtAST(std::unique_ptr<ExprAST> value) : value(std::move(value))
-    {
-    }
-    const ExprAST* getValue() const
-    {
-        return value.get();
-    }
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override
-    {
-        return ASTKind::ReturnStmt;
-    }  // 添加这一行
+    ReturnStmtAST(std::unique_ptr<ExprAST> value) : value(std::move(value)) {}
+    
+    const ExprAST* getValue() const { return value.get(); }
+    void accept(PyCodeGen& codegen) override;
+    void cleanup(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
 };
 
-// 一元操作符类的修改
-class UnaryExprAST : public ExprAST
-{
-private:
-    char opCode;
-    std::unique_ptr<ExprAST> operand;
-
-public:
-    UnaryExprAST(char opcode, std::unique_ptr<ExprAST> operand)
-        : opCode(opcode), operand(std::move(operand))
-    {
-    }
-
-    char getOpCode() const
-    {
-        return opCode;
-    }
-    const ExprAST* getOperand() const
-    {
-        return operand.get();
-    }
-
-    void accept(CodeGen& codegen) override;
-    std::shared_ptr<Type> getType() const override;
-    ASTKind kind() const override
-    {
-        return ASTKind::UnaryExpr;
-    }  // 添加这一行
-};
-
-// if语句类的修改
-class IfStmtAST : public StmtAST
+// if语句
+class IfStmtAST : public StmtASTBase<IfStmtAST, ASTKind::IfStmt>
 {
     std::unique_ptr<ExprAST> condition;
     std::vector<std::unique_ptr<StmtAST>> thenBody;
@@ -278,206 +435,20 @@ public:
     IfStmtAST(std::unique_ptr<ExprAST> cond,
               std::vector<std::unique_ptr<StmtAST>> thenB,
               std::vector<std::unique_ptr<StmtAST>> elseB)
-        : condition(std::move(cond)), thenBody(std::move(thenB)), elseBody(std::move(elseB))
-    {
-    }
-    const ExprAST* getCondition() const
-    {
-        return condition.get();
-    }
-    const std::vector<std::unique_ptr<StmtAST>>& getThenBody() const
-    {
-        return thenBody;
-    }
-    const std::vector<std::unique_ptr<StmtAST>>& getElseBody() const
-    {
-        return elseBody;
-    }
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override
-    {
-        return ASTKind::IfStmt;
-    }  // 添加这一行
-};
-
-// print语句类的修改
-class PrintStmtAST : public StmtAST
-{
-    std::unique_ptr<ExprAST> value;
-
-public:
-    PrintStmtAST(std::unique_ptr<ExprAST> value) : value(std::move(value))
-    {
-    }
-    const ExprAST* getValue() const
-    {
-        return value.get();
-    }
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override
-    {
-        return ASTKind::PrintStmt;
-    }  // 添加这一行
-};
-
-// 变量赋值语句类的修改
-class AssignStmtAST : public StmtAST
-{
-    std::string name;
-    std::unique_ptr<ExprAST> value;
-
-public:
-    AssignStmtAST(const std::string& name, std::unique_ptr<ExprAST> value)
-        : name(name), value(std::move(value))
-    {
-    }
-    const std::string& getName() const
-    {
-        return name;
-    }
-    const ExprAST* getValue() const
-    {
-        return value.get();
-    }
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override
-    {
-        return ASTKind::AssignStmt;
-    }  // 添加这一行
-};
-// ======================== Function ========================
-// 函数定义参数
-struct ParamAST
-{
-    std::string name;
-    std::string type;  // 可能是空的，Python是动态类型的
+        : condition(std::move(cond)), thenBody(std::move(thenB)), elseBody(std::move(elseB)) {}
     
-    // 添加构造函数
-    ParamAST(const std::string& n, const std::string& t) : name(n), type(t) {}
+    const ExprAST* getCondition() const { return condition.get(); }
+    const std::vector<std::unique_ptr<StmtAST>>& getThenBody() const { return thenBody; }
+    const std::vector<std::unique_ptr<StmtAST>>& getElseBody() const { return elseBody; }
+    void accept(PyCodeGen& codegen) override;
+    void beginScope(PyCodeGen& codegen) override;
+    void endScope(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
 };
 
-// 函数定义
-class FunctionAST : public ASTNode
-{
-    std::string name;
-    std::vector<ParamAST> params;
-    std::vector<std::unique_ptr<StmtAST>> body;
-    std::string returnType;  // 可能是空的
-public:
-    FunctionAST(const std::string& name, std::vector<ParamAST> params,
-                const std::string& retType, std::vector<std::unique_ptr<StmtAST>> body)
-        : name(name), params(std::move(params)), returnType(retType), body(std::move(body))
-    {
-    }
-    const std::string& getName() const
-    {
-        return name;
-    }
-    const std::vector<ParamAST>& getParams() const
-    {
-        return params;
-    }
-    const std::vector<std::unique_ptr<StmtAST>>& getBody() const
-    {
-        return body;
-    }
-    const std::string& getReturnType() const
-    {
-        return returnType;
-    }
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override
-    {
-        return ASTKind::Function;
-    }
-};
-// ======================== Module ========================
-// 整个模块
-class ModuleAST : public ASTNode
-{
-    std::vector<std::unique_ptr<FunctionAST>> functions;
-    std::vector<std::unique_ptr<StmtAST>> topLevelStmts;
-
-public:
-    ModuleAST(std::vector<std::unique_ptr<StmtAST>> stmts,
-              std::vector<std::unique_ptr<FunctionAST>> funcs)
-        : functions(std::move(funcs)), topLevelStmts(std::move(stmts))
-    {
-    }
-    const std::vector<std::unique_ptr<FunctionAST>>& getFunctions() const
-    {
-        return functions;
-    }
-    const std::vector<std::unique_ptr<StmtAST>>& getTopLevelStmts() const
-    {
-        return topLevelStmts;
-    }
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override
-    {
-        return ASTKind::Module;
-    }
-};
-
-
-// 列表字面量表达式
-class ListExprAST : public ExprAST
-{
-    std::vector<std::unique_ptr<ExprAST>> elements;
-
-public:
-    ListExprAST(std::vector<std::unique_ptr<ExprAST>> elems)
-        : elements(std::move(elems))
-    {
-    }
-    
-    const std::vector<std::unique_ptr<ExprAST>>& getElements() const
-    {
-        return elements;
-    }
-    
-    void accept(CodeGen& codegen) override;
-    std::shared_ptr<Type> getType() const override;
-    ASTKind kind() const override
-    {
-        return ASTKind::ListExpr;
-    }
-};
-
-// 索引表达式
-class IndexExprAST : public ExprAST
-{
-    std::unique_ptr<ExprAST> target;
-    std::unique_ptr<ExprAST> index;
-
-public:
-    IndexExprAST(std::unique_ptr<ExprAST> target, std::unique_ptr<ExprAST> index)
-        : target(std::move(target)), index(std::move(index))
-    {
-    }
-    
-    const ExprAST* getTarget() const
-    {
-        return target.get();
-    }
-    
-    const ExprAST* getIndex() const
-    {
-        return index.get();
-    }
-    
-    void accept(CodeGen& codegen) override;
-    std::shared_ptr<Type> getType() const override;
-    ASTKind kind() const override
-    {
-        return ASTKind::IndexExpr;
-    }
-};
-
-
-// 在其他语句类定义之后添加
-// while语句类的修改
-class WhileStmtAST : public StmtAST
+// while语句
+class WhileStmtAST : public StmtASTBase<WhileStmtAST, ASTKind::WhileStmt>
 {
 private:
     std::unique_ptr<ExprAST> condition;
@@ -485,83 +456,130 @@ private:
 
 public:
     WhileStmtAST(std::unique_ptr<ExprAST> cond, std::vector<std::unique_ptr<StmtAST>> b)
-        : condition(std::move(cond)), body(std::move(b))
-    {
-    }
+        : condition(std::move(cond)), body(std::move(b)) {}
 
-    const ExprAST* getCondition() const
-    {
-        return condition.get();
-    }
-    const std::vector<std::unique_ptr<StmtAST>>& getBody() const
-    {
-        return body;
-    }
-
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override
-    {
-        return ASTKind::WhileStmt;
-    }  // 添加这一行
+    const ExprAST* getCondition() const { return condition.get(); }
+    const std::vector<std::unique_ptr<StmtAST>>& getBody() const { return body; }
+    void accept(PyCodeGen& codegen) override;
+    void beginScope(PyCodeGen& codegen) override;
+    void endScope(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
 };
 
-// 添加pass语句类
-class PassStmtAST : public StmtAST
+// print语句
+class PrintStmtAST : public StmtASTBase<PrintStmtAST, ASTKind::PrintStmt>
+{
+    std::unique_ptr<ExprAST> value;
+
+public:
+    PrintStmtAST(std::unique_ptr<ExprAST> value) : value(std::move(value)) {}
+    
+    const ExprAST* getValue() const { return value.get(); }
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
+};
+
+// 变量赋值语句
+class AssignStmtAST : public StmtASTBase<AssignStmtAST, ASTKind::AssignStmt>
+{
+    std::string name;
+    std::unique_ptr<ExprAST> value;
+
+public:
+    // 添加默认构造函数
+    AssignStmtAST() : name(""), value(nullptr) {}
+    AssignStmtAST(const std::string& name, std::unique_ptr<ExprAST> value)
+        : name(name), value(std::move(value)) {}
+    
+    const std::string& getName() const { return name; }
+    const ExprAST* getValue() const { return value.get(); }
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
+};
+
+// pass语句
+class PassStmtAST : public StmtASTBase<PassStmtAST, ASTKind::PassStmt>
 {
 public:
-    PassStmtAST()
-    {
-    }
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override
-    {
-        return ASTKind::PassStmt;
-    }
+    PassStmtAST() {}
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
 };
 
-class EmptyStmtAST : public StmtAST
-{
-public:
-    EmptyStmtAST()
-    {
-    }
-    void accept(CodeGen& codegen) override
-    {
-    }
-    ASTKind kind() const override
-    {
-        return ASTKind::Unknown;
-    }
-};
-
-// 添加导入语句类
-class ImportStmtAST : public StmtAST
+// import语句
+class ImportStmtAST : public StmtASTBase<ImportStmtAST, ASTKind::ImportStmt>
 {
     std::string moduleName;
     std::string alias;
 
 public:
     ImportStmtAST(const std::string& module, const std::string& alias = "")
-        : moduleName(module), alias(alias)
-    {
-    }
-    const std::string& getModuleName() const
-    {
-        return moduleName;
-    }
-    const std::string& getAlias() const
-    {
-        return alias;
-    }
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override
-    {
-        return ASTKind::ImportStmt;
-    }
+        : moduleName(module), alias(alias) {}
+    
+    const std::string& getModuleName() const { return moduleName; }
+    const std::string& getAlias() const { return alias; }
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
 };
 
-// 添加类定义语句类
-class ClassStmtAST : public StmtAST
+// ======================== 函数和模块 ========================
+
+// 函数定义参数
+struct ParamAST
+{
+    std::string name;
+    std::string typeName;  // 类型名称
+    std::shared_ptr<PyType> resolvedType; // 解析后的实际类型
+    
+    ParamAST(const std::string& n, const std::string& t) : name(n), typeName(t) {}
+    ParamAST(const std::string& n) : name(n), typeName("") {}
+};
+
+// 函数定义
+class FunctionAST : public ASTNodeBase<FunctionAST, ASTKind::Function>
+{
+    std::string name;
+    std::vector<ParamAST> params;
+    std::vector<std::unique_ptr<StmtAST>> body;
+    std::string returnTypeName;  // 返回类型名
+    mutable std::shared_ptr<PyType> cachedReturnType;
+    bool returnTypeResolved = false;
+    bool allParamsResolved = false;  // 添加这个字段
+
+public:
+
+    // 添加默认构造函数
+    FunctionAST() : name(""), returnTypeName("") {}// ？returnTypeName("") 合理吗
+    FunctionAST(const std::string& name, std::vector<ParamAST> params,
+                const std::string& retType, std::vector<std::unique_ptr<StmtAST>> body)
+        : name(name), params(std::move(params)), returnTypeName(retType), body(std::move(body)) {}
+    
+    const std::string& getName() const { return name; }
+    const std::vector<ParamAST>& getParams() const { return params; }
+    const std::vector<std::unique_ptr<StmtAST>>& getBody() const { return body; }
+    const std::string& getReturnTypeName() const { return returnTypeName; }
+    
+    // 基于函数体分析实际返回类型
+    std::shared_ptr<PyType> inferReturnType() const;
+    
+    // 解析并获取返回类型 (惰性求值)
+    std::shared_ptr<PyType> getReturnType() const;
+    
+    // 解析参数类型
+    void resolveParamTypes();
+    
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
+};
+
+// 类定义
+class ClassStmtAST : public StmtASTBase<ClassStmtAST, ASTKind::ClassStmt>
 {
     std::string className;
     std::vector<std::string> baseClasses;
@@ -573,31 +591,156 @@ public:
                  const std::vector<std::string>& bases,
                  std::vector<std::unique_ptr<StmtAST>> body,
                  std::vector<std::unique_ptr<FunctionAST>> methods)
-        : className(name), baseClasses(bases), body(std::move(body)), methods(std::move(methods))
-    {
-    }
+        : className(name), baseClasses(bases), body(std::move(body)), methods(std::move(methods)) {}
 
-    const std::string& getClassName() const
-    {
-        return className;
+    const std::string& getClassName() const { return className; }
+    const std::vector<std::string>& getBaseClasses() const { return baseClasses; }
+    const std::vector<std::unique_ptr<StmtAST>>& getBody() const { return body; }
+    const std::vector<std::unique_ptr<FunctionAST>>& getMethods() const { return methods; }
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
+};
+
+// 整个模块
+class ModuleAST : public ASTNodeBase<ModuleAST, ASTKind::Module>
+{
+    std::string moduleName;
+    std::vector<std::unique_ptr<FunctionAST>> functions;
+    std::vector<std::unique_ptr<StmtAST>> topLevelStmts;
+
+public:
+    ModuleAST(const std::string& name,
+              std::vector<std::unique_ptr<StmtAST>> stmts,
+              std::vector<std::unique_ptr<FunctionAST>> funcs)
+        : moduleName(name), functions(std::move(funcs)), topLevelStmts(std::move(stmts)) {}
+    
+    const std::string& getModuleName() const { return moduleName; }
+    const std::vector<std::unique_ptr<FunctionAST>>& getFunctions() const { return functions; }
+    const std::vector<std::unique_ptr<StmtAST>>& getTopLevelStmts() const { return topLevelStmts; }
+    void accept(PyCodeGen& codegen) override;
+    
+    static void registerWithFactory();
+};
+
+// ======================== AST工厂和注册器 ========================
+
+// AST节点工厂 - 使用单例模式和注册器模式
+class ASTFactory {
+public:
+    // 获取单例实例
+    static ASTFactory& getInstance();
+    
+    // 工厂方法 - 创建不同类型的AST节点
+    template<typename NodeType, typename... Args>
+    std::unique_ptr<NodeType> create(Args&&... args) {
+        return std::make_unique<NodeType>(std::forward<Args>(args)...);
     }
-    const std::vector<std::string>& getBaseClasses() const
-    {
-        return baseClasses;
+    
+    // 基于类型ID创建节点的工厂方法
+    std::unique_ptr<ASTNode> createNode(ASTKind kind);
+    
+    // 注册创建器
+    template<typename NodeType>
+    void registerNodeCreator(ASTKind kind) {
+        nodeRegistry[kind] = [](){ return std::make_unique<NodeType>(); };
     }
-    const std::vector<std::unique_ptr<StmtAST>>& getBody() const
-    {
-        return body;
+    
+    // 类型判断助手
+    template<typename T>
+    static bool is(const ASTNode* node) {
+        return node && node->kind() == T::NodeKind;
     }
-    const std::vector<std::unique_ptr<FunctionAST>>& getMethods() const
-    {
-        return methods;
+    
+    // 类型转换助手
+    template<typename T>
+    static T* as(ASTNode* node) {
+        return is<T>(node) ? static_cast<T*>(node) : nullptr;
     }
-    void accept(CodeGen& codegen) override;
-    ASTKind kind() const override
-    {
-        return ASTKind::ClassStmt;
+    
+    template<typename T>
+    static const T* as(const ASTNode* node) {
+        return is<T>(node) ? static_cast<const T*>(node) : nullptr;
     }
+    
+    // 初始化所有节点类型
+    void registerAllNodes();
+
+        // 添加特化工厂函数注册方法
+        template<typename NodeType>
+        void registerNodeCreator(ASTKind kind, std::function<std::unique_ptr<NodeType>()> creator) {
+            nodeRegistry[kind] = [creator]() -> std::unique_ptr<ASTNode> {
+                return creator();
+            };
+        }
+
+private:
+    ASTFactory() { registerAllNodes(); }
+    ~ASTFactory() = default;
+    
+    // 禁止拷贝和赋值
+    ASTFactory(const ASTFactory&) = delete;
+    ASTFactory& operator=(const ASTFactory&) = delete;
+    
+    // 节点创建函数映射
+    std::unordered_map<ASTKind, std::function<std::unique_ptr<ASTNode>()>> nodeRegistry;
+};
+
+// ======================== 类型系统接口 ========================
+
+// Python类型包装器
+class PyType {
+public:
+    // 构造函数
+    PyType(ObjectType* objType = nullptr);
+    
+    // 获取底层ObjectType
+    ObjectType* getObjectType() const { return objectType; }
+    
+    // 类型判断方法
+    bool isVoid() const;
+    bool isInt() const;
+    bool isDouble() const;
+    bool isNumeric() const;
+    bool isBool() const;
+    bool isString() const;
+    bool isList() const;
+    bool isDict() const;
+    bool isAny() const;
+    bool isReference() const;
+    
+    // 类型比较
+    bool equals(const PyType& other) const;
+    
+    // 工厂方法
+    static std::shared_ptr<PyType> getVoid();
+    static std::shared_ptr<PyType> getInt();
+    static std::shared_ptr<PyType> getDouble();
+    static std::shared_ptr<PyType> getBool();
+    static std::shared_ptr<PyType> getString();
+    static std::shared_ptr<PyType> getAny();
+    static std::shared_ptr<PyType> getList(const std::shared_ptr<PyType>& elemType);
+    static std::shared_ptr<PyType> getDict(const std::shared_ptr<PyType>& keyType, 
+                                         const std::shared_ptr<PyType>& valueType);
+    
+    // 类型解析 - 从字符串解析类型
+    static std::shared_ptr<PyType> fromString(const std::string& typeName);
+    
+private:
+    ObjectType* objectType;
+};
+
+// 类型推断助手函数
+std::shared_ptr<PyType> inferExprType(const ExprAST* expr);
+std::shared_ptr<PyType> inferListElementType(const std::vector<std::unique_ptr<ExprAST>>& elements);
+std::shared_ptr<PyType> getCommonType(const std::shared_ptr<PyType>& t1, const std::shared_ptr<PyType>& t2);
+
+// 内存管理助手
+class MemoryManager {
+public:
+    static void trackObject(PyCodeGen& codegen, llvm::Value* obj);
+    static void releaseTrackedObjects(PyCodeGen& codegen);
+    static llvm::Value* prepareReturnValue(PyCodeGen& codegen, llvm::Value* value, PyType* type);
 };
 
 }  // namespace llvmpy
