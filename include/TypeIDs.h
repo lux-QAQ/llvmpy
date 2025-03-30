@@ -12,7 +12,9 @@ enum PyTypeId {
     PY_TYPE_STRING  = 4,
     PY_TYPE_LIST    = 5,
     PY_TYPE_DICT    = 6,
-    
+    PY_TYPE_ANY     = 7,  // 添加ANY类型
+    PY_TYPE_OBJECT  = 0,  // 通用对象类型，与 NONE 相同
+    PY_TYPE_FUNC   = 8,  // 函数类型
     // 复合类型ID基础 - 用于运行时扩展类型ID
     PY_TYPE_LIST_BASE = 100,
     PY_TYPE_DICT_BASE = 200,
@@ -47,7 +49,8 @@ enum PyTypeId {
     PY_TYPE_BOOL    = 3,
     PY_TYPE_STRING  = 4,
     PY_TYPE_LIST    = 5,
-    PY_TYPE_DICT    = 6
+    PY_TYPE_DICT    = 6,
+    PY_TYPE_ANY     = 7  // 也需要在C版本中添加??是否需要在runtime中添加
 };
 #endif
 

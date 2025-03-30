@@ -7,3 +7,6 @@
 3. 参数 `0` 表示默认地址空间（在大多数情况下是正确的）
 
 这个修改应该能解决您遇到的编译错误，同时保持原有代码的功能不变。如果项目中还有其他地方使用了 `getInt8PtrTy`，也需要以同样的方式进行修改。
+
+## ObjectLifecycleManager::createObject
+可能会导致重复创建函数使用getOrCreateExternalFunction替代

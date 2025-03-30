@@ -9,6 +9,8 @@
 #include <llvm/IR/Type.h>
 #include <llvm/IR/LLVMContext.h>
 
+#include "TypeIDs.h"  // 包含类型ID定义
+
 namespace llvmpy {
 
 // 前置声明
@@ -30,6 +32,7 @@ public:
         virtual bool isReference() const {
             return hasFeature("reference");
         }
+        
         
         // 添加一个显式的isMutable方法，方便调用
         virtual bool isMutable() const {
@@ -175,6 +178,10 @@ public:
     // 从字符串解析类型
     ObjectType* parseTypeFromString(const std::string& typeStr);
     
+    ObjectType* getSymbolType(const std::string& name) const;
+    void registerSymbolType(const std::string& name, ObjectType* type) {
+        symbolTypes[name] = type;
+    }
     // 类型转换
     bool canConvert(ObjectType* from, ObjectType* to);
     
@@ -197,9 +204,12 @@ public:
             }
         }
 
+   
 private:
     TypeRegistry();
     ~TypeRegistry();
+    
+    std::unordered_map<std::string, ObjectType*> symbolTypes;
     
     // 注册基础类型
     void registerBuiltinTypes();
@@ -270,23 +280,27 @@ class TypeFeatureChecker {
         // 注册所有内置特性检查
         static void registerBuiltinFeatureChecks() {
             // 容器检查
-            registerFeatureCheck("container", [](const ObjectType* type) {
-                return dynamic_cast<const ListType*>(type) || 
-                       dynamic_cast<const DictType*>(type);
-            });
+             // 容器检查 - 增强对PY_TYPE_LIST的支持
+    registerFeatureCheck("container", [](const ObjectType* type) -> bool{
+        return dynamic_cast<const ListType*>(type) || 
+               dynamic_cast<const DictType*>(type) ||
+               type->getTypeId() == PY_TYPE_LIST;  // 明确检查类型ID
+    });
             
             // 引用类型检查
             registerFeatureCheck("reference", [](const ObjectType* type) {
                 return type->getCategory() == ObjectType::Reference || 
                        type->getCategory() == ObjectType::Container || 
-                       type->getName() == "string";
+                       type->getTypeId() == PY_TYPE_STRING;
             });
             
             // 序列类型检查
-            registerFeatureCheck("sequence", [](const ObjectType* type) {
-                return dynamic_cast<const ListType*>(type) ||
-                       type->getName() == "string";
-            });
+                // 序列类型检查 - 增强对PY_TYPE_LIST的支持
+    registerFeatureCheck("sequence", [](const ObjectType* type) {
+        return dynamic_cast<const ListType*>(type) ||
+        type->getTypeId() == PY_TYPE_STRING ||
+               type->getTypeId() == PY_TYPE_LIST;  // 明确检查类型ID
+    });
             
             // 映射类型检查
             registerFeatureCheck("mapping", [](const ObjectType* type) {
@@ -296,7 +310,7 @@ class TypeFeatureChecker {
             // 数值类型检查
             registerFeatureCheck("numeric", [](const ObjectType* type) {
                 const std::string& name = type->getName();
-                return name == "int" || name == "double";
+                return type->getTypeId() == PY_TYPE_INT || type->getTypeId() == PY_TYPE_DOUBLE;
             });
             
             // 可变类型检查

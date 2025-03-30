@@ -31,18 +31,20 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 # 添加源文件
 add_executable(llvmpy 
     main.cpp
-    runtime.cpp
+    src/runtime.cpp
     src/lexer.cpp
     src/parser.cpp
     src/codegen.cpp
     src/ast.cpp
     src/ObjectType.cpp
     src/ObjectRuntime.cpp
+    src/TypeOperations.cpp    # 添加这一行
+    src/ObjectLifecycle.cpp   # 添加这一行
 )
 
 # 运行时支持库 (编译为静态库)
 add_library(llvmpy_runtime STATIC
-    runtime.cpp
+    src/runtime.cpp
 )
 
 # 链接LLVM库

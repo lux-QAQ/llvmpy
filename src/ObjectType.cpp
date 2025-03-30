@@ -76,14 +76,14 @@ PrimitiveType::PrimitiveType(const std::string& name)
     }
 
     int PrimitiveType::getTypeId() const {
-        if (name == "int") return 1;
-        if (name == "double") return 2;
-        if (name == "bool") return 3;
-        if (name == "string") return 4;
-        if (name == "void") return 0;
-        if (name == "any") return 5;
-        if (name == "object") return 6;
-        return -1; // 未知类型
+        if (name == "int") return PY_TYPE_INT;       // 1
+        if (name == "double") return PY_TYPE_DOUBLE; // 2
+        if (name == "bool") return PY_TYPE_BOOL;     // 3
+        if (name == "string") return PY_TYPE_STRING; // 4
+        if (name == "void") return PY_TYPE_NONE;     // 0
+        if (name == "any") return PY_TYPE_ANY;       // 7 - 修复这里
+        if (name == "object") return PY_TYPE_ANY;    // 也使用7，确保一致性
+        return PY_TYPE_NONE; // 默认返回 NONE 而不是-1
     }
 
 // ListType实现
@@ -122,7 +122,8 @@ llvm::Type* ListType::getLLVMType(llvm::LLVMContext& context) const {
 }
 
 int ListType::getTypeId() const {
-    return 100 + elementType->getTypeId(); // 列表类型起始ID为100
+    // 确保始终返回PY_TYPE_LIST，而不是基于元素类型计算
+    return PY_TYPE_LIST; // 5
 }
 
 std::string ListType::getTypeSignature() const {
@@ -169,7 +170,7 @@ DictType::DictType(ObjectType* keyType, ObjectType* valueType)
     }
 
 int DictType::getTypeId() const {
-    return 200 + keyType->getTypeId() * 100 + valueType->getTypeId();
+    return PY_TYPE_DICT; // 6
 }
 
 std::string DictType::getTypeSignature() const {
@@ -196,7 +197,7 @@ FunctionType::FunctionType(ObjectType* returnType,
     }
 
 int FunctionType::getTypeId() const {
-    return 300 + returnType->getTypeId(); // 函数类型ID从300开始
+    return  PY_TYPE_FUNC; // 8
 }
 
 std::string FunctionType::getTypeSignature() const {
@@ -288,22 +289,41 @@ void TypeRegistry::registerBuiltinTypes() {
 }
 
 ObjectType* TypeRegistry::getType(const std::string& name) {
+    // 标准化类型名称，避免大小写或空格导致的不匹配
+    std::string normalizedName = name;
+    std::transform(normalizedName.begin(), normalizedName.end(), normalizedName.begin(), ::tolower);
+    
+    // 特殊处理list类型 - 确保不会返回any类型
+    if (normalizedName == "list") {
+        // 检查是否已存在list类型
+        auto listIt = namedTypes.find("list");
+        if (listIt != namedTypes.end()) {
+            return listIt->second;
+        }
+        
+        // 创建空列表类型
+        ObjectType* anyType = getType("any");
+        ListType* listType = new ListType(anyType);
+        registerType("list", listType);
+        return listType;
+    }
+    
     // 先在已注册类型中查找
-    auto it = namedTypes.find(name);
+    auto it = namedTypes.find(normalizedName);
     if (it != namedTypes.end()) {
         return it->second;
     }
     
     // 尝试使用类型创建器
-    auto creatorIt = typeCreators.find(name);
+    auto creatorIt = typeCreators.find(normalizedName);
     if (creatorIt != typeCreators.end()) {
-        ObjectType* newType = creatorIt->second(name);
-        registerType(name, newType);
+        ObjectType* newType = creatorIt->second(normalizedName);
+        registerType(normalizedName, newType);
         return newType;
     }
     
     // 如果找不到，对于非空名称的请求，尝试查找any或object类型
-    if (!name.empty()) {
+    if (!normalizedName.empty()) {
         auto anyType = namedTypes.find("any");
         if (anyType != namedTypes.end()) {
             return anyType->second;
@@ -316,7 +336,7 @@ ObjectType* TypeRegistry::getType(const std::string& name) {
     }
     
     // 极端情况：如果any和object都没有找到，创建一个
-    if (name == "any" || name.empty()) {
+    if (normalizedName == "any" || normalizedName.empty()) {
         PrimitiveType* anyType = new PrimitiveType("any");
         registerType("any", anyType);
         return anyType;
@@ -439,7 +459,13 @@ ObjectType* TypeRegistry::parseTypeFromString(const std::string& typeStr) {
     // 未识别的类型，默认返回double
     return getType("double");
 }
-
+ObjectType* TypeRegistry::getSymbolType(const std::string& name) const {
+    auto it = symbolTypes.find(name);
+    if (it != symbolTypes.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
 bool TypeRegistry::canConvert(ObjectType* from, ObjectType* to) {
     if (!from || !to) return false;
     

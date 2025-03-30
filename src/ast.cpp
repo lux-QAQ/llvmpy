@@ -119,34 +119,38 @@ std::shared_ptr<PyType> PyType::getAny()
 {
     // 确保any类型只被初始化一次
     static std::shared_ptr<PyType> anyType = nullptr;
-    
-    if (!anyType) {
+
+    if (!anyType)
+    {
         ObjectType* objType = TypeRegistry::getInstance().getType("any");
-        
+
         // 双重检查，确保objType有效
-        if (!objType) {
+        if (!objType)
+        {
             std::cerr << "警告: 'any'类型未注册，尝试获取'object'类型" << std::endl;
             objType = TypeRegistry::getInstance().getType("object");
         }
-        
+
         // 如果仍然无效，创建一个硬编码的默认类型
-        if (!objType) {
+        if (!objType)
+        {
             std::cerr << "警告: 无法获取'any'或'object'类型，使用'int'类型作为备选" << std::endl;
             objType = TypeRegistry::getInstance().getType("int");
-            
+
             // 最后的防线
-            if (!objType) {
+            if (!objType)
+            {
                 std::cerr << "错误: 类型系统未初始化，创建硬编码的默认类型" << std::endl;
-                
+
                 // 创建一个new的PrimitiveType而不是在栈上创建防止函数返回后销毁
                 objType = new PrimitiveType("any");
                 TypeRegistry::getInstance().registerType("any", objType);
             }
         }
-        
+
         anyType = std::make_shared<PyType>(objType);
     }
-    
+
     return anyType;
 }
 
@@ -651,43 +655,76 @@ void IndexExprAST::registerWithFactory()
 std::shared_ptr<PyType> IndexExprAST::getType() const
 {
     if (cachedType)
-    {
         return cachedType;
+
+    auto targetTypePtr = target->getType();
+    if (!targetTypePtr)
+        return PyType::getAny();
+
+    // 尝试从符号表获取更精确的类型
+    const VariableExprAST* varExpr = dynamic_cast<const VariableExprAST*>(target.get());
+    if (varExpr)
+    {
+        std::string varName = varExpr->getName();
+
+        // 使用TypeRegistry获取符号类型
+        ObjectType* symbolType = TypeRegistry::getInstance().getSymbolType(varName);
+        if (symbolType)
+        {
+            // 优先使用符号表中的类型
+            if (symbolType->getTypeId() == PY_TYPE_LIST)
+            {
+                // 如果是列表类型，获取元素类型
+                const ListType* listType = dynamic_cast<const ListType*>(symbolType);
+                if (listType)
+                {
+                    cachedType = std::make_shared<PyType>(
+                        const_cast<ObjectType*>(listType->getElementType()));
+                    return cachedType;
+                }
+            }
+        }
     }
 
-    auto targetType = target->getType();
+    // 无法从符号表获取更精确信息，使用标准处理逻辑
+    ObjectType* targetType = targetTypePtr->getObjectType();
+    if (!targetType)
+        return PyType::getAny();
+
+    // 使用类型ID而不是类型名称判断
+    int typeId = targetType->getTypeId();
 
     // 如果是列表，返回列表元素类型
-    if (targetType->isList())
+    if (typeId == PY_TYPE_LIST)
     {
-        auto listType = dynamic_cast<ListType*>(targetType->getObjectType());
+        // 修复这里 - 直接对targetType进行类型转换，而不是调用不存在的getObjectType()方法
+        auto listType = dynamic_cast<ListType*>(targetType);
         if (listType)
         {
             cachedType = std::make_shared<PyType>(const_cast<ObjectType*>(listType->getElementType()));
             return cachedType;
         }
     }
-
-    // 如果是字典，返回值类型
-    if (targetType->isDict())
+    else if (typeId == PY_TYPE_DICT)
     {
-        auto dictType = dynamic_cast<DictType*>(targetType->getObjectType());
+        // 同样修复这里
+        auto dictType = dynamic_cast<DictType*>(targetType);
         if (dictType)
         {
             cachedType = std::make_shared<PyType>(const_cast<ObjectType*>(dictType->getValueType()));
             return cachedType;
         }
     }
-
-    // 对于字符串，返回字符类型（或字符串片段）
-    if (targetType->isString())
+    else if (typeId == PY_TYPE_STRING)
     {
         cachedType = PyType::getString();
         return cachedType;
     }
+    else
+    {
+        cachedType = PyType::getAny();
+    }
 
-    // 默认返回动态类型
-    cachedType = PyType::getAny();
     return cachedType;
 }
 
@@ -986,30 +1023,36 @@ std::shared_ptr<PyType> FunctionAST::getReturnType() const
 void FunctionAST::resolveParamTypes()
 {
     // 如果已经解析过参数类型，直接返回
-    if (allParamsResolved) {
+    if (allParamsResolved)
+    {
         return;
     }
-    
-    for (auto& param : params) {
-        if (!param.resolvedType) {
-            if (!param.typeName.empty()) {
+
+    for (auto& param : params)
+    {
+        if (!param.resolvedType)
+        {
+            if (!param.typeName.empty())
+            {
                 // 如果有类型名，尝试解析
                 param.resolvedType = PyType::fromString(param.typeName);
             }
-            
+
             // 如果仍然没有类型，优先使用int类型
-            if (!param.resolvedType) {
+            if (!param.resolvedType)
+            {
                 param.resolvedType = PyType::getInt();
             }
         }
-        
+
         // 确保resolvedType不为空
-        if (!param.resolvedType) {
+        if (!param.resolvedType)
+        {
             std::cerr << "警告: 无法解析参数 " << param.name << " 的类型，使用默认int类型" << std::endl;
             param.resolvedType = PyType::getInt();
         }
     }
-    
+
     // 标记所有参数已解析
     allParamsResolved = true;
 }
@@ -1020,6 +1063,24 @@ void FunctionAST::accept(PyCodeGen& codegen)
 }
 
 // 模块
+
+// 为ModuleAST添加必要的方法
+void ModuleAST::addFunction(std::unique_ptr<FunctionAST> func)
+{
+    if (func)
+    {
+        functions.push_back(std::move(func));
+    }
+}
+
+void ModuleAST::addStatement(std::unique_ptr<StmtAST> stmt)
+{
+    if (stmt)
+    {
+        topLevelStmts.push_back(std::move(stmt));
+    }
+}
+
 void ModuleAST::registerWithFactory()
 {
     auto& factory = ASTFactory::getInstance();
