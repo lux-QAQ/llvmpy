@@ -527,7 +527,7 @@ public:
 {
 }
 
-    const ExprAST* getTarget() const
+/*     const ExprAST* getTarget() const
     {
         return target.get();
     }
@@ -538,6 +538,35 @@ public:
     const ExprAST* getValue() const
     {
         return value.get();
+    } */
+         // 修改这三个getter方法，使其能处理两种构造方式
+    const ExprAST* getTarget() const { 
+        if (target) 
+            return target.get();
+        if (targetExpr) {
+            if (auto indexExpr = dynamic_cast<const IndexExprAST*>(targetExpr.get())) {
+                return indexExpr->getTarget();
+            }
+            return targetExpr.get();
+        }
+        return nullptr;
+    }
+
+    const ExprAST* getIndex() const { 
+        if (index) 
+            return index.get();
+        if (targetExpr) {
+            if (auto indexExpr = dynamic_cast<const IndexExprAST*>(targetExpr.get())) {
+                return indexExpr->getIndex();
+            }
+        }
+        return nullptr;
+    }
+
+    const ExprAST* getValue() const { 
+        if (value) 
+            return value.get();
+        return valueExpr.get();
     }
     void accept(PyCodeGen& codegen) override;
 

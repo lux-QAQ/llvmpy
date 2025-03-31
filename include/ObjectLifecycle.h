@@ -17,6 +17,15 @@ class PyCodeGen;
  */
 class ObjectLifecycleManager {
 public:
+    // 将类型信息附加到LLVM值
+    static void attachTypeMetadata(llvm::Value* value, int typeId);
+    
+    // 从LLVM值获取类型信息
+    static int getTypeIdFromMetadata(llvm::Value* value);
+
+
+    bool isContainerType(llvm::Value* value);
+    llvm::Value* ensureContainer(PyCodeGen& codegen, llvm::Value* value, int containerTypeId);
     // 对象来源类型 - 决定了对象的处理方式
     enum class ObjectSource {
         FUNCTION_RETURN,  // 函数返回值

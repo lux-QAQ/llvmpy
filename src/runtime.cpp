@@ -41,6 +41,7 @@ extern "C"
     PyObject* py_list_get_item(PyObject* obj, int index);
     PyObject* py_list_append(PyObject* obj, PyObject* item);
     int py_list_len(PyObject* obj);
+    int py_get_object_type_id(PyObject* obj);
     void py_list_decref_items(PyListObject* list);
 
     // 字典操作函数
@@ -202,6 +203,43 @@ extern "C"
         return objBaseTypeId == expectedBaseTypeId;
     }
 
+
+// 将Python对象转换为布尔值
+bool py_object_to_bool(PyObject* obj)
+{
+    if (!obj)
+        return false;
+    
+    // 检查对象类型
+    switch (llvmpy::getBaseTypeId(obj->typeId))
+    {
+        case llvmpy::PY_TYPE_BOOL:
+            return ((PyPrimitiveObject*)obj)->value.boolValue;
+            
+        case llvmpy::PY_TYPE_INT:
+            return ((PyPrimitiveObject*)obj)->value.intValue != 0;
+            
+        case llvmpy::PY_TYPE_DOUBLE:
+            return ((PyPrimitiveObject*)obj)->value.doubleValue != 0.0;
+            
+        case llvmpy::PY_TYPE_STRING:
+            return ((PyPrimitiveObject*)obj)->value.stringValue && 
+                   *((PyPrimitiveObject*)obj)->value.stringValue != '\0';
+            
+        case llvmpy::PY_TYPE_LIST:
+            return ((PyListObject*)obj)->length > 0;
+            
+        case llvmpy::PY_TYPE_DICT:
+            return ((PyDictObject*)obj)->size > 0;
+            
+        case llvmpy::PY_TYPE_NONE:
+            return false;
+            
+        default:
+            fprintf(stderr, "WARNING: py_object_to_bool called on unknown type: %d\n", obj->typeId);
+            return true;  // 默认为true以避免程序崩溃
+    }
+}
     // 获取类型名称
     const char* py_type_name(int typeId)
     {
@@ -233,7 +271,34 @@ extern "C"
                 expectedTypeId, py_type_name(expectedTypeId),
                 obj ? obj->typeId : -1, obj ? py_type_name(obj->typeId) : "None");
     }
-
+    // 获取 None 单例对象 - 在extern "C" 块内添加
+PyObject* py_get_none()
+{
+    // None 对象应该是单例的，使用静态变量确保只创建一次
+    static PyObject* noneObj = nullptr;
+    
+    // 如果 None 对象尚未创建，则创建它
+    if (!noneObj) {
+        // 分配一个基本对象结构体空间
+        noneObj = (PyObject*)malloc(sizeof(PyObject));
+        if (!noneObj) {
+            fprintf(stderr, "错误: 无法为 None 对象分配内存\n");
+            return nullptr;
+        }
+        
+        // 初始化 None 对象
+        noneObj->refCount = 1;      // 开始引用计数为1
+        noneObj->typeId = llvmpy::PY_TYPE_NONE;  // 设置为 None 类型
+        
+        // None 是单例，永远不应该被释放，但为了防止程序结束时的内存检查报错，
+        // 可以注册一个 atexit 处理函数来释放它
+    }
+    
+    // 增加引用计数 (因为每次调用都应该增加一次引用)
+    py_incref(noneObj);
+    
+    return noneObj;
+}
     // 检查类型，如果不匹配则返回错误信息和NULL
     PyObject* py_ensure_type(PyObject* obj, int expectedTypeId)
     {
@@ -637,7 +702,25 @@ extern "C"
     //===----------------------------------------------------------------------===//
     // 类型转换函数
     //===----------------------------------------------------------------------===//
-
+// 获取对象的类型ID
+int py_get_object_type_id(PyObject* obj)
+{
+    if (!obj)
+    {
+        // 返回 NONE 类型或错误值
+        return llvmpy::PY_TYPE_NONE;
+    }
+    
+    // 安全检查 - 确保指针有效
+    if ((uintptr_t)obj < 0x1000 || (uintptr_t)obj > 0x7FFFFFFFFFFFFFFF)
+    {
+        fprintf(stderr, "ERROR: Invalid object pointer in py_get_object_type_id: %p\n", obj);
+        return llvmpy::PY_TYPE_NONE;
+    }
+    
+    // 直接返回对象的类型ID
+    return obj->typeId;
+}
     // 将整数对象转换为浮点数对象
     PyObject* py_convert_int_to_double(PyObject* obj)
     {
@@ -737,6 +820,446 @@ extern "C"
                 return py_create_string("<unknown object>");
         }
     }
+// 在 extern "C" 块内添加以下函数
+
+// any 类型转换到 int
+// any 类型转换到 int
+// any 类型转换到 int - 保留类型特性的智能版本
+PyObject* py_convert_any_to_int(PyObject* obj)
+{
+    if (!obj) {
+        fprintf(stderr, "错误: py_convert_any_to_int 接收到空对象\n");
+        return py_create_int(0);
+    }
+    
+    // 使用正确的类型ID检查 - 使用PY_TYPE_PTR (400)值而不是依赖未定义的名称
+    if (obj->typeId >= 400) { // PY_TYPE_PTR及其派生类型都大于400
+        PyObject** ptrToObj = (PyObject**)obj;
+        if (ptrToObj && *ptrToObj) {
+            // 使用指针指向的实际对象
+            return py_convert_any_to_int(*ptrToObj);
+        }
+    }
+    
+    // 使用getBaseTypeId获取基本类型ID
+    int baseTypeId = llvmpy::getBaseTypeId(obj->typeId);
+    
+    switch (baseTypeId)
+    {
+        case llvmpy::PY_TYPE_INT:
+            // 整数保持原样
+            py_incref(obj);
+            return obj;
+            
+        case llvmpy::PY_TYPE_DOUBLE: {
+            // 关键改进：对于浮点数，直接返回原始对象，不做类型转换
+            // 这允许表达式保留其原始类型，避免精度丢失
+            py_incref(obj);
+            return obj;
+        }
+            
+        case llvmpy::PY_TYPE_BOOL: {
+            PyPrimitiveObject* boolObj = (PyPrimitiveObject*)obj;
+            return py_create_int(boolObj->value.boolValue ? 1 : 0);
+        }
+            
+        case llvmpy::PY_TYPE_STRING: {
+            PyPrimitiveObject* strObj = (PyPrimitiveObject*)obj;
+            if (!strObj->value.stringValue) {
+                return py_create_int(0);
+            }
+            
+            // 尝试将字符串转换为数值
+            char* endptr;
+            
+            // 检查是否包含小数点
+            if (strchr(strObj->value.stringValue, '.')) {
+                // 尝试解析为浮点数
+                double dblValue = strtod(strObj->value.stringValue, &endptr);
+                if (*endptr == '\0') {
+                    // 成功解析为浮点数，返回浮点数对象
+                    return py_create_double(dblValue);
+                }
+            }
+            
+            // 尝试解析为整数
+            int value = (int)strtol(strObj->value.stringValue, &endptr, 10);
+            if (*endptr != '\0') {
+                fprintf(stderr, "警告: 无法将字符串 '%s' 转换为数字\n", strObj->value.stringValue);
+            }
+            
+            return py_create_int(value);
+        }
+            
+        case llvmpy::PY_TYPE_LIST:
+        case llvmpy::PY_TYPE_DICT: {
+            // 对于容器类型，返回原始对象，保留类型信息
+            py_incref(obj);
+            return obj;
+        }
+            
+        case llvmpy::PY_TYPE_NONE:
+            return py_create_int(0);
+            
+        default:
+            // 未知类型时保持原样，增加引用计数
+            fprintf(stderr, "提示: 保留未知类型 %d 的原始值\n", obj->typeId);
+            py_incref(obj);
+            return obj;
+    }
+}
+
+
+// 检测对象的实际类型，处理指针和包装类型
+int py_detect_actual_type(PyObject* obj)
+{
+    if (!obj) return llvmpy::PY_TYPE_NONE;
+    
+    // 处理指针类型
+    if (obj->typeId >= 400) { // PY_TYPE_PTR 范围
+        PyObject** ptrToObj = (PyObject**)obj;
+        if (ptrToObj && *ptrToObj) {
+            return (*ptrToObj)->typeId;
+        }
+    }
+    
+    return obj->typeId;
+}
+
+// 提取对象的实际值，无论它是普通对象还是指针
+PyObject* py_unwrap_object(PyObject* obj)
+{
+    if (!obj) return nullptr;
+    
+    // 处理指针类型
+    if (obj->typeId >= 400) { // PY_TYPE_PTR 范围
+        PyObject** ptrToObj = (PyObject**)obj;
+        if (ptrToObj && *ptrToObj) {
+            return *ptrToObj;
+        }
+    }
+    
+    return obj;
+}
+
+// 通用any类型转换 - 智能保留原始类型
+// 智能类型保留函数 - 专门处理参数透传返回
+PyObject* py_convert_any_preserve_type(PyObject* obj)
+{
+    if (!obj) {
+        return py_create_int(0); // 默认返回0
+    }
+    
+    // 处理指针类型
+    if (obj->typeId >= 400) { // 指针类型范围
+        PyObject** ptrToObj = (PyObject**)obj;
+        if (ptrToObj && *ptrToObj) {
+            // 增加引用计数并返回指向的对象
+            py_incref(*ptrToObj);
+            return *ptrToObj;
+        }
+    }
+    
+    // 处理容器类型
+    if ((obj->typeId >= llvmpy::PY_TYPE_LIST_BASE && obj->typeId < llvmpy::PY_TYPE_DICT_BASE) ||
+        (obj->typeId >= llvmpy::PY_TYPE_DICT_BASE && obj->typeId < llvmpy::PY_TYPE_FUNC_BASE) ||
+        obj->typeId == llvmpy::PY_TYPE_LIST || 
+        obj->typeId == llvmpy::PY_TYPE_DICT) {
+        // 是容器类型，保留原始类型
+        py_incref(obj);
+        return obj;
+    }
+    
+    // 处理基本类型
+    switch (llvmpy::getBaseTypeId(obj->typeId))
+    {
+        case llvmpy::PY_TYPE_INT:
+        case llvmpy::PY_TYPE_DOUBLE:
+        case llvmpy::PY_TYPE_BOOL:
+        case llvmpy::PY_TYPE_STRING:
+        case llvmpy::PY_TYPE_ANY:
+            // 直接保留原始类型
+            py_incref(obj);
+            return obj;
+        
+        default:
+            // 未知类型也保留原始类型
+            py_incref(obj);
+            return obj;
+    }
+}
+
+// 保留浮点/容器类型的整数提取函数
+// 保留浮点/容器类型的整数提取函数
+int py_extract_preserve_int(PyObject* obj)
+{
+    if (!obj) return 0;
+    
+    // 解包指针
+    PyObject* actual = obj;
+    if (obj->typeId >= 400) {
+        PyObject** ptrToObj = (PyObject**)obj;
+        if (ptrToObj && *ptrToObj) {
+            actual = *ptrToObj;
+        }
+    }
+    
+    // 根据实际类型进行处理
+    switch (llvmpy::getBaseTypeId(actual->typeId))
+    {
+        case llvmpy::PY_TYPE_INT:
+            return ((PyPrimitiveObject*)actual)->value.intValue;
+            
+        case llvmpy::PY_TYPE_DOUBLE:
+            // 对于浮点数，返回int部分但尝试保留原始类型
+            return (int)((PyPrimitiveObject*)actual)->value.doubleValue;
+            
+        case llvmpy::PY_TYPE_BOOL:
+            return ((PyPrimitiveObject*)actual)->value.boolValue ? 1 : 0;
+            
+        case llvmpy::PY_TYPE_LIST:
+        case llvmpy::PY_TYPE_DICT:
+            // 对于容器类型，返回长度或0
+            if (actual->typeId == llvmpy::PY_TYPE_LIST) {
+                return py_list_len(actual);
+            } else if (actual->typeId == llvmpy::PY_TYPE_DICT) {
+                return py_dict_len(actual);
+            }
+            // 故意继续到默认情况
+            
+        default:
+            fprintf(stderr, "警告: 无法从类型 %d 提取整数值\n", actual->typeId);
+            return 0;
+    }
+}
+
+// any 类型转换到 double
+PyObject* py_convert_any_to_double(PyObject* obj)
+{
+    if (!obj)
+    {
+        fprintf(stderr, "TypeError: Cannot convert NULL to double\n");
+        return NULL;
+    }
+
+    switch (llvmpy::getBaseTypeId(obj->typeId))
+    {
+        case llvmpy::PY_TYPE_INT:
+            return py_create_double((double)((PyPrimitiveObject*)obj)->value.intValue);
+            
+        case llvmpy::PY_TYPE_DOUBLE:
+            py_incref(obj);
+            return obj;
+            
+        case llvmpy::PY_TYPE_BOOL:
+            return py_create_double(((PyPrimitiveObject*)obj)->value.boolValue ? 1.0 : 0.0);
+            
+        case llvmpy::PY_TYPE_STRING:
+            fprintf(stderr, "Warning: String to double conversion not fully implemented\n");
+            return py_create_double(0.0);
+            
+        case llvmpy::PY_TYPE_NONE:
+            return py_create_double(0.0);
+            
+        default:
+            fprintf(stderr, "TypeError: Cannot convert %s to double\n", py_type_name(obj->typeId));
+            return py_create_double(0.0);
+    }
+}
+
+// any 类型转换到 bool
+PyObject* py_convert_any_to_bool(PyObject* obj)
+{
+    if (!obj)
+    {
+        fprintf(stderr, "TypeError: Cannot convert NULL to bool\n");
+        return NULL;
+    }
+
+    switch (llvmpy::getBaseTypeId(obj->typeId))
+    {
+        case llvmpy::PY_TYPE_INT:
+            return py_create_bool(((PyPrimitiveObject*)obj)->value.intValue != 0);
+            
+        case llvmpy::PY_TYPE_DOUBLE:
+            return py_create_bool(((PyPrimitiveObject*)obj)->value.doubleValue != 0.0);
+            
+        case llvmpy::PY_TYPE_BOOL:
+            py_incref(obj);
+            return obj;
+            
+        case llvmpy::PY_TYPE_STRING:
+            {
+                const char* str = ((PyPrimitiveObject*)obj)->value.stringValue;
+                return py_create_bool(str && str[0] != '\0');
+            }
+            
+        case llvmpy::PY_TYPE_LIST:
+            return py_create_bool(((PyListObject*)obj)->length > 0);
+            
+        case llvmpy::PY_TYPE_DICT:
+            return py_create_bool(((PyDictObject*)obj)->size > 0);
+            
+        case llvmpy::PY_TYPE_NONE:
+            return py_create_bool(false);
+            
+        default:
+            fprintf(stderr, "TypeError: Cannot convert %s to bool\n", py_type_name(obj->typeId));
+            return py_create_bool(false);
+    }
+}
+
+// any 类型转换到 string
+PyObject* py_convert_any_to_string(PyObject* obj)
+{
+    if (!obj)
+    {
+        fprintf(stderr, "TypeError: Cannot convert NULL to string\n");
+        return NULL;
+    }
+
+    char buffer[128];
+    
+    switch (llvmpy::getBaseTypeId(obj->typeId))
+    {
+        case llvmpy::PY_TYPE_INT:
+            snprintf(buffer, sizeof(buffer), "%d", ((PyPrimitiveObject*)obj)->value.intValue);
+            return py_create_string(buffer);
+            
+        case llvmpy::PY_TYPE_DOUBLE:
+            snprintf(buffer, sizeof(buffer), "%g", ((PyPrimitiveObject*)obj)->value.doubleValue);
+            return py_create_string(buffer);
+            
+        case llvmpy::PY_TYPE_BOOL:
+            return py_create_string(((PyPrimitiveObject*)obj)->value.boolValue ? "True" : "False");
+            
+        case llvmpy::PY_TYPE_STRING:
+            py_incref(obj);
+            return obj;
+            
+        case llvmpy::PY_TYPE_LIST:
+            return py_create_string("[list]");
+            
+        case llvmpy::PY_TYPE_DICT:
+            return py_create_string("{dict}");
+            
+        case llvmpy::PY_TYPE_NONE:
+            return py_create_string("None");
+            
+        default:
+            fprintf(stderr, "TypeError: Cannot convert %s to string\n", py_type_name(obj->typeId));
+            return py_create_string("<unknown>");
+    }
+}
+
+// 从具体类型转换到 any 类型
+PyObject* py_convert_to_any(PyObject* obj)
+{
+    if (!obj)
+    {
+        fprintf(stderr, "TypeError: Cannot convert NULL to any\n");
+        return NULL;
+    }
+    
+    // 对于 any 类型，直接增加引用计数并返回
+    py_incref(obj);
+    return obj;
+}
+
+
+// 智能类型保留函数 - 用于处理参数透传返回
+PyObject* py_preserve_parameter_type(PyObject* obj) {
+    if (!obj) {
+        fprintf(stderr, "错误: py_preserve_parameter_type 接收到空对象\n");
+        return py_create_int(0);
+    }
+    
+    // 增加引用计数并返回原始对象
+    py_incref(obj);
+    return obj;
+}
+
+// 智能类型转换函数 - 用于函数返回值类型转换
+PyObject* py_smart_convert(PyObject* obj, int targetTypeId) {
+    if (!obj) return nullptr;
+    
+    // 获取对象的实际类型ID
+    int sourceTypeId = py_get_object_type_id(obj);
+    
+    // 如果源类型和目标类型相同，或者目标类型是ANY，则保留原始类型
+    if (sourceTypeId == targetTypeId || targetTypeId == llvmpy::PY_TYPE_ANY) {
+        py_incref(obj);
+        return obj;
+    }
+    
+    // 对于特殊类型，执行专门的转换逻辑
+    switch (targetTypeId) {
+        case llvmpy::PY_TYPE_INT:
+            return py_convert_any_to_int(obj);
+            
+        case llvmpy::PY_TYPE_DOUBLE:
+            return py_convert_any_to_double(obj);
+            
+        case llvmpy::PY_TYPE_BOOL:
+            return py_convert_any_to_bool(obj);
+            
+        case llvmpy::PY_TYPE_STRING:
+            return py_convert_any_to_string(obj);
+            
+        default:
+            // 对于容器类型和未知类型，保留原始类型
+            if (sourceTypeId == llvmpy::PY_TYPE_LIST || 
+                sourceTypeId == llvmpy::PY_TYPE_DICT ||
+                targetTypeId == llvmpy::PY_TYPE_LIST ||
+                targetTypeId == llvmpy::PY_TYPE_DICT) {
+                py_incref(obj);
+                return obj;
+            }
+            
+            // 默认情况，创建一个默认值
+            fprintf(stderr, "警告: 未处理的类型转换 %d -> %d\n", sourceTypeId, targetTypeId);
+            switch (targetTypeId) {
+                case llvmpy::PY_TYPE_INT:
+                    return py_create_int(0);
+                case llvmpy::PY_TYPE_DOUBLE:
+                    return py_create_double(0.0);
+                case llvmpy::PY_TYPE_BOOL:
+                    return py_create_bool(false);
+                case llvmpy::PY_TYPE_STRING:
+                    return py_create_string("");
+                default:
+                    py_incref(obj);
+                    return obj;
+            }
+    }
+}
+
+// 从指针获取实际对象类型
+int py_get_actual_type(PyObject* obj) {
+    if (!obj) return llvmpy::PY_TYPE_NONE;
+    
+    // 处理指针类型
+    if (obj->typeId >= 400) { // 指针类型范围
+        PyObject** ptrObj = (PyObject**)obj;
+        if (ptrObj && *ptrObj) {
+            return (*ptrObj)->typeId;
+        }
+    }
+    
+    return obj->typeId;
+}
+
+// 容器类型检测函数
+bool py_is_container(PyObject* obj) {
+    if (!obj) return false;
+    
+    int typeId = py_get_actual_type(obj);
+    return typeId == llvmpy::PY_TYPE_LIST || 
+           typeId == llvmpy::PY_TYPE_DICT || 
+           (typeId >= llvmpy::PY_TYPE_LIST_BASE && typeId < llvmpy::PY_TYPE_DICT_BASE);
+}
+
+
 
     //===----------------------------------------------------------------------===//
     // 运行时运算函数，支持类型自动转换

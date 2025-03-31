@@ -70,6 +70,25 @@ void TypeOperationRegistry::initializeBuiltinOperations()
     registerTypeConversion(PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_convert_to_bool", 1);
     registerTypeConversion(PY_TYPE_STRING, PY_TYPE_BOOL, "py_convert_to_bool", 2);
 
+        // 注册 any 类型的兼容性
+        registerTypeCompatibility(PY_TYPE_ANY, PY_TYPE_INT, true);
+        registerTypeCompatibility(PY_TYPE_ANY, PY_TYPE_DOUBLE, true);
+        registerTypeCompatibility(PY_TYPE_ANY, PY_TYPE_BOOL, true);
+        registerTypeCompatibility(PY_TYPE_ANY, PY_TYPE_STRING, true);
+        registerTypeCompatibility(PY_TYPE_ANY, PY_TYPE_LIST, true);
+        registerTypeCompatibility(PY_TYPE_ANY, PY_TYPE_DICT, true);
+        
+        // 注册 any 类型的转换
+        registerTypeConversion(PY_TYPE_ANY, PY_TYPE_INT, "py_convert_any_to_int", 1);
+        registerTypeConversion(PY_TYPE_INT, PY_TYPE_ANY, "py_convert_to_any", 1);
+        registerTypeConversion(PY_TYPE_ANY, PY_TYPE_DOUBLE, "py_convert_any_to_double", 1);
+        registerTypeConversion(PY_TYPE_DOUBLE, PY_TYPE_ANY, "py_convert_to_any", 1);
+        registerTypeConversion(PY_TYPE_ANY, PY_TYPE_BOOL, "py_convert_any_to_bool", 1);
+        registerTypeConversion(PY_TYPE_BOOL, PY_TYPE_ANY, "py_convert_to_any", 1);
+        registerTypeConversion(PY_TYPE_ANY, PY_TYPE_STRING, "py_convert_any_to_string", 1);
+        registerTypeConversion(PY_TYPE_STRING, PY_TYPE_ANY, "py_convert_to_any", 1);
+    
+
     // 注册类型兼容性
     registerTypeCompatibility(PY_TYPE_INT, PY_TYPE_DOUBLE, true);
     registerTypeCompatibility(PY_TYPE_INT, PY_TYPE_BOOL, true);
@@ -81,6 +100,78 @@ void TypeOperationRegistry::initializeBuiltinOperations()
     registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, '-', PY_TYPE_DOUBLE);
     registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, '*', PY_TYPE_DOUBLE);
     registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, '/', PY_TYPE_DOUBLE);
+
+
+
+        // 注册容器类型操作
+        registerBinaryOp('+', PY_TYPE_LIST, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_add", true);
+        registerBinaryOp('*', PY_TYPE_LIST, PY_TYPE_INT, PY_TYPE_LIST, "py_object_multiply", true);
+        registerBinaryOp('*', PY_TYPE_INT, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_multiply", true);
+    
+        // 注册列表基础类型操作 - 使其与列表类型兼容
+        registerBinaryOp('+', PY_TYPE_LIST_BASE, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_add", true);
+        registerBinaryOp('+', PY_TYPE_LIST, PY_TYPE_LIST_BASE, PY_TYPE_LIST, "py_object_add", true);
+        registerBinaryOp('+', PY_TYPE_LIST_BASE, PY_TYPE_LIST_BASE, PY_TYPE_LIST_BASE, "py_object_add", true);
+        registerBinaryOp('*', PY_TYPE_LIST_BASE, PY_TYPE_INT, PY_TYPE_LIST_BASE, "py_object_multiply", true);
+        registerBinaryOp('*', PY_TYPE_INT, PY_TYPE_LIST_BASE, PY_TYPE_LIST_BASE, "py_object_multiply", true);
+    
+        // 注册字典基础类型操作
+        registerBinaryOp('+', PY_TYPE_DICT_BASE, PY_TYPE_DICT, PY_TYPE_DICT, "py_object_add", true);
+        registerBinaryOp('+', PY_TYPE_DICT, PY_TYPE_DICT_BASE, PY_TYPE_DICT, "py_object_add", true);
+        registerBinaryOp('+', PY_TYPE_DICT_BASE, PY_TYPE_DICT_BASE, PY_TYPE_DICT_BASE, "py_object_add", true);
+    
+        // 注册指针类型操作
+        registerTypeCompatibility(PY_TYPE_PTR_INT, PY_TYPE_INT, true);
+        registerTypeCompatibility(PY_TYPE_PTR_DOUBLE, PY_TYPE_DOUBLE, true);
+        registerTypeCompatibility(PY_TYPE_PTR, PY_TYPE_ANY, true);
+        registerTypeCompatibility(PY_TYPE_ANY, PY_TYPE_PTR, true);
+        
+        // 注册列表类型兼容性
+        registerTypeCompatibility(PY_TYPE_LIST, PY_TYPE_LIST_BASE, true);
+        registerTypeCompatibility(PY_TYPE_LIST_BASE, PY_TYPE_LIST, true);
+        
+        // 注册字典类型兼容性
+        registerTypeCompatibility(PY_TYPE_DICT, PY_TYPE_DICT_BASE, true);
+        registerTypeCompatibility(PY_TYPE_DICT_BASE, PY_TYPE_DICT, true);
+        
+        // 注册函数类型兼容性
+        registerTypeCompatibility(PY_TYPE_FUNC, PY_TYPE_FUNC_BASE, true);
+        registerTypeCompatibility(PY_TYPE_FUNC_BASE, PY_TYPE_FUNC, true);
+    
+        // 注册指针类型转换
+        registerTypeConversion(PY_TYPE_PTR_INT, PY_TYPE_INT, "py_extract_int", 1);
+        registerTypeConversion(PY_TYPE_INT, PY_TYPE_PTR_INT, "py_wrap_int", 1);
+        registerTypeConversion(PY_TYPE_PTR_DOUBLE, PY_TYPE_DOUBLE, "py_extract_double", 1);
+        registerTypeConversion(PY_TYPE_DOUBLE, PY_TYPE_PTR_DOUBLE, "py_wrap_double", 1);
+        
+        // 容器类型转换
+        registerTypeConversion(PY_TYPE_LIST_BASE, PY_TYPE_LIST, "py_convert_list_base_to_list", 1);
+        registerTypeConversion(PY_TYPE_LIST, PY_TYPE_LIST_BASE, "py_convert_list_to_list_base", 1);
+        registerTypeConversion(PY_TYPE_DICT_BASE, PY_TYPE_DICT, "py_convert_dict_base_to_dict", 1);
+        registerTypeConversion(PY_TYPE_DICT, PY_TYPE_DICT_BASE, "py_convert_dict_to_dict_base", 1);
+        
+        // any类型与容器类型的转换
+        registerTypeConversion(PY_TYPE_ANY, PY_TYPE_LIST, "py_convert_any_to_list", 2);
+        registerTypeConversion(PY_TYPE_LIST, PY_TYPE_ANY, "py_convert_to_any", 1);
+        registerTypeConversion(PY_TYPE_ANY, PY_TYPE_DICT, "py_convert_any_to_dict", 2);
+        registerTypeConversion(PY_TYPE_DICT, PY_TYPE_ANY, "py_convert_to_any", 1);
+        
+        // 针对参数透传增加特殊转换函数
+        registerTypeConversion(PY_TYPE_ANY, PY_TYPE_ANY, "py_convert_any_preserve_type", 0);
+        
+        // 类型保留函数 - 用于返回值处理
+        registerTypeConversion(PY_TYPE_INT, PY_TYPE_ANY, "py_convert_to_any", 1);
+        registerTypeConversion(PY_TYPE_DOUBLE, PY_TYPE_ANY, "py_convert_to_any", 1);
+        registerTypeConversion(PY_TYPE_BOOL, PY_TYPE_ANY, "py_convert_to_any", 1);
+        registerTypeConversion(PY_TYPE_STRING, PY_TYPE_ANY, "py_convert_to_any", 1);
+        registerTypeConversion(PY_TYPE_LIST, PY_TYPE_ANY, "py_convert_to_any", 1);
+        registerTypeConversion(PY_TYPE_DICT, PY_TYPE_ANY, "py_convert_to_any", 1);
+        
+        // 容器基础类型与Any的转换
+        registerTypeConversion(PY_TYPE_LIST_BASE, PY_TYPE_ANY, "py_convert_to_any", 1);
+        registerTypeConversion(PY_TYPE_DICT_BASE, PY_TYPE_ANY, "py_convert_to_any", 1);
+        registerTypeConversion(PY_TYPE_ANY, PY_TYPE_LIST_BASE, "py_convert_any_to_list_base", 2);
+        registerTypeConversion(PY_TYPE_ANY, PY_TYPE_DICT_BASE, "py_convert_any_to_dict_base", 2);
 }
 
 void TypeOperationRegistry::registerBinaryOp(
@@ -436,7 +527,7 @@ std::string OperatorMapper::getRuntimeFunctionName(const std::string& base, cons
 //===----------------------------------------------------------------------===//
 // 操作代码生成器实现
 //===----------------------------------------------------------------------===//
-
+// filepath: [TypeOperations.cpp](http://_vscodecontentref_/1)
 llvm::Value* OperationCodeGenerator::handleBinaryOp(
     PyCodeGen& gen,
     char op,
@@ -491,10 +582,20 @@ llvm::Value* OperationCodeGenerator::handleBinaryOp(
         return nullptr;
     }
 
+    // 确定结果类型ID - 关键修改点
+    int resultTypeId = descriptor->resultTypeId;
+    if (resultTypeId == 0) {
+        // 如果描述符未指定结果类型，从registry推断
+        resultTypeId = registry.getResultTypeId(leftTypeId, rightTypeId, op);
+    }
+
     // 如果有自定义实现，使用它
     if (descriptor->customImpl)
     {
-        return descriptor->customImpl(gen, left, right);
+        llvm::Value* result = descriptor->customImpl(gen, left, right);
+        // 附加类型元数据
+        ObjectLifecycleManager::attachTypeMetadata(result, resultTypeId);
+        return result;
     }
 
     // 否则使用运行时函数
@@ -521,8 +622,17 @@ llvm::Value* OperationCodeGenerator::handleBinaryOp(
         right = createObject(gen, right, rightTypeId);
     }
 
-    // 调用运行时函数
-    return builder.CreateCall(func, {left, right}, "binop_result");
+    // 调用运行时函数并获取结果
+    llvm::Value* result = builder.CreateCall(func, {left, right}, "binop_result");
+    
+    // 关键修改：附加类型元数据到结果值
+    ObjectLifecycleManager::attachTypeMetadata(result, resultTypeId);
+    
+    // 记录调试信息
+    std::cerr << "DEBUG: 二元操作 '" << op << "' 结果类型ID: " << resultTypeId
+              << " (左: " << leftTypeId << ", 右: " << rightTypeId << ")" << std::endl;
+    
+    return result;
 }
 
 llvm::Value* OperationCodeGenerator::handleUnaryOp(

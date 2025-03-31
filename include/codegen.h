@@ -200,6 +200,15 @@ public:
     
     // 清理临时对象
     static void cleanupTemporaryObjects(PyCodeGen& codegen);
+
+        // 将类型信息附加到LLVM值
+        static void attachTypeMetadata(llvm::Value* value, int typeId);
+    
+        // 从LLVM值获取类型信息
+        static int getTypeIdFromMetadata(llvm::Value* value);
+
+      
+
 };
 
 // ===----------------------------------------------------------------------===//
@@ -255,7 +264,7 @@ private:
     // LLVM核心组件
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
-    std::unique_ptr<llvm::IRBuilder<>> builder;
+    
     
     // 集成ObjectRuntime
     std::unique_ptr<ObjectRuntime> runtime;
@@ -317,6 +326,7 @@ private:
     
 
 public:
+std::unique_ptr<llvm::IRBuilder<>> builder;
     PyCodeGen();
     ~PyCodeGen() = default;
 
@@ -335,6 +345,9 @@ public:
 
     
     // 辅助函数
+
+    void trackObject(llvm::Value* obj) ;
+  
     llvm::Function* getOrCreateExternalFunction(
         const std::string& name,
         llvm::Type* returnType,
@@ -343,6 +356,8 @@ public:
      // 新增帮助方法处理索引赋值
     void performIndexAssignment(const ExprAST* target, const ExprAST* index, 
         const ExprAST* valueExpr, const StmtAST* stmt);
+
+        llvm::Value* createDefaultValue(ObjectType* type);
 
     // 访问器方法
     llvm::LLVMContext& getContext() { return context ? *context : runtime->getContext(); }
@@ -399,6 +414,10 @@ public:
     
     // 辅助方法 - 创建块
     llvm::BasicBlock* createBasicBlock(const std::string& name, llvm::Function* parent = nullptr);
+
+    llvm::Value* handleIndexOperation(llvm::Value* target, llvm::Value* index,
+        ObjectType* targetType, ObjectType* indexType);
+        llvm::Value* ensurePythonObject(llvm::Value* value, ObjectType* type);
     
     // 处理不同AST节点的接口方法
     llvm::Value* handleNode(ASTNode* node);

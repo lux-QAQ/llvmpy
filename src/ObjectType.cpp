@@ -4,6 +4,7 @@
 #include <llvm/IR/Type.h>           // 添加这行，提供Type类的完整定义
 #include <llvm/IR/LLVMContext.h>    // 添加这行，确保LLVMContext定义完整
 #include "TypeIDs.h"    
+#include "TypeOperations.h"
 
 namespace llvmpy {
 
@@ -26,8 +27,24 @@ bool ObjectType::canAssignTo(const ObjectType* other) const {
 }
 
 bool ObjectType::canConvertTo(const ObjectType* other) const {
-    // 基础实现：只有相同类型才能转换
-    return getTypeSignature() == other->getTypeSignature();
+    // 相同类型可以直接转换
+    if (getTypeSignature() == other->getTypeSignature()) {
+        return true;
+    }
+    
+    // 特殊处理 any 类型 - any 可以转换为任何类型，任何类型也可以转换为 any
+    if (getName() == "any" || other->getName() == "any" || 
+        getTypeId() == PY_TYPE_ANY || other->getTypeId() == PY_TYPE_ANY) {
+        return true;
+    }
+    
+    // 使用 TypeOperationRegistry 检查更复杂的类型兼容性
+    auto& registry = TypeOperationRegistry::getInstance();
+    if (registry.areTypesCompatible(getTypeId(), other->getTypeId())) {
+        return true;
+    }
+    
+    return false;  // 默认情况下不能转换
 }
 
 std::string ObjectType::getTypeSignature() const {
@@ -286,7 +303,133 @@ void TypeRegistry::registerBuiltinTypes() {
     ObjectType::registerFeature("dict", "mapping", true);
     ObjectType::registerFeature("dict", "mutable", true);
     ObjectType::registerFeature("dict", "reference", true);
+
+    // 注册容器基础类型
+    auto listBaseType = new PrimitiveType("list_base");
+    registerType("list_base", listBaseType);
+    typeIdMap[PY_TYPE_LIST_BASE] = listBaseType;
+    // 使用静态方法注册特性
+    ObjectType::registerFeature("list_base", "container", true);
+    ObjectType::registerFeature("list_base", "sequence", true);
+    ObjectType::registerFeature("list_base", "reference", true);
+    
+    auto dictBaseType = new PrimitiveType("dict_base");
+    registerType("dict_base", dictBaseType);
+    typeIdMap[PY_TYPE_DICT_BASE] = dictBaseType;
+    // 使用静态方法注册特性
+    ObjectType::registerFeature("dict_base", "container", true);
+    ObjectType::registerFeature("dict_base", "mapping", true);
+    ObjectType::registerFeature("dict_base", "reference", true);
+    
+    auto funcBaseType = new PrimitiveType("func_base");
+    registerType("func_base", funcBaseType);
+    typeIdMap[PY_TYPE_FUNC_BASE] = funcBaseType;
+    
+    // 注册指针类型
+    auto ptrType = new PrimitiveType("ptr");
+    registerType("ptr", ptrType);
+    typeIdMap[PY_TYPE_PTR] = ptrType;
+    // 使用静态方法注册特性
+    ObjectType::registerFeature("ptr", "reference", true);
+    
+    auto ptrIntType = new PrimitiveType("ptr_int");
+    registerType("ptr_int", ptrIntType);
+    typeIdMap[PY_TYPE_PTR_INT] = ptrIntType;
+    // 使用静态方法注册特性
+    ObjectType::registerFeature("ptr_int", "reference", true);
+    
+    auto ptrDoubleType = new PrimitiveType("ptr_double");
+    registerType("ptr_double", ptrDoubleType);
+    typeIdMap[PY_TYPE_PTR_DOUBLE] = ptrDoubleType;
+    // 使用静态方法注册特性
+    ObjectType::registerFeature("ptr_double", "reference", true);
+    
+    // 注册类型创建器 - 容器基础类型
+    registerTypeCreator<PrimitiveType>("list_base", 
+        [](const std::string& name) { return new PrimitiveType(name); });
+    registerTypeCreator<PrimitiveType>("dict_base", 
+        [](const std::string& name) { return new PrimitiveType(name); });
+    registerTypeCreator<PrimitiveType>("func_base", 
+        [](const std::string& name) { return new PrimitiveType(name); });
+    
+    // 注册类型创建器 - 指针类型
+    registerTypeCreator<PrimitiveType>("ptr", 
+        [](const std::string& name) { return new PrimitiveType(name); });
+    registerTypeCreator<PrimitiveType>("ptr_int", 
+        [](const std::string& name) { return new PrimitiveType(name); });
+    registerTypeCreator<PrimitiveType>("ptr_double", 
+        [](const std::string& name) { return new PrimitiveType(name); });
 }
+
+ObjectType* TypeRegistry::getTypeById(int typeId)
+{
+    // 确保基本类型已注册
+    ensureBasicTypesRegistered();
+
+    // 先检查是否在ID映射中
+    auto it = typeIdMap.find(typeId);
+    if (it != typeIdMap.end()) {
+        return it->second;
+    }
+
+    // 如果没找到，扫描所有已注册类型
+    // 扫描命名类型
+    for (const auto& pair : namedTypes) {
+        if (pair.second && pair.second->getTypeId() == typeId) {
+            // 找到匹配的类型，添加到映射中以加速后续查找
+            typeIdMap[typeId] = pair.second;
+            return pair.second;
+        }
+    }
+
+    // 扫描列表类型
+    for (const auto& pair : listTypes) {
+        if (pair.second && pair.second->getTypeId() == typeId) {
+            typeIdMap[typeId] = pair.second;
+            return pair.second;
+        }
+    }
+
+    // 扫描字典类型
+    for (const auto& pair : dictTypes) {
+        if (pair.second && pair.second->getTypeId() == typeId) {
+            typeIdMap[typeId] = pair.second;
+            return pair.second;
+        }
+    }
+
+    // 扫描函数类型
+    for (const auto& pair : functionTypes) {
+        if (pair.second && pair.second->getTypeId() == typeId) {
+            typeIdMap[typeId] = pair.second;
+            return pair.second;
+        }
+    }
+
+    // 根据基本类型ID查找
+    switch (typeId) {
+        case PY_TYPE_NONE:
+            return getType("none");
+        case PY_TYPE_INT:
+            return getType("int");
+        case PY_TYPE_DOUBLE:
+            return getType("double");
+        case PY_TYPE_BOOL:
+            return getType("bool");
+        case PY_TYPE_STRING:
+            return getType("string");
+        case PY_TYPE_LIST:
+            return getType("list");
+        case PY_TYPE_DICT:
+            return getType("dict");
+        case PY_TYPE_ANY:
+            return getType("any");
+        default:
+            // 未找到对应类型，返回any类型作为备选
+            return getType("any");
+    }
+}
+
 
 ObjectType* TypeRegistry::getType(const std::string& name) {
     // 标准化类型名称，避免大小写或空格导致的不匹配
@@ -520,6 +663,20 @@ void TypeRegistry::registerType(const std::string& name, ObjectType* type) {
     }
     
     namedTypes[name] = type;
+        // 同时更新类型ID映射
+        typeIdMap[type->getTypeId()] = type;
+}
+
+FunctionType* TypeRegistry::getFunctionType(const std::string& functionName)
+{
+    // 在函数类型映射中查找
+    auto it = functionTypes.find(functionName);
+    if (it != functionTypes.end()) {
+        return it->second;
+    }
+    
+    // 未找到，返回nullptr
+    return nullptr;
 }
 
 } // namespace llvmpy

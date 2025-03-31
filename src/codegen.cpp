@@ -1,6 +1,7 @@
 #include "codegen.h"
 #include <iostream>
 #include <sstream>
+#include <string>
 #include <cmath>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -410,14 +411,12 @@ llvm::Value* PyCodeGen::logTypeError(const std::string& message, int line, int c
     return nullptr;
 }
 
-
 llvm::Function* PyCodeGen::getOrCreateExternalFunction(
     const std::string& name,
     llvm::Type* returnType,
     std::vector<llvm::Type*> paramTypes,
     bool isVarArg)
 {
-    
     // 先从缓存查找
     auto it = externalFunctions.find(name);
     if (it != externalFunctions.end())
@@ -461,7 +460,7 @@ llvm::Function* PyCodeGen::getOrCreateExternalFunction(
             std::cerr << "Warning: Parameter count mismatch for function " << name << std::endl;
         }
     }
-
+    debugFunctionReuse(name, func);
     return func;
 }
 
@@ -902,6 +901,220 @@ llvm::Value* PyCodeGen::generateTypeError(llvm::Value* obj, int expectedTypeId)
 //===----------------------------------------------------------------------===//
 // 对象生命周期管理方法
 //===----------------------------------------------------------------------===//
+// 在ObjectLifecycleManager类实现中添加：
+
+void ObjectLifecycleManager::attachTypeMetadata(llvm::Value* value, int typeId)
+{
+    if (!value || !llvm::isa<llvm::Instruction>(value))
+        return;
+
+    // 使用内置的元数据设施
+    llvm::Instruction* inst = llvm::cast<llvm::Instruction>(value);
+    llvm::LLVMContext& ctx = inst->getContext();
+
+    // 创建元数据节点
+    llvm::MDNode* typeNode = llvm::MDNode::get(
+        ctx,
+        {llvm::ConstantAsMetadata::get(
+            llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), typeId))});
+
+    // 附加元数据到指令
+    inst->setMetadata("py_type_id", typeNode);
+
+    // 如果是指针且指向容器类型，标记为引用类型
+    if (typeId >= PY_TYPE_LIST && typeId <= PY_TYPE_SET || typeId == PY_TYPE_DICT || typeId == PY_TYPE_TUPLE || typeId == PY_TYPE_MAP)
+    {
+        llvm::MDNode* refNode = llvm::MDNode::get(
+            ctx, {llvm::ConstantAsMetadata::get(
+                     llvm::ConstantInt::get(llvm::Type::getInt1Ty(ctx), 1))});
+        inst->setMetadata("py_is_reference", refNode);
+    }
+}
+
+// 增强的getTypeIdFromMetadata实现
+int ObjectLifecycleManager::getTypeIdFromMetadata(llvm::Value* value)
+{
+    if (!value)
+        return -1;
+
+    // 处理指令元数据
+    if (llvm::Instruction* inst = llvm::dyn_cast<llvm::Instruction>(value))
+    {
+        llvm::MDNode* typeMD = inst->getMetadata("py_type_id");
+        if (typeMD && typeMD->getNumOperands() > 0)
+        {
+            if (llvm::ConstantAsMetadata* constMD = llvm::dyn_cast<llvm::ConstantAsMetadata>(
+                    typeMD->getOperand(0)))
+            {
+                if (llvm::ConstantInt* constInt = llvm::dyn_cast<llvm::ConstantInt>(
+                        constMD->getValue()))
+                {
+                    return constInt->getSExtValue();
+                }
+            }
+        }
+
+        // 检查是否有容器类型标记
+        llvm::MDNode* containerMD = inst->getMetadata("py_container_type");
+        if (containerMD && containerMD->getNumOperands() > 0)
+        {
+            if (llvm::ConstantAsMetadata* constMD = llvm::dyn_cast<llvm::ConstantAsMetadata>(
+                    containerMD->getOperand(0)))
+            {
+                if (llvm::ConstantInt* constInt = llvm::dyn_cast<llvm::ConstantInt>(
+                        constMD->getValue()))
+                {
+                    int containerBase = constInt->getSExtValue();
+                    // 根据容器基类返回类型ID
+                    switch (containerBase)
+                    {
+                        case 1:
+                            return PY_TYPE_LIST_BASE;
+                        case 2:
+                            return PY_TYPE_DICT_BASE;
+                        case 3:
+                            return PY_TYPE_FUNC_BASE;
+                        default:
+                            return PY_TYPE_ANY;
+                    }
+                }
+            }
+        }
+
+        // 检查是否有指针类型标记
+        llvm::MDNode* ptrMD = inst->getMetadata("py_ptr_type");
+        if (ptrMD && ptrMD->getNumOperands() > 0)
+        {
+            if (llvm::ConstantAsMetadata* constMD = llvm::dyn_cast<llvm::ConstantAsMetadata>(
+                    ptrMD->getOperand(0)))
+            {
+                if (llvm::ConstantInt* constInt = llvm::dyn_cast<llvm::ConstantInt>(
+                        constMD->getValue()))
+                {
+                    int pointeeTypeId = constInt->getSExtValue();
+                    // 根据指向的类型返回指针类型ID
+                    switch (pointeeTypeId)
+                    {
+                        case PY_TYPE_INT:
+                            return PY_TYPE_PTR_INT;
+                        case PY_TYPE_DOUBLE:
+                            return PY_TYPE_PTR_DOUBLE;
+                        default:
+                            return PY_TYPE_PTR;
+                    }
+                }
+            }
+        }
+
+        // 检查引用类型标记
+        llvm::MDNode* refMD = inst->getMetadata("py_is_reference");
+        if (refMD && refMD->getNumOperands() > 0)
+        {
+            // 如果有引用标记但没有具体类型ID，返回ANY类型
+            return PY_TYPE_ANY;
+        }
+    }
+
+    // 从值类型推断
+    if (value->getType()->isDoubleTy())
+        return PY_TYPE_DOUBLE;
+    if (value->getType()->isIntegerTy(32))
+        return PY_TYPE_INT;
+    if (value->getType()->isIntegerTy(1))
+        return PY_TYPE_BOOL;
+
+    // 检查是否为指针类型
+    if (value->getType()->isPointerTy())
+    {
+        // 尝试推断指针指向的类型
+        std::string typeName = value->getName().str();
+        if (typeName.find("int") != std::string::npos)
+            return PY_TYPE_PTR_INT;
+        if (typeName.find("double") != std::string::npos || typeName.find("float") != std::string::npos)
+            return PY_TYPE_PTR_DOUBLE;
+        if (typeName.find("list") != std::string::npos || typeName.find("arr") != std::string::npos)
+            return PY_TYPE_LIST;
+        if (typeName.find("dict") != std::string::npos || typeName.find("map") != std::string::npos)
+            return PY_TYPE_DICT;
+
+        // 默认指针类型
+        return PY_TYPE_PTR;
+    }
+
+    // 默认返回-1表示未知
+    return -1;
+}
+
+// 新增：检查值是否为容器类型
+bool ObjectLifecycleManager::isContainerType(llvm::Value* value)
+{
+    if (!value)
+        return false;
+
+    int typeId = getTypeIdFromMetadata(value);
+    if (typeId != -1)
+    {
+        return (typeId >= PY_TYPE_LIST && typeId <= PY_TYPE_SET) || typeId == PY_TYPE_DICT || typeId == PY_TYPE_TUPLE;
+    }
+
+    // 尝试从名称推断
+    if (value->hasName())
+    {
+        llvm::StringRef name = value->getName();
+        return name.contains("list") || name.contains("dict") || name.contains("array") || name.contains("map");
+    }
+
+    return false;
+}
+
+// 新增：确保值被视为容器
+llvm::Value* ObjectLifecycleManager::ensureContainer(PyCodeGen& codegen, llvm::Value* value, int containerTypeId)
+{
+    if (!value)
+        return nullptr;
+
+    // 如果已经是指针类型，检查并标记元数据
+    if (value->getType()->isPointerTy())
+    {
+        attachTypeMetadata(value, containerTypeId);
+        return value;
+    }
+
+    // 否则，创建新的容器对象
+    llvm::Function* createFunc = nullptr;
+
+    switch (containerTypeId)
+    {
+        case PY_TYPE_LIST:
+            createFunc = codegen.getOrCreateExternalFunction(
+                "py_create_list",
+                llvm::PointerType::get(codegen.getContext(), 0),
+                {llvm::Type::getInt32Ty(codegen.getContext()),
+                 llvm::Type::getInt32Ty(codegen.getContext())});
+
+            return codegen.builder->CreateCall(
+                createFunc,
+                {llvm::ConstantInt::get(llvm::Type::getInt32Ty(codegen.getContext()), 0),             // 初始容量
+                 llvm::ConstantInt::get(llvm::Type::getInt32Ty(codegen.getContext()), PY_TYPE_ANY)},  // 元素类型
+                "new_list");
+
+        case PY_TYPE_DICT:
+            createFunc = codegen.getOrCreateExternalFunction(
+                "py_create_dict",
+                llvm::PointerType::get(codegen.getContext(), 0),
+                {llvm::Type::getInt32Ty(codegen.getContext()),
+                 llvm::Type::getInt32Ty(codegen.getContext())});
+
+            return codegen.builder->CreateCall(
+                createFunc,
+                {llvm::ConstantInt::get(llvm::Type::getInt32Ty(codegen.getContext()), 8),                // 初始容量
+                 llvm::ConstantInt::get(llvm::Type::getInt32Ty(codegen.getContext()), PY_TYPE_STRING)},  // 键类型
+                "new_dict");
+
+        default:
+            return nullptr;
+    }
+}
 
 llvm::Value* PyCodeGen::handleExpressionValue(llvm::Value* value, ExprAST* expr,
                                               bool isReturnValue, bool isAssignTarget, bool isParameter)
@@ -1062,9 +1275,13 @@ llvm::Value* PyCodeGen::prepareParameter(llvm::Value* value, ObjectType* paramTy
 // 操作代码生成方法
 //===----------------------------------------------------------------------===//
 
+#define DEBUG_LOG(msg) \
+    std::cerr << "DEBUG: " << msg << std::endl;
+
 llvm::Value* PyCodeGen::generateBinaryOperation(char op, llvm::Value* L, llvm::Value* R,
                                                 ObjectType* leftType, ObjectType* rightType)
 {
+    // 1. 参数检查
     if (!L || !R || !leftType || !rightType)
     {
         return logError("Invalid operands for binary operation");
@@ -1074,267 +1291,1458 @@ llvm::Value* PyCodeGen::generateBinaryOperation(char op, llvm::Value* L, llvm::V
     int leftTypeId = leftType->getTypeId();
     int rightTypeId = rightType->getTypeId();
 
-    // 获取类型操作注册表
-    auto& registry = TypeOperationRegistry::getInstance();
+    // 2. 处理any类型（PY_TYPE_ANY）- 优先尝试使用另一个操作数的类型
+    if (leftTypeId == PY_TYPE_ANY && rightTypeId != PY_TYPE_ANY)
+    {
+        DEBUG_LOG("处理left为any类型: " << leftTypeId << ", right为: " << rightTypeId);
+        // 左边是any，尝试转换使用右边的类型
+        leftTypeId = rightTypeId;
+        leftType = rightType;
+    }
+    else if (rightTypeId == PY_TYPE_ANY && leftTypeId != PY_TYPE_ANY)
+    {
+        DEBUG_LOG("处理right为any类型: " << rightTypeId << ", left为: " << leftTypeId);
+        // 右边是any，尝试转换使用左边的类型
+        rightTypeId = leftTypeId;
+        rightType = leftType;
+    }
 
-    // 查找二元操作描述符
+    // 3. 确保操作数是正确的Python对象指针
+    L = ensurePythonObject(L, leftType);
+    R = ensurePythonObject(R, rightType);
+
+    if (!L || !R)
+    {
+        return logError("Failed to convert operands to Python objects");
+    }
+
+    // 4. 查询类型操作注册表，获取最佳操作路径
+    auto& registry = TypeOperationRegistry::getInstance();
+    auto opPath = registry.findOperablePath(op, leftTypeId, rightTypeId);
+
+    // 5. 如果需要类型转换，执行转换
+    if (opPath.first != leftTypeId)
+    {
+        ObjectType* targetType = TypeRegistry::getInstance().getType(std::to_string(opPath.first));
+        if (targetType)
+        {
+            DEBUG_LOG("将左操作数从类型 " << leftTypeId << " 转换为类型 " << opPath.first);
+            L = generateTypeConversion(L, leftType, targetType);
+            leftType = targetType;
+            leftTypeId = opPath.first;
+        }
+    }
+
+    if (opPath.second != rightTypeId)
+    {
+        ObjectType* targetType = TypeRegistry::getInstance().getType(std::to_string(opPath.second));
+        if (targetType)
+        {
+            DEBUG_LOG("将右操作数从类型 " << rightTypeId << " 转换为类型 " << opPath.second);
+            R = generateTypeConversion(R, rightType, targetType);
+            rightType = targetType;
+            rightTypeId = opPath.second;
+        }
+    }
+
+    // 6. 获取操作描述符
     BinaryOpDescriptor* descriptor = registry.getBinaryOpDescriptor(op, leftTypeId, rightTypeId);
 
-    // 如果找不到直接匹配的描述符，尝试找到可行的类型转换路径
-    if (!descriptor)
-    {
-        auto path = registry.findOperablePath(op, leftTypeId, rightTypeId);
+    // 7. 执行操作
+    llvm::Value* result = nullptr;
 
-        // 如果找到了路径，进行类型转换
-        if (path.first != leftTypeId || path.second != rightTypeId)
-        {
-            // 左操作数转换
-            if (path.first != leftTypeId)
-            {
-                auto convDesc = registry.getTypeConversionDescriptor(leftTypeId, path.first);
-                if (convDesc)
-                {
-                    // 获取目标类型
-                    ObjectType* targetType = TypeRegistry::getInstance().getType(std::to_string(path.first));
-                    if (targetType)
-                    {
-                        L = generateTypeConversion(L, leftType, targetType);
-                        leftType = targetType;
-                        leftTypeId = path.first;
-                    }
-                }
-            }
-
-            // 右操作数转换
-            if (path.second != rightTypeId)
-            {
-                auto convDesc = registry.getTypeConversionDescriptor(rightTypeId, path.second);
-                if (convDesc)
-                {
-                    // 获取目标类型
-                    ObjectType* targetType = TypeRegistry::getInstance().getType(std::to_string(path.second));
-                    if (targetType)
-                    {
-                        R = generateTypeConversion(R, rightType, targetType);
-                        rightType = targetType;
-                        rightTypeId = path.second;
-                    }
-                }
-            }
-
-            // 使用转换后的类型重新查找描述符
-            descriptor = registry.getBinaryOpDescriptor(op, leftTypeId, rightTypeId);
-        }
-    }
-
-    // 特别处理索引操作 - 对解决 "Expected type 5, got 1" 错误很重要
+    // 特殊处理索引操作
     if (op == '[')
     {
-        // 检查目标是否是可索引类型
-        if (leftTypeId == PY_TYPE_INT)
-        {
-            return logTypeError("Cannot index an integer value"), nullptr;
-        }
-
-        // 处理列表索引操作
-        if (leftTypeId == PY_TYPE_LIST)
-        {
-            // 检查索引类型是否为整数
-            if (rightTypeId != PY_TYPE_INT)
-            {
-                return logTypeError("List indices must be integers"), nullptr;
-            }
-
-            // 获取运行时的索引操作函数
-            llvm::Function* getItemFunc = getOrCreateExternalFunction(
-                "py_list_get_item",
-                llvm::PointerType::get(getContext(), 0),
-                {
-                    llvm::PointerType::get(getContext(), 0),  // list
-                    llvm::Type::getInt32Ty(getContext())      // index
-                });
-
-            // 确保索引是整数值
-            llvm::Value* indexValue = R;
-            if (R->getType()->isPointerTy())
-            {
-                // 如果是对象指针，需要提取整数值
-                llvm::Function* extractIntFunc = getOrCreateExternalFunction(
-                    "py_extract_int",
-                    llvm::Type::getInt32Ty(getContext()),
-                    {llvm::PointerType::get(getContext(), 0)});
-                indexValue = builder->CreateCall(extractIntFunc, {R}, "idxtmp");
-            }
-            else if (!R->getType()->isIntegerTy(32))
-            {
-                // 如果不是i32类型的整数，进行类型转换
-                indexValue = builder->CreateIntCast(
-                    R, llvm::Type::getInt32Ty(getContext()), true, "idxtmp");
-            }
-
-            // 调用列表索引函数
-            return builder->CreateCall(getItemFunc, {L, indexValue}, "listitem");
-        }
-
-        // 处理字典索引操作
-        else if (leftTypeId == PY_TYPE_DICT)
-        {
-            llvm::Function* getDictItemFunc = getOrCreateExternalFunction(
-                "py_dict_get_item",
-                llvm::PointerType::get(getContext(), 0),
-                {
-                    llvm::PointerType::get(getContext(), 0),  // dict
-                    llvm::PointerType::get(getContext(), 0)   // key
-                });
-
-            // 调用字典索引函数
-            return builder->CreateCall(getDictItemFunc, {L, R}, "dictitem");
-        }
-
-        // 处理字符串索引操作
-        else if (leftTypeId == PY_TYPE_STRING)
-        {
-            // 检查索引类型是否为整数
-            if (rightTypeId != PY_TYPE_INT)
-            {
-                return logTypeError("String indices must be integers"), nullptr;
-            }
-
-            llvm::Function* getCharFunc = getOrCreateExternalFunction(
-                "py_string_get_char",
-                llvm::PointerType::get(getContext(), 0),
-                {
-                    llvm::PointerType::get(getContext(), 0),  // string
-                    llvm::Type::getInt32Ty(getContext())      // index
-                });
-
-            // 确保索引是整数值
-            llvm::Value* indexValue = R;
-            if (R->getType()->isPointerTy())
-            {
-                llvm::Function* extractIntFunc = getOrCreateExternalFunction(
-                    "py_extract_int",
-                    llvm::Type::getInt32Ty(getContext()),
-                    {llvm::PointerType::get(getContext(), 0)});
-                indexValue = builder->CreateCall(extractIntFunc, {R}, "idxtmp");
-            }
-            else if (!R->getType()->isIntegerTy(32))
-            {
-                indexValue = builder->CreateIntCast(
-                    R, llvm::Type::getInt32Ty(getContext()), true, "idxtmp");
-            }
-
-            // 调用字符串索引函数
-            return builder->CreateCall(getCharFunc, {L, indexValue}, "charitem");
-        }
-
-        // 不支持的索引操作类型
-        else
-        {
-            return logTypeError("Type '" + leftType->getName() + "' is not subscriptable"), nullptr;
-        }
+        result = handleIndexOperation(L, R, leftType, rightType);
     }
-
-    // 如果找到了操作描述符，使用它处理操作
-    if (descriptor)
+    // 使用注册的运行时函数
+    else if (descriptor && !descriptor->runtimeFunction.empty())
     {
-        // 如果定义了运行时函数
-        if (!descriptor->customImpl && !descriptor->runtimeFunction.empty())
+        DEBUG_LOG("使用运行时函数: " << descriptor->runtimeFunction);
+        // 获取运行时函数
+        llvm::Function* runtimeFunc = getOrCreateExternalFunction(
+            descriptor->runtimeFunction,
+            llvm::PointerType::get(getContext(), 0),
+            {llvm::PointerType::get(getContext(), 0), llvm::PointerType::get(getContext(), 0)},
+            false);
+
+        // 调用函数
+        result = builder->CreateCall(runtimeFunc, {L, R}, "binop_result");
+    }
+    // 使用自定义实现
+    else if (descriptor && descriptor->customImpl)
+    {
+        DEBUG_LOG("使用自定义实现");
+        result = descriptor->customImpl(*this, L, R);
+    }
+    // 回退到通用对象操作
+    else
+    {
+        // 根据操作符选择函数名
+        std::string funcName = "py_object_";
+        switch (op)
         {
-            // 获取运行时函数
-            llvm::Function* runtimeFunc = getOrCreateExternalFunction(
-                descriptor->runtimeFunction,
+            case '+':
+                funcName += "add";
+                break;
+            case '-':
+                funcName += "subtract";
+                break;
+            case '*':
+                funcName += "multiply";
+                break;
+            case '/':
+                funcName += "divide";
+                break;
+            case '%':
+                funcName += "modulo";
+                break;
+            case '<':
+            case '>':
+            case '=':
+            case '!':
+                funcName = "py_object_compare";
+                break;
+            default:
+                return logError("Unsupported binary operator");
+        }
+
+        // 特殊处理比较操作
+        if (op == '<' || op == '>' || op == '=' || op == '!')
+        {
+            // 获取比较函数
+            llvm::Function* compareFunc = getOrCreateExternalFunction(
+                funcName,
                 llvm::PointerType::get(getContext(), 0),
                 {llvm::PointerType::get(getContext(), 0),
-                 llvm::PointerType::get(getContext(), 0)});
+                 llvm::PointerType::get(getContext(), 0),
+                 llvm::Type::getInt32Ty(getContext())},
+                false);
 
-            // 确保操作数是指针类型
-            if (!L->getType()->isPointerTy())
+            // 映射操作符到比较码
+            int compareOp;
+            switch (op)
             {
-                L = ObjectLifecycleManager::createObject(*this, L, leftTypeId);
+                case '<':
+                    compareOp = 2;
+                    break;  // PY_CMP_LT
+                case '>':
+                    compareOp = 4;
+                    break;  // PY_CMP_GT
+                case '=':
+                    compareOp = 0;
+                    break;  // PY_CMP_EQ
+                case '!':
+                    compareOp = 1;
+                    break;  // PY_CMP_NE
+                default:
+                    compareOp = 0;
             }
 
-            if (!R->getType()->isPointerTy())
+            // 调用比较函数
+            result = builder->CreateCall(
+                compareFunc,
+                {L,
+                 R,
+                 llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), compareOp)},
+                "compare_result");
+        }
+        else
+        {
+            // 获取通用操作函数
+            llvm::Function* opFunc = getOrCreateExternalFunction(
+                funcName,
+                llvm::PointerType::get(getContext(), 0),
+                {llvm::PointerType::get(getContext(), 0),
+                 llvm::PointerType::get(getContext(), 0)},
+                false);
+
+            // 调用函数
+            result = builder->CreateCall(opFunc, {L, R}, "op_result");
+        }
+    }
+
+    // 8. 处理可能的NULL结果
+    if (!result)
+    {
+        DEBUG_LOG("生成默认结果(0)");
+        // 创建默认值(0)
+        result = builder->CreateCall(
+            getOrCreateExternalFunction("py_create_int",
+                                        llvm::PointerType::get(getContext(), 0),
+                                        {llvm::Type::getInt32Ty(getContext())},
+                                        false),
+            {llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), 0)},
+            "default_result");
+    }
+
+    // 9. 跟踪生成的对象用于生命周期管理
+    trackObject(result);
+
+    return result;
+}
+llvm::Value* PyCodeGen::ensurePythonObject(llvm::Value* value, ObjectType* type)
+{
+    if (!value || !type)
+    {
+        return nullptr;
+    }
+
+    int typeId = type->getTypeId();
+    bool isPointer = value->getType()->isPointerTy();
+    bool isPrimitive = type->getCategory() == ObjectType::Primitive;
+    bool isContainer = type->getCategory() == ObjectType::Container;
+
+    // 首先检查元数据类型信息
+    int metadataTypeId = ObjectLifecycleManager::getTypeIdFromMetadata(value);
+    if (metadataTypeId != -1 && isPointer)
+    {
+        DEBUG_LOG("从元数据检测到类型ID: " << metadataTypeId);
+
+        // 如果是二元运算结果，需要特殊处理
+        if (value->getName().starts_with("binop_result"))
+        {
+            if (metadataTypeId == PY_TYPE_DOUBLE)
             {
-                R = ObjectLifecycleManager::createObject(*this, R, rightTypeId);
+                DEBUG_LOG("二元操作结果是浮点类型，正确提取浮点值");
+                llvm::Value* extractedValue = builder->CreateCall(
+                    getOrCreateExternalFunction("py_extract_double",
+                                                llvm::Type::getDoubleTy(getContext()),
+                                                {llvm::PointerType::get(getContext(), 0)},
+                                                false),
+                    {value},
+                    "extracted_double");
+
+                return builder->CreateCall(
+                    getOrCreateExternalFunction("py_create_double",
+                                                llvm::PointerType::get(getContext(), 0),
+                                                {llvm::Type::getDoubleTy(getContext())},
+                                                false),
+                    {extractedValue},
+                    "double_from_binop");
+            }
+            else if (metadataTypeId == PY_TYPE_INT)
+            {
+                DEBUG_LOG("二元操作结果是整数类型，正确提取整数值");
+                llvm::Value* extractedValue = builder->CreateCall(
+                    getOrCreateExternalFunction("py_extract_int",
+                                                llvm::Type::getInt32Ty(getContext()),
+                                                {llvm::PointerType::get(getContext(), 0)},
+                                                false),
+                    {value},
+                    "extracted_int");
+
+                return builder->CreateCall(
+                    getOrCreateExternalFunction("py_create_int",
+                                                llvm::PointerType::get(getContext(), 0),
+                                                {llvm::Type::getInt32Ty(getContext())},
+                                                false),
+                    {extractedValue},
+                    "int_from_binop");
+            }
+            else if (metadataTypeId == PY_TYPE_LIST)
+            {
+                DEBUG_LOG("二元操作结果是列表类型，直接返回");
+                // 列表类型直接返回，不需要提取
+                return value;
+            }
+        }
+
+        // 检查索引操作结果 (来自列表的元素访问)
+        if (value->getName().starts_with("list_item") || value->getName().starts_with("index_"))
+        {
+            DEBUG_LOG("处理列表索引访问结果，元数据类型: " << metadataTypeId);
+
+            // 根据元数据类型决定如何处理列表元素
+            if (metadataTypeId == PY_TYPE_INT)
+            {
+                return value;  // 一般情况下直接返回值
+            }
+            else if (metadataTypeId == PY_TYPE_DOUBLE)
+            {
+                return value;  // 直接返回值
+            }
+            else if (metadataTypeId == PY_TYPE_STRING)
+            {
+                return value;  // 直接返回值
+            }
+            else
+            {
+                // 其他类型元素直接返回
+                return value;
+            }
+        }
+
+        // 如果请求的类型和元数据类型匹配或是ANY，直接返回原值
+        if (typeId == PY_TYPE_ANY || typeId == metadataTypeId)
+        {
+            DEBUG_LOG("类型匹配或为ANY类型，直接使用元数据类型");
+            return value;
+        }
+
+        // 需要类型转换
+        DEBUG_LOG("基于元数据进行类型转换: 从类型 " << metadataTypeId << " 到类型 " << typeId);
+        std::string convFunc;
+
+        if (metadataTypeId == PY_TYPE_DOUBLE && typeId == PY_TYPE_INT)
+        {
+            convFunc = "py_convert_double_to_int";
+        }
+        else if (metadataTypeId == PY_TYPE_INT && typeId == PY_TYPE_DOUBLE)
+        {
+            convFunc = "py_convert_int_to_double";
+        }
+        else if (metadataTypeId == PY_TYPE_LIST && typeId == PY_TYPE_LIST)
+        {
+            // 同为列表类型，但可能元素类型不同，需要复制
+            return builder->CreateCall(
+                getOrCreateExternalFunction("py_list_copy",
+                                            llvm::PointerType::get(getContext(), 0),
+                                            {llvm::PointerType::get(getContext(), 0)},
+                                            false),
+                {value},
+                "copied_list");
+        }
+        else
+        {
+            // 使用通用转换函数
+            convFunc = "py_convert_any_to_" + std::to_string(typeId);
+        }
+
+        // 调用转换函数
+        llvm::Value* convertedValue = builder->CreateCall(
+            getOrCreateExternalFunction(convFunc,
+                                        llvm::PointerType::get(getContext(), 0),
+                                        {llvm::PointerType::get(getContext(), 0)},
+                                        false),
+            {value},
+            "metadata_converted_value");
+
+        // 确保转换后的值有正确的类型元数据
+        ObjectLifecycleManager::attachTypeMetadata(convertedValue, typeId);
+        return convertedValue;
+    }
+
+    // 处理容器类型 (列表、字典等)
+    if (isContainer)
+    {
+        DEBUG_LOG("处理容器类型: " << typeId);
+
+        // 检查是否已经是列表类型且值是指针
+        if (typeId == PY_TYPE_LIST && isPointer)
+        {
+            // 如果值已经是列表指针，检查名称是否表明这是列表
+            if (value->getName().starts_with("list") || value->getName().starts_with("array") || value->getName().contains("list"))
+            {
+                DEBUG_LOG("值已经是列表类型指针，直接返回");
+                return value;
             }
 
-            // 调用运行时函数
-            return builder->CreateCall(runtimeFunc, {L, R}, "binop");
+            // 尝试加载指针指向的值
+            if (llvm::AllocaInst* alloca = llvm::dyn_cast<llvm::AllocaInst>(value))
+            {
+                DEBUG_LOG("加载分配的列表指针");
+                llvm::Value* loadedValue = builder->CreateLoad(
+                    llvm::PointerType::get(getContext(), 0),
+                    value,
+                    "loaded_list");
+
+                // 确保加载的值有正确的元数据
+                ObjectLifecycleManager::attachTypeMetadata(loadedValue, PY_TYPE_LIST);
+                return loadedValue;
+            }
+
+            // 可能是从另一个容器获取的值，直接返回
+            return value;
         }
-        // 如果定义了自定义实现函数
-        else if (descriptor->customImpl)
+        else if (typeId == PY_TYPE_DICT && isPointer)
         {
-            return descriptor->customImpl(*this, L, R);
+            // 字典类型的处理类似于列表
+            if (value->getName().starts_with("dict") || value->getName().contains("dict") || value->getName().contains("map"))
+            {
+                DEBUG_LOG("值已经是字典类型指针，直接返回");
+                return value;
+            }
+
+            // 尝试加载指针指向的值
+            if (llvm::AllocaInst* alloca = llvm::dyn_cast<llvm::AllocaInst>(value))
+            {
+                DEBUG_LOG("加载分配的字典指针");
+                llvm::Value* loadedValue = builder->CreateLoad(
+                    llvm::PointerType::get(getContext(), 0),
+                    value,
+                    "loaded_dict");
+
+                // 确保加载的值有正确的元数据
+                ObjectLifecycleManager::attachTypeMetadata(loadedValue, PY_TYPE_DICT);
+                return loadedValue;
+            }
+
+            return value;
+        }
+
+        // 特殊情况：值不是指针，但请求容器类型(可能是列表、字典创建)
+        if (!isPointer && typeId == PY_TYPE_LIST)
+        {
+            DEBUG_LOG("非指针值请求列表类型，尝试创建新列表");
+
+            // 获取列表元素类型
+            int elemTypeId = PY_TYPE_ANY;  // 默认为ANY
+
+            // 尝试从类型信息获取更具体的元素类型
+            if (ListType* listType = dynamic_cast<ListType*>(type))
+            {
+                if (listType->getElementType())
+                {
+                    elemTypeId = listType->getElementType()->getTypeId();
+                }
+            }
+
+            // 创建空列表
+            llvm::Value* emptyList = builder->CreateCall(
+                getOrCreateExternalFunction("py_create_list",
+                                            llvm::PointerType::get(getContext(), 0),
+                                            {llvm::Type::getInt32Ty(getContext()),
+                                             llvm::Type::getInt32Ty(getContext())},
+                                            false),
+                {llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), 0),
+                 llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), elemTypeId)},
+                "empty_list");
+
+            // 附加类型元数据
+            ObjectLifecycleManager::attachTypeMetadata(emptyList, PY_TYPE_LIST);
+            return emptyList;
+        }
+
+        if (!isPointer && typeId == PY_TYPE_DICT)
+        {
+            DEBUG_LOG("非指针值请求字典类型，尝试创建新字典");
+
+            // 获取字典键值类型
+            int keyTypeId = PY_TYPE_STRING;  // 默认键类型是字符串
+
+            // 创建空字典
+            llvm::Value* emptyDict = builder->CreateCall(
+                getOrCreateExternalFunction("py_create_dict",
+                                            llvm::PointerType::get(getContext(), 0),
+                                            {llvm::Type::getInt32Ty(getContext()),
+                                             llvm::Type::getInt32Ty(getContext())},
+                                            false),
+                {llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), 8),  // 初始容量
+                 llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), keyTypeId)},
+                "empty_dict");
+
+            // 附加类型元数据
+            ObjectLifecycleManager::attachTypeMetadata(emptyDict, PY_TYPE_DICT);
+            return emptyDict;
         }
     }
 
-    // 针对基本运算符的内置实现
-    if (leftTypeId == PY_TYPE_INT && rightTypeId == PY_TYPE_INT)
+    // 如果值已经是指向Python对象的指针，直接返回
+    if (isPointer && !isPrimitive)
     {
-        // 整数运算
-        switch (op)
-        {
-            case '+':
-                return builder->CreateAdd(L, R, "addtmp");
-            case '-':
-                return builder->CreateSub(L, R, "subtmp");
-            case '*':
-                return builder->CreateMul(L, R, "multmp");
-            case '/':
-                return builder->CreateSDiv(L, R, "divtmp");
-            case '%':
-                return builder->CreateSRem(L, R, "modtmp");
-            case '<':
-                return builder->CreateICmpSLT(L, R, "cmptmp");
-            case '>':
-                return builder->CreateICmpSGT(L, R, "cmptmp");
-            case '=':
-                return builder->CreateICmpEQ(L, R, "cmptmp");
-            case '!':
-                return builder->CreateICmpNE(L, R, "cmptmp");
-            default:
-                break;
-        }
+        // 可能是一个已有的Python对象指针，确保它有正确的类型元数据
+        ObjectLifecycleManager::attachTypeMetadata(value, typeId);
+        return value;
     }
-    else if ((leftTypeId == PY_TYPE_DOUBLE || leftTypeId == PY_TYPE_INT) && (rightTypeId == PY_TYPE_DOUBLE || rightTypeId == PY_TYPE_INT))
+
+    // 检查指针的实际分配类型
+    llvm::Type* allocatedType = nullptr;
+    if (isPointer)
     {
-        // 浮点数运算 - 需要确保操作数都是浮点数
-        if (leftTypeId == PY_TYPE_INT)
+        if (llvm::AllocaInst* alloca = llvm::dyn_cast<llvm::AllocaInst>(value))
         {
-            L = builder->CreateSIToFP(L, llvm::Type::getDoubleTy(getContext()), "inttofp");
+            allocatedType = alloca->getAllocatedType();
+            DEBUG_LOG("检测到AllocaInst，分配的类型: " << (allocatedType->isDoubleTy() ? "double" : allocatedType->isIntegerTy(32) ? "int32"
+                                                                                                : allocatedType->isIntegerTy(1)    ? "bool"
+                                                                                                                                   : "其他"));
         }
-
-        if (rightTypeId == PY_TYPE_INT)
+        else
         {
-            R = builder->CreateSIToFP(R, llvm::Type::getDoubleTy(getContext()), "inttofp");
-        }
+            DEBUG_LOG("指针不是AllocaInst: " << value->getName().str());
 
-        switch (op)
-        {
-            case '+':
-                return builder->CreateFAdd(L, R, "addtmp");
-            case '-':
-                return builder->CreateFSub(L, R, "subtmp");
-            case '*':
-                return builder->CreateFMul(L, R, "multmp");
-            case '/':
-                return builder->CreateFDiv(L, R, "divtmp");
-            case '<':
-                return builder->CreateFCmpOLT(L, R, "cmptmp");
-            case '>':
-                return builder->CreateFCmpOGT(L, R, "cmptmp");
-            case '=':
-                return builder->CreateFCmpOEQ(L, R, "cmptmp");
-            case '!':
-                return builder->CreateFCmpONE(L, R, "cmptmp");
-            default:
-                break;
+            // 检查是否可能是列表项
+            if (value->getName().starts_with("list_item") || value->getName().starts_with("index_") || value->getName().contains("item"))
+            {
+                DEBUG_LOG("可能是列表项的访问，使用运行时类型检查");
+
+                // 使用py_get_object_type_id检查对象类型
+                llvm::Function* getTypeFunc = getOrCreateExternalFunction(
+                    "py_get_object_type_id",
+                    llvm::Type::getInt32Ty(getContext()),
+                    {llvm::PointerType::get(getContext(), 0)},
+                    false);
+
+                llvm::Value* objTypeId = builder->CreateCall(getTypeFunc, {value}, "obj_type_id");
+
+                // 创建条件分支处理不同类型
+                llvm::Value* isBasicType = builder->CreateICmpULE(
+                    objTypeId,
+                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), PY_TYPE_STRING),
+                    "is_basic_type");
+
+                llvm::BasicBlock* currentBB = builder->GetInsertBlock();
+                llvm::Function* parentFunc = currentBB->getParent();
+
+                llvm::BasicBlock* extractBB = llvm::BasicBlock::Create(getContext(), "extract_value", parentFunc);
+                llvm::BasicBlock* directBB = llvm::BasicBlock::Create(getContext(), "direct_value", parentFunc);
+                llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(getContext(), "merge", parentFunc);
+
+                builder->CreateCondBr(isBasicType, extractBB, directBB);
+
+                // 基本类型处理：尝试提取值
+                builder->SetInsertPoint(extractBB);
+
+                // 检查具体类型并提取相应值
+                std::vector<std::pair<int, std::string>> typeChecks = {
+                    {PY_TYPE_INT, "py_extract_int"},
+                    {PY_TYPE_DOUBLE, "py_extract_double"},
+                    {PY_TYPE_BOOL, "py_extract_bool"}};
+
+                // 存储创建的所有基本块，避免使用getBasicBlockList()
+                std::vector<llvm::BasicBlock*> typeCheckBlocks;
+                std::vector<llvm::Value*> extractedObjects;
+
+                llvm::BasicBlock* nextBB = extractBB;
+
+                for (size_t i = 0; i < typeChecks.size(); i++)
+                {
+                    auto [checkTypeId, extractFunc] = typeChecks[i];
+
+                    llvm::BasicBlock* checkBB = llvm::BasicBlock::Create(
+                        getContext(),
+                        "check_" + std::to_string(checkTypeId),
+                        parentFunc);
+                    typeCheckBlocks.push_back(checkBB);
+
+                    // 在当前基本块创建条件分支
+                    builder->SetInsertPoint(nextBB);
+
+                    llvm::Value* isType = builder->CreateICmpEQ(
+                        objTypeId,
+                        llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), checkTypeId),
+                        "is_type_" + std::to_string(checkTypeId));
+
+                    // 如果不是最后一个检查，创建下一个检查基本块
+                    llvm::BasicBlock* nextCheckBB = nullptr;
+                    if (i < typeChecks.size() - 1)
+                    {
+                        nextCheckBB = llvm::BasicBlock::Create(getContext(), "next_check_" + std::to_string(i), parentFunc);
+                        typeCheckBlocks.push_back(nextCheckBB);
+                    }
+                    else
+                    {
+                        nextCheckBB = directBB;
+                    }
+
+                    builder->CreateCondBr(isType, checkBB, nextCheckBB);
+
+                    // 设置下一个迭代要使用的基本块
+                    nextBB = nextCheckBB;
+
+                    // 在检查块中生成提取值的代码
+                    builder->SetInsertPoint(checkBB);
+
+                    llvm::Value* extractedValue = nullptr;
+                    llvm::Value* objValue = nullptr;
+
+                    if (checkTypeId == PY_TYPE_INT)
+                    {
+                        extractedValue = builder->CreateCall(
+                            getOrCreateExternalFunction(extractFunc,
+                                                        llvm::Type::getInt32Ty(getContext()),
+                                                        {llvm::PointerType::get(getContext(), 0)},
+                                                        false),
+                            {value},
+                            "extracted_int");
+
+                        objValue = builder->CreateCall(
+                            getOrCreateExternalFunction("py_create_int",
+                                                        llvm::PointerType::get(getContext(), 0),
+                                                        {llvm::Type::getInt32Ty(getContext())},
+                                                        false),
+                            {extractedValue},
+                            "int_from_extract");
+
+                        ObjectLifecycleManager::attachTypeMetadata(objValue, PY_TYPE_INT);
+                    }
+                    else if (checkTypeId == PY_TYPE_DOUBLE)
+                    {
+                        extractedValue = builder->CreateCall(
+                            getOrCreateExternalFunction(extractFunc,
+                                                        llvm::Type::getDoubleTy(getContext()),
+                                                        {llvm::PointerType::get(getContext(), 0)},
+                                                        false),
+                            {value},
+                            "extracted_double");
+
+                        objValue = builder->CreateCall(
+                            getOrCreateExternalFunction("py_create_double",
+                                                        llvm::PointerType::get(getContext(), 0),
+                                                        {llvm::Type::getDoubleTy(getContext())},
+                                                        false),
+                            {extractedValue},
+                            "double_from_extract");
+
+                        ObjectLifecycleManager::attachTypeMetadata(objValue, PY_TYPE_DOUBLE);
+                    }
+                    else if (checkTypeId == PY_TYPE_BOOL)
+                    {
+                        extractedValue = builder->CreateCall(
+                            getOrCreateExternalFunction(extractFunc,
+                                                        llvm::Type::getInt1Ty(getContext()),
+                                                        {llvm::PointerType::get(getContext(), 0)},
+                                                        false),
+                            {value},
+                            "extracted_bool");
+
+                        objValue = builder->CreateCall(
+                            getOrCreateExternalFunction("py_create_bool",
+                                                        llvm::PointerType::get(getContext(), 0),
+                                                        {llvm::Type::getInt1Ty(getContext())},
+                                                        false),
+                            {extractedValue},
+                            "bool_from_extract");
+
+                        ObjectLifecycleManager::attachTypeMetadata(objValue, PY_TYPE_BOOL);
+                    }
+
+                    extractedObjects.push_back(objValue);
+                    builder->CreateBr(mergeBB);
+                }
+
+                // 直接返回值
+                builder->SetInsertPoint(directBB);
+                // 假设值已经是有效的Python对象
+                ObjectLifecycleManager::attachTypeMetadata(value, PY_TYPE_ANY);
+                builder->CreateBr(mergeBB);
+
+                // 合并处理结果
+                builder->SetInsertPoint(mergeBB);
+                llvm::PHINode* result = builder->CreatePHI(
+                    llvm::PointerType::get(getContext(), 0),
+                    typeChecks.size() + 1,
+                    "result");
+
+                // 添加结果分支，使用之前保存的基本块和值
+                for (size_t i = 0; i < typeChecks.size(); i++)
+                {
+                    // 检查块是按顺序创建的，每个check类型的基本块索引是 i*2
+                    if (i < extractedObjects.size() && extractedObjects[i])
+                    {
+                        result->addIncoming(extractedObjects[i], typeCheckBlocks[i * 2]);
+                    }
+                }
+
+                // 添加直接分支
+                result->addIncoming(value, directBB);
+
+                return result;
+            }
+            else
+            {
+                // 尝试从指针对象推断类型
+                llvm::Function* getTypeFunc = getOrCreateExternalFunction(
+                    "py_get_object_type_id",
+                    llvm::Type::getInt32Ty(getContext()),
+                    {llvm::PointerType::get(getContext(), 0)},
+                    false);
+
+                llvm::Value* objTypeId = builder->CreateCall(getTypeFunc, {value}, "obj_type_id");
+
+                // 创建条件分支处理不同类型
+                llvm::Value* isDouble = builder->CreateICmpEQ(
+                    objTypeId,
+                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), PY_TYPE_DOUBLE),
+                    "is_double");
+
+                llvm::BasicBlock* currentBB = builder->GetInsertBlock();
+                llvm::Function* parentFunc = currentBB->getParent();
+
+                llvm::BasicBlock* doubleBB = llvm::BasicBlock::Create(getContext(), "handle_double", parentFunc);
+                llvm::BasicBlock* defaultBB = llvm::BasicBlock::Create(getContext(), "handle_default", parentFunc);
+                llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(getContext(), "merge", parentFunc);
+
+                builder->CreateCondBr(isDouble, doubleBB, defaultBB);
+
+                // 处理浮点值
+                builder->SetInsertPoint(doubleBB);
+                llvm::Value* doubleVal = builder->CreateCall(
+                    getOrCreateExternalFunction("py_extract_double",
+                                                llvm::Type::getDoubleTy(getContext()),
+                                                {llvm::PointerType::get(getContext(), 0)},
+                                                false),
+                    {value},
+                    "extracted_double");
+
+                llvm::Value* doubleObj = builder->CreateCall(
+                    getOrCreateExternalFunction("py_create_double",
+                                                llvm::PointerType::get(getContext(), 0),
+                                                {llvm::Type::getDoubleTy(getContext())},
+                                                false),
+                    {doubleVal},
+                    "double_obj");
+
+                // 添加类型元数据
+                ObjectLifecycleManager::attachTypeMetadata(doubleObj, PY_TYPE_DOUBLE);
+                builder->CreateBr(mergeBB);
+
+                // 处理默认情况 - 假设为整数
+                builder->SetInsertPoint(defaultBB);
+
+                // 添加对列表类型的检查
+                llvm::Value* isList = builder->CreateICmpEQ(
+                    objTypeId,
+                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), PY_TYPE_LIST),
+                    "is_list");
+
+                llvm::BasicBlock* listBB = llvm::BasicBlock::Create(getContext(), "handle_list", parentFunc);
+                llvm::BasicBlock* intBB = llvm::BasicBlock::Create(getContext(), "handle_int", parentFunc);
+
+                builder->CreateCondBr(isList, listBB, intBB);
+
+                // 处理列表情况
+                builder->SetInsertPoint(listBB);
+                // 列表直接返回，无需提取值
+                ObjectLifecycleManager::attachTypeMetadata(value, PY_TYPE_LIST);
+                builder->CreateBr(mergeBB);
+
+                // 处理整数情况
+                builder->SetInsertPoint(intBB);
+                llvm::Value* intVal = builder->CreateCall(
+                    getOrCreateExternalFunction("py_extract_int",
+                                                llvm::Type::getInt32Ty(getContext()),
+                                                {llvm::PointerType::get(getContext(), 0)},
+                                                false),
+                    {value},
+                    "extracted_int");
+
+                llvm::Value* intObj = builder->CreateCall(
+                    getOrCreateExternalFunction("py_create_int",
+                                                llvm::PointerType::get(getContext(), 0),
+                                                {llvm::Type::getInt32Ty(getContext())},
+                                                false),
+                    {intVal},
+                    "int_obj");
+
+                // 添加类型元数据
+                ObjectLifecycleManager::attachTypeMetadata(intObj, PY_TYPE_INT);
+                builder->CreateBr(mergeBB);
+
+                // 合并结果
+                builder->SetInsertPoint(mergeBB);
+                llvm::PHINode* result = builder->CreatePHI(
+                    llvm::PointerType::get(getContext(), 0), 3, "result");
+                result->addIncoming(doubleObj, doubleBB);
+                result->addIncoming(value, listBB);  // 列表直接使用原始值
+                result->addIncoming(intObj, intBB);
+
+                // 添加元数据到整体结果
+                if (typeId != PY_TYPE_ANY)
+                {
+                    ObjectLifecycleManager::attachTypeMetadata(result, typeId);
+                }
+
+                return result;
+            }
         }
     }
 
-    // 如果所有方法都无法处理，报告错误
-    return logError("Unsupported binary operation '" + std::string(1, op) + "' between types '" + leftType->getName() + "' and '" + rightType->getName() + "'");
+    // 处理ANY类型 - 根据实际分配的类型处理
+    if (typeId == PY_TYPE_ANY)
+    {
+        // 指针且有分配类型信息
+        if (isPointer && allocatedType)
+        {
+            if (allocatedType->isDoubleTy())
+            {
+                DEBUG_LOG("ANY类型处理：指针指向double，正确加载");
+                // 正确加载double值
+                llvm::Value* loadedValue = builder->CreateLoad(llvm::Type::getDoubleTy(getContext()), value, "any_double_val");
+
+                // 创建浮点对象
+                llvm::Value* result = builder->CreateCall(
+                    getOrCreateExternalFunction("py_create_double",
+                                                llvm::PointerType::get(getContext(), 0),
+                                                {llvm::Type::getDoubleTy(getContext())},
+                                                false),
+                    {loadedValue},
+                    "any_double_obj");
+
+                ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_DOUBLE);
+                return result;
+            }
+            else if (allocatedType->isIntegerTy(32))
+            {
+                DEBUG_LOG("ANY类型处理：指针指向int32，正确加载");
+                // 正确加载int值
+                llvm::Value* loadedValue = builder->CreateLoad(llvm::Type::getInt32Ty(getContext()), value, "any_int_val");
+
+                // 创建整数对象
+                llvm::Value* result = builder->CreateCall(
+                    getOrCreateExternalFunction("py_create_int",
+                                                llvm::PointerType::get(getContext(), 0),
+                                                {llvm::Type::getInt32Ty(getContext())},
+                                                false),
+                    {loadedValue},
+                    "any_int_obj");
+
+                ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_INT);
+                return result;
+            }
+            else if (allocatedType->isIntegerTy(1))
+            {
+                DEBUG_LOG("ANY类型处理：指针指向bool，正确加载");
+                // 正确加载bool值
+                llvm::Value* loadedValue = builder->CreateLoad(llvm::Type::getInt1Ty(getContext()), value, "any_bool_val");
+
+                // 创建布尔对象
+                llvm::Value* result = builder->CreateCall(
+                    getOrCreateExternalFunction("py_create_bool",
+                                                llvm::PointerType::get(getContext(), 0),
+                                                {llvm::Type::getInt1Ty(getContext())},
+                                                false),
+                    {loadedValue},
+                    "any_bool_obj");
+
+                ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_BOOL);
+                return result;
+            }
+            else if (allocatedType->isPointerTy())
+            {
+                DEBUG_LOG("ANY类型处理：指针指向另一个指针（可能是字符串或对象）");
+                // 指向指针类型 - 可能是字符串或其他对象引用
+                llvm::Value* loadedValue = builder->CreateLoad(llvm::PointerType::get(getContext(), 0), value, "any_ptr_val");
+
+                // 尝试获取加载值的类型元数据
+                int loadedTypeId = ObjectLifecycleManager::getTypeIdFromMetadata(loadedValue);
+                if (loadedTypeId != -1)
+                {
+                    DEBUG_LOG("从加载的指针值获取到类型元数据: " << loadedTypeId);
+                    // 已有元数据，确保保留
+                    return loadedValue;
+                }
+
+                // 假设是已经是Python对象指针，直接返回
+                return loadedValue;
+            }
+            else
+            {
+                DEBUG_LOG("ANY类型处理：未知分配类型，使用默认加载");
+            }
+        }
+
+        // 指针但没有分配类型信息 - 尝试使用i32加载（保留原有行为作为备选）
+        if (isPointer)
+        {
+            // 检查是否可能是列表类型
+            if (value->getName().starts_with("list") || value->getName().contains("list") || value->getName().contains("array"))
+            {
+                DEBUG_LOG("ANY类型处理：指针可能是列表类型");
+                ObjectLifecycleManager::attachTypeMetadata(value, PY_TYPE_LIST);
+                return value;
+            }
+
+            DEBUG_LOG("ANY类型处理：无类型信息的指针，尝试作为int32加载");
+            // 作为int加载，这是一种回退策略
+            llvm::Value* loadedValue = builder->CreateLoad(llvm::Type::getInt32Ty(getContext()), value, "any_fallback_int");
+
+            // 创建整数对象
+            llvm::Value* result = builder->CreateCall(
+                getOrCreateExternalFunction("py_create_int",
+                                            llvm::PointerType::get(getContext(), 0),
+                                            {llvm::Type::getInt32Ty(getContext())},
+                                            false),
+                {loadedValue},
+                "any_int_fallback");
+
+            ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_INT);
+            return result;
+        }
+
+        // 非指针值处理
+        if (value->getType()->isIntegerTy())
+        {
+            DEBUG_LOG("ANY类型处理：整数字面量");
+            llvm::Value* result = builder->CreateCall(
+                getOrCreateExternalFunction("py_create_int",
+                                            llvm::PointerType::get(getContext(), 0),
+                                            {llvm::Type::getInt32Ty(getContext())},
+                                            false),
+                {value},
+                "any_direct_int");
+
+            ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_INT);
+            return result;
+        }
+
+        if (value->getType()->isFloatingPointTy())
+        {
+            DEBUG_LOG("ANY类型处理：浮点字面量");
+            llvm::Value* result = builder->CreateCall(
+                getOrCreateExternalFunction("py_create_double",
+                                            llvm::PointerType::get(getContext(), 0),
+                                            {llvm::Type::getDoubleTy(getContext())},
+                                            false),
+                {value},
+                "any_direct_double");
+
+            ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_DOUBLE);
+            return result;
+        }
+
+        // 最后的回退策略 - 尝试转为i32
+        DEBUG_LOG("ANY类型处理：未知类型，尝试转为int");
+        if (!value->getType()->isIntegerTy(32))
+        {
+            if (value->getType()->isIntegerTy())
+            {
+                value = builder->CreateIntCast(value, llvm::Type::getInt32Ty(getContext()), true, "int_to_i32");
+            }
+            else
+            {
+                // 试图作为指针处理，假设它是某种Python对象
+                return value;
+            }
+        }
+
+        llvm::Value* result = builder->CreateCall(
+            getOrCreateExternalFunction("py_create_int",
+                                        llvm::PointerType::get(getContext(), 0),
+                                        {llvm::Type::getInt32Ty(getContext())},
+                                        false),
+            {value},
+            "any_ultimate_fallback");
+
+        ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_INT);
+        return result;
+    }
+
+    // 处理基本类型（整数、浮点等）
+    if (isPrimitive)
+    {
+        // 处理字面量常量
+        if (!isPointer && llvm::isa<llvm::Constant>(value))
+        {
+            switch (typeId)
+            {
+                case PY_TYPE_INT:
+                {
+                    DEBUG_LOG("处理整数字面量");
+                    if (!value->getType()->isIntegerTy(32))
+                    {
+                        value = builder->CreateIntCast(value, llvm::Type::getInt32Ty(getContext()), true, "to_i32");
+                    }
+
+                    llvm::Value* result = builder->CreateCall(
+                        getOrCreateExternalFunction("py_create_int",
+                                                    llvm::PointerType::get(getContext(), 0),
+                                                    {llvm::Type::getInt32Ty(getContext())},
+                                                    false),
+                        {value},
+                        "int_obj");
+
+                    ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_INT);
+                    return result;
+                }
+
+                case PY_TYPE_DOUBLE:
+                {
+                    DEBUG_LOG("处理浮点字面量");
+                    if (!value->getType()->isDoubleTy())
+                    {
+                        if (value->getType()->isFloatingPointTy())
+                        {
+                            value = builder->CreateFPCast(value, llvm::Type::getDoubleTy(getContext()), "to_double");
+                        }
+                        else if (value->getType()->isIntegerTy())
+                        {
+                            value = builder->CreateSIToFP(value, llvm::Type::getDoubleTy(getContext()), "int_to_double");
+                        }
+                    }
+
+                    llvm::Value* result = builder->CreateCall(
+                        getOrCreateExternalFunction("py_create_double",
+                                                    llvm::PointerType::get(getContext(), 0),
+                                                    {llvm::Type::getDoubleTy(getContext())},
+                                                    false),
+                        {value},
+                        "double_obj");
+
+                    ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_DOUBLE);
+                    return result;
+                }
+
+                case PY_TYPE_BOOL:
+                {
+                    DEBUG_LOG("处理布尔字面量");
+                    if (!value->getType()->isIntegerTy(1))
+                    {
+                        value = builder->CreateICmpNE(value,
+                                                      llvm::Constant::getNullValue(value->getType()),
+                                                      "to_bool");
+                    }
+
+                    llvm::Value* result = builder->CreateCall(
+                        getOrCreateExternalFunction("py_create_bool",
+                                                    llvm::PointerType::get(getContext(), 0),
+                                                    {llvm::Type::getInt1Ty(getContext())},
+                                                    false),
+                        {value},
+                        "bool_obj");
+
+                    ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_BOOL);
+                    return result;
+                }
+
+                case PY_TYPE_STRING:
+                {
+                    DEBUG_LOG("处理字符串字面量");
+                    // 字符串字面量应该已经是指针类型
+                    llvm::Value* result = builder->CreateCall(
+                        getOrCreateExternalFunction("py_create_string",
+                                                    llvm::PointerType::get(getContext(), 0),
+                                                    {llvm::PointerType::get(getContext(), 0)},
+                                                    false),
+                        {value},
+                        "string_obj");
+
+                    ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_STRING);
+                    return result;
+                }
+
+                default:
+                    DEBUG_LOG("未知字面量类型: " << typeId);
+                    break;
+            }
+        }
+
+        // 处理基本类型变量（从内存加载）
+        if (isPointer)
+        {
+            llvm::Type* loadType = nullptr;
+            std::string funcName;
+
+            // 根据要求的类型或分配类型确定加载类型
+            if (allocatedType)
+            {
+                if (allocatedType->isDoubleTy() && (typeId == PY_TYPE_DOUBLE || typeId == PY_TYPE_ANY))
+                {
+                    loadType = llvm::Type::getDoubleTy(getContext());
+                    funcName = "py_create_double";
+                }
+                else if (allocatedType->isIntegerTy(32) && (typeId == PY_TYPE_INT || typeId == PY_TYPE_ANY))
+                {
+                    loadType = llvm::Type::getInt32Ty(getContext());
+                    funcName = "py_create_int";
+                }
+                else if (allocatedType->isIntegerTy(1) && (typeId == PY_TYPE_BOOL || typeId == PY_TYPE_ANY))
+                {
+                    loadType = llvm::Type::getInt1Ty(getContext());
+                    funcName = "py_create_bool";
+                }
+                else if (allocatedType->isPointerTy() && (typeId == PY_TYPE_STRING || typeId == PY_TYPE_ANY))
+                {
+                    loadType = llvm::PointerType::get(getContext(), 0);
+                    funcName = "py_create_string";
+                }
+            }
+
+            if (!loadType)
+            {
+                // 如果未确定加载类型，根据请求类型确定
+                switch (typeId)
+                {
+                    case PY_TYPE_INT:
+                        loadType = llvm::Type::getInt32Ty(getContext());
+                        funcName = "py_create_int";
+                        break;
+                    case PY_TYPE_DOUBLE:
+                        loadType = llvm::Type::getDoubleTy(getContext());
+                        funcName = "py_create_double";
+                        break;
+                    case PY_TYPE_BOOL:
+                        loadType = llvm::Type::getInt1Ty(getContext());
+                        funcName = "py_create_bool";
+                        break;
+                    case PY_TYPE_STRING:
+                        loadType = llvm::PointerType::get(getContext(), 0);
+                        funcName = "py_create_string";
+                        break;
+                    default:
+                        // 默认尝试作为整数处理
+                        loadType = llvm::Type::getInt32Ty(getContext());
+                        funcName = "py_create_int";
+                        break;
+                }
+            }
+
+            // 加载值并创建对象
+            DEBUG_LOG("加载基本类型: " << (loadType->isDoubleTy() ? "double" : loadType->isIntegerTy(32) ? "int32"
+                                                                           : loadType->isIntegerTy(1)    ? "bool"
+                                                                                                         : "其他"));
+
+            llvm::Value* loadedValue = builder->CreateLoad(loadType, value, "loaded_primitive");
+
+            llvm::Value* result = builder->CreateCall(
+                getOrCreateExternalFunction(funcName,
+                                            llvm::PointerType::get(getContext(), 0),
+                                            {loadType},
+                                            false),
+                {loadedValue},
+                "primitive_obj");
+
+            ObjectLifecycleManager::attachTypeMetadata(result, typeId);
+            return result;
+        }
+    }
+
+    // 任何未处理的情况，返回原值并附加类型元数据
+    DEBUG_LOG("使用原始值 (类型ID: " << typeId << ")");
+    if (isPointer)
+    {
+        ObjectLifecycleManager::attachTypeMetadata(value, typeId);
+    }
+    return value;
+}
+
+// 辅助函数：处理索引操作
+llvm::Value* PyCodeGen::handleIndexOperation(llvm::Value* target, llvm::Value* index,
+                                             ObjectType* targetType, ObjectType* indexType)
+{
+    // 基本参数验证
+    if (!target || !index || !targetType || !indexType)
+    {
+        return logTypeError("Invalid parameters for index operation");
+    }
+
+    // 获取目标类型和索引类型ID
+    int targetTypeId = targetType->getTypeId();
+    int indexTypeId = indexType->getTypeId();
+
+    DEBUG_LOG("索引操作: 目标类型ID=" << targetTypeId << ", 索引类型ID=" << indexTypeId);
+
+    // 检查目标是否可索引
+    if (targetTypeId == PY_TYPE_INT || targetTypeId == PY_TYPE_DOUBLE || targetTypeId == PY_TYPE_BOOL)
+    {
+        return logTypeError("目标对象类型 '" + targetType->getName() + "' 不支持索引操作");
+    }
+
+    // 确保目标是Python对象指针
+    bool isTargetPointer = target->getType()->isPointerTy();
+    if (!isTargetPointer)
+    {
+        DEBUG_LOG("目标不是指针类型，尝试转换为Python对象");
+        target = ensurePythonObject(target, targetType);
+        if (!target)
+        {
+            return logTypeError("无法将目标转换为Python对象");
+        }
+    }
+
+    // 处理列表索引
+    if (targetTypeId == PY_TYPE_LIST)
+    {
+        DEBUG_LOG("处理列表索引操作");
+
+        // 验证索引类型
+        if (indexTypeId != PY_TYPE_INT && indexTypeId != PY_TYPE_ANY)
+        {
+            return logTypeError("列表索引必须是整数类型");
+        }
+
+        // 提取索引值 - 确保是整数类型
+        llvm::Value* indexValue = index;
+        if (index->getType()->isPointerTy())
+        {
+            DEBUG_LOG("索引是指针类型，提取整数值");
+            indexValue = builder->CreateCall(
+                getOrCreateExternalFunction("py_extract_int",
+                                            llvm::Type::getInt32Ty(getContext()),
+                                            {llvm::PointerType::get(getContext(), 0)},
+                                            false),
+                {index},
+                "extracted_index");
+        }
+        else if (!index->getType()->isIntegerTy(32))
+        {
+            DEBUG_LOG("索引不是i32类型，转换为i32");
+            indexValue = builder->CreateIntCast(index, llvm::Type::getInt32Ty(getContext()), true, "index_to_i32");
+        }
+
+        // 获取列表元素类型ID
+        int elemTypeId = PY_TYPE_ANY;  // 默认为ANY
+        if (ListType* listType = dynamic_cast<ListType*>(targetType))
+        {
+            if (listType->getElementType())
+            {
+                elemTypeId = listType->getElementType()->getTypeId();
+                DEBUG_LOG("列表元素类型ID: " << elemTypeId);
+            }
+        }
+
+        // 获取列表元素
+        llvm::Value* result = builder->CreateCall(
+            getOrCreateExternalFunction("py_list_get_item",
+                                        llvm::PointerType::get(getContext(), 0),
+                                        {llvm::PointerType::get(getContext(), 0),
+                                         llvm::Type::getInt32Ty(getContext())},
+                                        false),
+            {target, indexValue},
+            "list_item");
+
+        // 为结果添加类型元数据 - 这是关键步骤
+        ObjectLifecycleManager::attachTypeMetadata(result, elemTypeId);
+
+        // 跟踪对象生命周期
+        trackObject(result);
+
+        DEBUG_LOG("列表索引操作完成，返回元素（类型ID: " << elemTypeId << "）");
+        return result;
+    }
+
+    // 处理字典索引
+    else if (targetTypeId == PY_TYPE_DICT)
+    {
+        DEBUG_LOG("处理字典索引操作");
+
+        // 确保索引是Python对象
+        if (!index->getType()->isPointerTy())
+        {
+            DEBUG_LOG("索引不是指针类型，转换为Python对象");
+            index = ensurePythonObject(index, indexType);
+            if (!index)
+            {
+                return logTypeError("无法将索引转换为Python对象");
+            }
+        }
+
+        // 获取字典值类型ID
+        int valueTypeId = PY_TYPE_ANY;  // 默认为ANY
+        if (DictType* dictType = dynamic_cast<DictType*>(targetType))
+        {
+            if (dictType->getValueType())
+            {
+                valueTypeId = dictType->getValueType()->getTypeId();
+                DEBUG_LOG("字典值类型ID: " << valueTypeId);
+            }
+        }
+
+        // 获取字典元素
+        llvm::Value* result = builder->CreateCall(
+            getOrCreateExternalFunction("py_dict_get_item",
+                                        llvm::PointerType::get(getContext(), 0),
+                                        {llvm::PointerType::get(getContext(), 0),
+                                         llvm::PointerType::get(getContext(), 0)},
+                                        false),
+            {target, index},
+            "dict_item");
+
+        // 为结果添加类型元数据
+        ObjectLifecycleManager::attachTypeMetadata(result, valueTypeId);
+
+        // 跟踪对象生命周期
+        trackObject(result);
+
+        DEBUG_LOG("字典索引操作完成，返回元素（类型ID: " << valueTypeId << "）");
+        return result;
+    }
+
+    // 处理字符串索引
+    else if (targetTypeId == PY_TYPE_STRING)
+    {
+        DEBUG_LOG("处理字符串索引操作");
+
+        // 验证索引类型
+        if (indexTypeId != PY_TYPE_INT && indexTypeId != PY_TYPE_ANY)
+        {
+            return logTypeError("字符串索引必须是整数类型");
+        }
+
+        // 提取索引值 - 确保是整数类型
+        llvm::Value* indexValue = index;
+        if (index->getType()->isPointerTy())
+        {
+            DEBUG_LOG("索引是指针类型，提取整数值");
+            indexValue = builder->CreateCall(
+                getOrCreateExternalFunction("py_extract_int",
+                                            llvm::Type::getInt32Ty(getContext()),
+                                            {llvm::PointerType::get(getContext(), 0)},
+                                            false),
+                {index},
+                "extracted_index");
+        }
+        else if (!index->getType()->isIntegerTy(32))
+        {
+            DEBUG_LOG("索引不是i32类型，转换为i32");
+            indexValue = builder->CreateIntCast(index, llvm::Type::getInt32Ty(getContext()), true, "index_to_i32");
+        }
+
+        // 获取字符串字符
+        llvm::Value* result = builder->CreateCall(
+            getOrCreateExternalFunction("py_string_get_char",
+                                        llvm::PointerType::get(getContext(), 0),
+                                        {llvm::PointerType::get(getContext(), 0),
+                                         llvm::Type::getInt32Ty(getContext())},
+                                        false),
+            {target, indexValue},
+            "string_char");
+
+        // 为结果添加类型元数据 - 字符串字符仍然是字符串类型
+        ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_STRING);
+
+        // 跟踪对象生命周期
+        trackObject(result);
+
+        DEBUG_LOG("字符串索引操作完成，返回字符");
+        return result;
+    }
+
+    // 处理元组索引 (如果支持)
+    else if (targetTypeId == PY_TYPE_TUPLE)
+    {
+        DEBUG_LOG("处理元组索引操作");
+
+        // 验证索引类型
+        if (indexTypeId != PY_TYPE_INT && indexTypeId != PY_TYPE_ANY)
+        {
+            return logTypeError("元组索引必须是整数类型");
+        }
+
+        // 提取索引值
+        llvm::Value* indexValue = index;
+        if (index->getType()->isPointerTy())
+        {
+            indexValue = builder->CreateCall(
+                getOrCreateExternalFunction("py_extract_int",
+                                            llvm::Type::getInt32Ty(getContext()),
+                                            {llvm::PointerType::get(getContext(), 0)},
+                                            false),
+                {index},
+                "extracted_index");
+        }
+
+        // 获取元组元素（假设有py_tuple_get_item函数）
+        llvm::Value* result = builder->CreateCall(
+            getOrCreateExternalFunction("py_tuple_get_item",
+                                        llvm::PointerType::get(getContext(), 0),
+                                        {llvm::PointerType::get(getContext(), 0),
+                                         llvm::Type::getInt32Ty(getContext())},
+                                        false),
+            {target, indexValue},
+            "tuple_item");
+
+        // 为结果添加通用类型元数据
+        ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_ANY);
+
+        // 跟踪对象生命周期
+        trackObject(result);
+
+        return result;
+    }
+
+    // 处理ANY类型（尝试运行时类型检查）
+    // 处理ANY类型（尝试运行时类型检查）
+    else if (targetTypeId == PY_TYPE_ANY)
+    {
+        DEBUG_LOG("处理ANY类型的索引操作，尝试运行时类型检查");
+
+        // 获取目标对象的运行时类型
+        llvm::Value* runtimeTypeId = builder->CreateCall(
+            getOrCreateExternalFunction("py_get_object_type_id",
+                                        llvm::Type::getInt32Ty(getContext()),
+                                        {llvm::PointerType::get(getContext(), 0)},
+                                        false),
+            {target},
+            "runtime_type_id");
+
+        // 创建基本块进行类型分支
+        llvm::BasicBlock* currentBB = builder->GetInsertBlock();
+        llvm::Function* parentFunc = currentBB->getParent();
+
+        // 类型检查基本块
+        llvm::BasicBlock* isListBB = llvm::BasicBlock::Create(getContext(), "is_list", parentFunc);
+        llvm::BasicBlock* isDictBB = llvm::BasicBlock::Create(getContext(), "is_dict", parentFunc);
+        llvm::BasicBlock* isStringBB = llvm::BasicBlock::Create(getContext(), "is_string", parentFunc);
+        llvm::BasicBlock* errorBB = llvm::BasicBlock::Create(getContext(), "not_indexable", parentFunc);
+        llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(getContext(), "merge", parentFunc);
+
+        // 检查是否为列表
+        llvm::Value* isList = builder->CreateICmpEQ(
+            runtimeTypeId,
+            llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), PY_TYPE_LIST),
+            "is_list");
+
+        builder->CreateCondBr(isList, isListBB, isDictBB);
+
+        // 列表处理块
+        builder->SetInsertPoint(isListBB);
+        // 获取正确的类型实例
+        ObjectType* anyType = TypeRegistry::getInstance().getType("any");
+        ListType* listType = TypeRegistry::getInstance().getListType(anyType);
+        llvm::Value* listResult = handleIndexOperation(target, index, listType, indexType);
+        builder->CreateBr(mergeBB);
+
+        // 字典处理块
+        builder->SetInsertPoint(isDictBB);
+        // 检查是否为字典
+        llvm::Value* isDict = builder->CreateICmpEQ(
+            runtimeTypeId,
+            llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), PY_TYPE_DICT),
+            "is_dict");
+        builder->CreateCondBr(isDict, isDictBB, isStringBB);
+
+        // 获取正确的字典类型实例
+        DictType* dictType = TypeRegistry::getInstance().getDictType(anyType, anyType);
+        llvm::Value* dictResult = handleIndexOperation(target, index, dictType, indexType);
+        builder->CreateBr(mergeBB);
+
+        // 字符串处理块
+        builder->SetInsertPoint(isStringBB);
+        // 检查是否为字符串
+        llvm::Value* isString = builder->CreateICmpEQ(
+            runtimeTypeId,
+            llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), PY_TYPE_STRING),
+            "is_string");
+        builder->CreateCondBr(isString, isStringBB, errorBB);
+
+        // 获取正确的字符串类型实例
+        ObjectType* stringType = TypeRegistry::getInstance().getType("string");
+        llvm::Value* stringResult = handleIndexOperation(target, index, stringType, indexType);
+        builder->CreateBr(mergeBB);
+
+        // 错误处理块
+        builder->SetInsertPoint(errorBB);
+        llvm::Value* errorResult = logTypeError("运行时类型不支持索引操作");
+        builder->CreateBr(mergeBB);
+
+        // 合并结果
+        builder->SetInsertPoint(mergeBB);
+        llvm::PHINode* result = builder->CreatePHI(
+            llvm::PointerType::get(getContext(), 0), 4, "index_result");
+        result->addIncoming(listResult, isListBB);
+        result->addIncoming(dictResult, isDictBB);
+        result->addIncoming(stringResult, isStringBB);
+        result->addIncoming(errorResult, errorBB);
+
+        // 确保结果有类型元数据（ANY类型）
+        ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_ANY);
+        return result;
+    }
+
+    // 不支持索引的其他类型
+    DEBUG_LOG("类型 '" << targetType->getName() << "' 不支持索引操作");
+    return logTypeError("类型 '" + targetType->getName() + "' 不支持索引操作");
+}
+
+// 跟踪对象以进行生命周期管理
+void PyCodeGen::trackObject(llvm::Value* obj)
+{
+    if (obj && runtime)
+    {
+        runtime->trackObject(obj);
+    }
 }
 
 llvm::Value* PyCodeGen::generateUnaryOperation(char op, llvm::Value* operand, ObjectType* operandType)
@@ -1558,11 +2966,12 @@ llvm::Value* PyCodeGen::generateIndexOperation(llvm::Value* target, llvm::Value*
     return logError("Unsupported indexing operation for type '" + targetType->getName() + "'");
 }
 
+// 类型转换函数改进
 llvm::Value* PyCodeGen::generateTypeConversion(llvm::Value* value, ObjectType* fromType, ObjectType* toType)
 {
     if (!value || !fromType || !toType)
     {
-        return logError("Invalid parameters for type conversion");
+        return value;  // 返回原值而不是nullptr，以提高鲁棒性
     }
 
     // 如果类型相同，不需要转换
@@ -1571,164 +2980,314 @@ llvm::Value* PyCodeGen::generateTypeConversion(llvm::Value* value, ObjectType* f
         return value;
     }
 
-    // 获取类型操作注册表
+    int fromTypeId = fromType->getTypeId();
+    int toTypeId = toType->getTypeId();
+
+    DEBUG_LOG("执行类型转换: 从类型 " << fromTypeId << " 到类型 " << toTypeId);
+
+    // 查询类型转换描述符
     auto& registry = TypeOperationRegistry::getInstance();
+    TypeConversionDescriptor* descriptor = registry.getTypeConversionDescriptor(fromTypeId, toTypeId);
 
-    // 查找类型转换描述符
-    TypeConversionDescriptor* descriptor = registry.getTypeConversionDescriptor(
-        fromType->getTypeId(), toType->getTypeId());
-
-    // 如果找到了转换描述符，使用它处理转换
+    // 如果找到转换描述符，使用它
     if (descriptor)
     {
-        // 如果定义了运行时函数
-        if (!descriptor->customImpl && !descriptor->runtimeFunction.empty())
+        if (!descriptor->runtimeFunction.empty())
         {
-            // 获取运行时函数
-            llvm::Function* runtimeFunc = getOrCreateExternalFunction(
-                descriptor->runtimeFunction,
-                llvm::PointerType::get(getContext(), 0),
-                {llvm::PointerType::get(getContext(), 0)});
+            DEBUG_LOG("使用运行时转换函数: " << descriptor->runtimeFunction);
 
-            // 确保操作数是指针类型
+            // 确保值是指针类型
             if (!value->getType()->isPointerTy())
             {
-                value = ObjectLifecycleManager::createObject(*this, value, fromType->getTypeId());
+                value = ensurePythonObject(value, fromType);
             }
 
-            // 调用运行时函数
-            return builder->CreateCall(runtimeFunc, {value}, "typeconv");
+            // 调用运行时转换函数
+            llvm::Function* convFunc = getOrCreateExternalFunction(
+                descriptor->runtimeFunction,
+                llvm::PointerType::get(getContext(), 0),
+                {llvm::PointerType::get(getContext(), 0)},
+                false);
+
+            return builder->CreateCall(convFunc, {value}, "conv_result");
         }
-        // 如果定义了自定义实现函数
-        else if (descriptor->customImpl)
+
+        if (descriptor->customImpl)
         {
+            DEBUG_LOG("使用自定义转换实现");
             return descriptor->customImpl(*this, value);
         }
     }
 
-    // 内置的基本类型转换
-    int fromTypeId = fromType->getTypeId();
-    int toTypeId = toType->getTypeId();
-
-    // 整数到浮点数转换
-    if (fromTypeId == PY_TYPE_INT && toTypeId == PY_TYPE_DOUBLE)
+    // 处理特殊情况: any类型转换
+    if (fromTypeId == PY_TYPE_ANY)
     {
-        if (value->getType()->isIntegerTy())
+        DEBUG_LOG("从any类型转换到具体类型: " << toTypeId);
+
+        std::string convFuncName;
+        switch (toTypeId)
         {
-            // 直接从LLVM整数类型转换到LLVM浮点类型
-            return builder->CreateSIToFP(value, llvm::Type::getDoubleTy(getContext()), "inttofp");
+            case PY_TYPE_INT:
+                convFuncName = "py_convert_any_to_int";
+                break;
+            case PY_TYPE_DOUBLE:
+                convFuncName = "py_convert_any_to_double";
+                break;
+            case PY_TYPE_BOOL:
+                convFuncName = "py_convert_any_to_bool";
+                break;
+            case PY_TYPE_STRING:
+                convFuncName = "py_convert_any_to_string";
+                break;
+            default:
+                // 对于其他类型，使用本地转换
+                if (value->getType()->isPointerTy())
+                {
+                    return value;  // 已经是指针，直接返回
+                }
+                // 否则包装为目标类型
+                return ensurePythonObject(value, toType);
         }
-        else if (value->getType()->isPointerTy())
+
+        // 如果有专门的any转换函数，使用它
+        if (!convFuncName.empty())
         {
-            // 从整数对象提取值，然后转换
-            llvm::Function* extractIntFunc = getOrCreateExternalFunction(
-                "py_extract_int",
-                llvm::Type::getInt32Ty(getContext()),
-                {llvm::PointerType::get(getContext(), 0)});
+            if (!value->getType()->isPointerTy())
+            {
+                value = ensurePythonObject(value, fromType);
+            }
 
-            llvm::Value* intValue = builder->CreateCall(extractIntFunc, {value}, "intval");
-            llvm::Value* doubleValue = builder->CreateSIToFP(
-                intValue, llvm::Type::getDoubleTy(getContext()), "inttofp");
+            llvm::Function* convFunc = getOrCreateExternalFunction(
+                convFuncName,
+                llvm::PointerType::get(getContext(), 0),
+                {llvm::PointerType::get(getContext(), 0)},
+                false);
 
-            // 创建浮点数对象
-            return createDoubleObject(doubleValue);
-        }
-    }
-    // 浮点数到整数转换
-    else if (fromTypeId == PY_TYPE_DOUBLE && toTypeId == PY_TYPE_INT)
-    {
-        if (value->getType()->isDoubleTy())
-        {
-            // 直接从LLVM浮点类型转换到LLVM整数类型
-            return builder->CreateFPToSI(value, llvm::Type::getInt32Ty(getContext()), "fptoint");
-        }
-        else if (value->getType()->isPointerTy())
-        {
-            // 从浮点数对象提取值，然后转换
-            llvm::Function* extractDoubleFunc = getOrCreateExternalFunction(
-                "py_extract_double",
-                llvm::Type::getDoubleTy(getContext()),
-                {llvm::PointerType::get(getContext(), 0)});
-
-            llvm::Value* doubleValue = builder->CreateCall(extractDoubleFunc, {value}, "doubleval");
-            llvm::Value* intValue = builder->CreateFPToSI(
-                doubleValue, llvm::Type::getInt32Ty(getContext()), "fptoint");
-
-            // 创建整数对象
-            return createIntObject(intValue);
-        }
-    }
-    // 整数到布尔值转换
-    else if (fromTypeId == PY_TYPE_INT && toTypeId == PY_TYPE_BOOL)
-    {
-        if (value->getType()->isIntegerTy())
-        {
-            // 整数不为零则为true
-            return builder->CreateICmpNE(
-                value, llvm::ConstantInt::get(value->getType(), 0), "inttobool");
-        }
-        else if (value->getType()->isPointerTy())
-        {
-            // 从整数对象提取值，然后转换
-            llvm::Function* extractIntFunc = getOrCreateExternalFunction(
-                "py_extract_int",
-                llvm::Type::getInt32Ty(getContext()),
-                {llvm::PointerType::get(getContext(), 0)});
-
-            llvm::Value* intValue = builder->CreateCall(extractIntFunc, {value}, "intval");
-            llvm::Value* boolValue = builder->CreateICmpNE(
-                intValue, llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), 0), "inttobool");
-
-            // 创建布尔对象
-            return createBoolObject(boolValue);
-        }
-    }
-    // 浮点数到布尔值转换
-    else if (fromTypeId == PY_TYPE_DOUBLE && toTypeId == PY_TYPE_BOOL)
-    {
-        if (value->getType()->isDoubleTy())
-        {
-            // 浮点数不为零则为true
-            return builder->CreateFCmpONE(
-                value, llvm::ConstantFP::get(value->getType(), 0.0), "doubletobool");
-        }
-        else if (value->getType()->isPointerTy())
-        {
-            // 从浮点数对象提取值，然后转换
-            llvm::Function* extractDoubleFunc = getOrCreateExternalFunction(
-                "py_extract_double",
-                llvm::Type::getDoubleTy(getContext()),
-                {llvm::PointerType::get(getContext(), 0)});
-
-            llvm::Value* doubleValue = builder->CreateCall(extractDoubleFunc, {value}, "doubleval");
-            llvm::Value* boolValue = builder->CreateFCmpONE(
-                doubleValue, llvm::ConstantFP::get(llvm::Type::getDoubleTy(getContext()), 0.0), "doubletobool");
-
-            // 创建布尔对象
-            return createBoolObject(boolValue);
+            return builder->CreateCall(convFunc, {value}, "any_conv_result");
         }
     }
 
-    // 如果没有已知的转换路径，调用通用运行时转换函数
-    llvm::Function* convertFunc = getOrCreateExternalFunction(
-        "py_convert_type",
-        llvm::PointerType::get(getContext(), 0),
-        {llvm::PointerType::get(getContext(), 0),
-         llvm::Type::getInt32Ty(getContext())});
+    // 处理基本类型间的LLVM级转换
+    if (value->getType()->isIntegerTy() && toTypeId == PY_TYPE_DOUBLE)
+    {
+        DEBUG_LOG("执行LLVM int到double转换");
+        llvm::Value* fpVal = builder->CreateSIToFP(
+            value,
+            llvm::Type::getDoubleTy(getContext()),
+            "int_to_fp");
 
-    // 确保值是对象指针
+        return builder->CreateCall(
+            getOrCreateExternalFunction("py_create_double",
+                                        llvm::PointerType::get(getContext(), 0),
+                                        {llvm::Type::getDoubleTy(getContext())},
+                                        false),
+            {fpVal},
+            "fp_obj");
+    }
+
+    if (value->getType()->isDoubleTy() && toTypeId == PY_TYPE_INT)
+    {
+        DEBUG_LOG("执行LLVM double到int转换");
+        llvm::Value* intVal = builder->CreateFPToSI(
+            value,
+            llvm::Type::getInt32Ty(getContext()),
+            "fp_to_int");
+
+        return builder->CreateCall(
+            getOrCreateExternalFunction("py_create_int",
+                                        llvm::PointerType::get(getContext(), 0),
+                                        {llvm::Type::getInt32Ty(getContext())},
+                                        false),
+            {intVal},
+            "int_obj");
+    }
+
+    // 如果没有找到更好的转换方法，尝试通用对象转换
+    DEBUG_LOG("执行通用对象转换");
     if (!value->getType()->isPointerTy())
     {
-        value = ObjectLifecycleManager::createObject(*this, value, fromType->getTypeId());
+        value = ensurePythonObject(value, fromType);
     }
 
-    // 创建目标类型ID常量
-    llvm::Value* targetTypeId = llvm::ConstantInt::get(
-        llvm::Type::getInt32Ty(getContext()), toType->getTypeId());
+    // 使用通用的对象转换函数 py_object_convert
+    llvm::Function* generalConvFunc = getOrCreateExternalFunction(
+        "py_object_convert",
+        llvm::PointerType::get(getContext(), 0),
+        {llvm::PointerType::get(getContext(), 0),
+         llvm::Type::getInt32Ty(getContext())},
+        false);
 
-    // 调用通用转换函数
-    return builder->CreateCall(convertFunc, {value, targetTypeId}, "typeconv");
+    return builder->CreateCall(
+        generalConvFunc,
+        {value,
+         llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), toTypeId)},
+        "general_conv");
 }
+
+llvm::Value* PyCodeGen::createDefaultValue(ObjectType* type)
+{
+    if (!type)
+    {
+        DEBUG_LOG("警告：尝试为空类型创建默认值，返回nullptr");
+        return nullptr;
+    }
+
+    DEBUG_LOG("为类型 '" << type->getName() << "' 创建默认值，类型ID: " << type->getTypeId());
+
+    // 根据类型ID选择合适的默认值创建方法
+    switch (type->getTypeId())
+    {
+        case PY_TYPE_INT:
+            return llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), 0);
+
+        case PY_TYPE_DOUBLE:
+            return llvm::ConstantFP::get(llvm::Type::getDoubleTy(getContext()), 0.0);
+
+        case PY_TYPE_BOOL:
+            return llvm::ConstantInt::get(llvm::Type::getInt1Ty(getContext()), 0);
+
+        case PY_TYPE_STRING:
+        {
+            // 创建空字符串
+            llvm::Function* createStrFunc = getOrCreateExternalFunction(
+                "py_create_string",
+                llvm::PointerType::get(getContext(), 0),
+                {llvm::PointerType::get(llvm::Type::getInt8Ty(getContext()), 0)});
+
+            llvm::Value* emptyStr = builder->CreateGlobalStringPtr("", "empty_str");
+            llvm::Value* result = builder->CreateCall(createStrFunc, {emptyStr}, "default_string");
+
+            // 附加类型元数据
+            ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_STRING);
+            return result;
+        }
+
+        case PY_TYPE_LIST:
+        {
+            // 创建空列表
+            llvm::Function* createListFunc = getOrCreateExternalFunction(
+                "py_create_list",
+                llvm::PointerType::get(getContext(), 0),
+                {llvm::Type::getInt32Ty(getContext())});
+
+            llvm::Value* result = builder->CreateCall(
+                createListFunc,
+                {llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), 0)},
+                "default_list");
+
+            // 附加类型元数据
+            ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_LIST);
+
+            // 如果是类型化列表，尝试添加元素类型信息
+            if (ListType* listType = dynamic_cast<ListType*>(type))
+            {
+                if (auto elemType = listType->getElementType())
+                {
+                    int elemTypeId = elemType->getTypeId();
+                    // 这里可以添加元素类型的元数据，如果运行时支持的话
+                    DEBUG_LOG("列表元素类型: " << elemType->getName() << " (ID: " << elemTypeId << ")");
+                }
+            }
+
+            return result;
+        }
+
+        case PY_TYPE_DICT:
+        {
+            // 创建空字典
+            llvm::Function* createDictFunc = getOrCreateExternalFunction(
+                "py_create_dict",
+                llvm::PointerType::get(getContext(), 0),
+                {});
+
+            llvm::Value* result = builder->CreateCall(createDictFunc, {}, "default_dict");
+
+            // 附加类型元数据
+            ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_DICT);
+
+            // 如果是类型化字典，尝试添加键值类型信息
+            if (DictType* dictType = dynamic_cast<DictType*>(type))
+            {
+                if (auto keyType = dictType->getKeyType())
+                {
+                    int keyTypeId = keyType->getTypeId();
+                    DEBUG_LOG("字典键类型: " << keyType->getName() << " (ID: " << keyTypeId << ")");
+                }
+                if (auto valueType = dictType->getValueType())
+                {
+                    int valueTypeId = valueType->getTypeId();
+                    DEBUG_LOG("字典值类型: " << valueType->getName() << " (ID: " << valueTypeId << ")");
+                }
+            }
+
+            return result;
+        }
+
+        case PY_TYPE_NONE:
+        {
+            // 获取None对象
+            llvm::Function* getNoneFunc = getOrCreateExternalFunction(
+                "py_get_none",
+                llvm::PointerType::get(getContext(), 0),
+                {});
+
+            if (getNoneFunc)
+            {
+                llvm::Value* result = builder->CreateCall(getNoneFunc, {}, "none_value");
+                ObjectLifecycleManager::attachTypeMetadata(result, PY_TYPE_NONE);
+                return result;
+            }
+            else
+            {
+                DEBUG_LOG("警告：找不到py_get_none函数，使用null指针作为None值");
+                return llvm::ConstantPointerNull::get(llvm::PointerType::get(getContext(), 0));
+            }
+        }
+
+        default:
+            // 对于其他类型（如自定义类或未知类型）// 目前还没有上实现先注释了
+            /* if (type->getTypeId() > PY_TYPE_DICT) {
+                // 对于对象类型，尝试使用默认构造函数
+                if (type->getCategory() == ObjectType::Category::Class) {
+                    DEBUG_LOG("尝试为类类型 '" << type->getName() << "' 创建默认实例");
+                    
+                    // 获取类名
+                    std::string className = type->getName();
+                    
+                    // 创建类实例
+                    llvm::Function* createObjFunc = getOrCreateExternalFunction(
+                        "py_create_object",
+                        llvm::PointerType::get(getContext(), 0),
+                        {llvm::Type::getInt32Ty(getContext())}
+                    );
+                    
+                    if (createObjFunc) {
+                        llvm::Value* result = builder->CreateCall(
+                            createObjFunc, 
+                            {llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), type->getTypeId())},
+                            "default_object"
+                        );
+                        
+                        // 附加类型元数据
+                        ObjectLifecycleManager::attachTypeMetadata(result, type->getTypeId());
+                        return result;
+                    }
+                }
+            } */
+
+            // 如果是引用类型但没有特殊处理，返回null指针
+            if (type->isReference())
+            {
+                DEBUG_LOG("为引用类型 '" << type->getName() << "' 返回null指针默认值");
+                return llvm::ConstantPointerNull::get(llvm::PointerType::get(getContext(), 0));
+            }
+
+            // 对于未识别的非引用类型，返回整数0
+            DEBUG_LOG("警告：未知类型 '" << type->getName() << "'，返回int默认值0");
+            return llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), 0);
+    }
+}
+
 //===----------------------------------------------------------------------===//
 // namespace PyCodeGenHelper
 //===----------------------------------------------------------------------===//
@@ -1963,7 +3522,7 @@ int getRuntimeTypeId(ObjectType* type)
     return mapToRuntimeTypeId(type->getTypeId());
 }
 
-int getBaseTypeId(int typeId)
+/* int getBaseTypeId(int typeId)
 {
     // 返回类型ID的基本类型
     // 例如，列表的基本类型是列表，元素类型被忽略
@@ -1985,7 +3544,22 @@ int getBaseTypeId(int typeId)
             // 默认返回原类型
             return typeId;
     }
+} */
+
+// 获取基本类型ID，忽略指针信息
+inline int getBaseTypeId(int typeId)
+{
+    if (typeId >= 400) return typeId % 100;
+    if (typeId >= 100 && typeId < 400)
+    {
+        // 容器基础类型处理
+        if (typeId >= PY_TYPE_LIST_BASE && typeId < PY_TYPE_DICT_BASE) return PY_TYPE_LIST;
+        if (typeId >= PY_TYPE_DICT_BASE && typeId < PY_TYPE_FUNC_BASE) return PY_TYPE_DICT;
+        if (typeId >= PY_TYPE_FUNC_BASE && typeId < 400) return PY_TYPE_FUNC;
+    }
+    return typeId;
 }
+
 
 llvm::Value* generateTypeCheckCode(PyCodeGen& codegen, llvm::Value* obj, int expectedTypeId)
 {
@@ -2177,7 +3751,7 @@ llvm::Type* getLLVMType(llvm::LLVMContext& context, ObjectType* type)
 // 表达式节点访问实现
 //===----------------------------------------------------------------------===//
 
-void PyCodeGen::visit(NumberExprAST* expr)
+void llvmpy::PyCodeGen::visit(NumberExprAST* expr)
 {
     double value = expr->getValue();
 
@@ -2197,7 +3771,7 @@ void PyCodeGen::visit(NumberExprAST* expr)
     }
 }
 
-void PyCodeGen::visit(StringExprAST* expr)
+void llvmpy::PyCodeGen::visit(StringExprAST* expr)
 {
     const std::string& value = expr->getValue();
 
@@ -2212,7 +3786,7 @@ void PyCodeGen::visit(StringExprAST* expr)
     addTempObject(lastExprValue, lastExprType->getObjectType());
 }
 
-void PyCodeGen::visit(BoolExprAST* expr)
+void llvmpy::PyCodeGen::visit(BoolExprAST* expr)
 {
     bool value = expr->getValue();
 
@@ -2221,7 +3795,7 @@ void PyCodeGen::visit(BoolExprAST* expr)
     lastExprType = PyType::getBool();
 }
 
-void PyCodeGen::visit(NoneExprAST* expr)
+void llvmpy::PyCodeGen::visit(NoneExprAST* expr)
 {
     // 创建None对象
     llvm::Function* getNoneFunc = getOrCreateExternalFunction(
@@ -2233,7 +3807,7 @@ void PyCodeGen::visit(NoneExprAST* expr)
     lastExprType = PyType::getAny();  // None的类型用Any表示
 }
 
-void PyCodeGen::visit(VariableExprAST* expr)
+void llvmpy::PyCodeGen::visit(VariableExprAST* expr)
 {
     std::string name = expr->getName();
 
@@ -2259,7 +3833,7 @@ void PyCodeGen::visit(VariableExprAST* expr)
     lastExprValue = value;
 }
 
-void PyCodeGen::visit(BinaryExprAST* expr)
+void llvmpy::PyCodeGen::visit(BinaryExprAST* expr)
 {
     // 处理左操作数
     auto* lhs = static_cast<const ExprAST*>(expr->getLHS());
@@ -2546,7 +4120,7 @@ void PyCodeGen::visit(BinaryExprAST* expr)
     }
 }
 
-void PyCodeGen::visit(UnaryExprAST* expr)
+void llvmpy::PyCodeGen::visit(UnaryExprAST* expr)
 {
     // 获取操作数
     auto* operandExpr = static_cast<const ExprAST*>(expr->getOperand());
@@ -2616,105 +4190,226 @@ void PyCodeGen::visit(UnaryExprAST* expr)
     }
 }
 
-void PyCodeGen::visit(CallExprAST* expr)
+void llvmpy::PyCodeGen::visit(CallExprAST* expr)
 {
-    // 获取函数名
-    const std::string& callee = expr->getCallee();
+    if (!expr)
+    {
+        logError("尝试处理空函数调用AST");
+        lastExprValue = nullptr;
+        lastExprType = PyType::getAny();
+        return;
+    }
 
-    // 获取函数
+    DEBUG_LOG("处理函数调用: " << expr->getCallee());
+
+    // 1. 获取函数名和参数
+    const std::string& callee = expr->getCallee();
+    const auto& args = expr->getArgs();
+
+    // 2. 获取函数
     llvm::Function* calleeF = getModule()->getFunction(callee);
     if (!calleeF)
     {
-        logError("Unknown function referenced: " + callee,
+        logError("引用了未知函数: " + callee,
                  expr->line.value_or(-1), expr->column.value_or(-1));
+        lastExprValue = nullptr;
+        lastExprType = PyType::getAny();
         return;
     }
 
-    // 检查参数数量
-    const auto& args = expr->getArgs();
+    // 3. 检查参数数量
     if (calleeF->arg_size() != args.size())
     {
-        logError("Incorrect number of arguments passed: expected " + std::to_string(calleeF->arg_size()) + ", got " + std::to_string(args.size()),
+        logError("传递的参数数量不正确: 预期 " + std::to_string(calleeF->arg_size()) + ", 得到 " + std::to_string(args.size()),
                  expr->line.value_or(-1), expr->column.value_or(-1));
+        lastExprValue = nullptr;
+        lastExprType = PyType::getAny();
         return;
     }
 
-    // 处理参数并生成函数调用
-    std::vector<llvm::Value*> argsValues;
+    // 4. 获取函数类型信息
+    FunctionType* funcType = nullptr;
+    ObjectType* returnType = nullptr;
+    std::vector<ObjectType*> paramTypes;
 
-    // 获取函数类型信息
-    ObjectType* funcType = nullptr;
-    FunctionType* funcTypeObj = nullptr;
-
-    // 尝试从TypeRegistry获取函数类型
+    // 从TypeRegistry获取函数类型信息
     auto& typeRegistry = TypeRegistry::getInstance();
     auto functionName = calleeF->getName().str();
-    auto funcTypeIter = typeRegistry.getFunctionType(nullptr, {});  // 临时获取函数类型
-    if (funcTypeIter)
+
+    // 尝试获取函数类型
+    try
     {
-        funcType = funcTypeIter;
-        funcTypeObj = dynamic_cast<FunctionType*>(funcType);
+        funcType = typeRegistry.getFunctionType(functionName);
+        if (funcType)
+        {
+            returnType = const_cast<ObjectType*>(funcType->getReturnType());
+            paramTypes = const_cast<std::vector<ObjectType*>&>(funcType->getParamTypes());
+
+            DEBUG_LOG("找到函数类型信息: " << functionName << ", 返回类型: " << returnType->getName() << ", 参数数量: " << paramTypes.size());
+        }
+        else
+        {
+            DEBUG_LOG("未找到函数类型信息，将尝试根据LLVM类型推断");
+        }
+    }
+    catch (const std::exception& e)
+    {
+        DEBUG_LOG("获取函数类型时出错: " << e.what());
     }
 
-    // 处理每个参数
-    for (unsigned i = 0, e = args.size(); i != e; ++i)
+    // 5. 处理参数
+    std::vector<llvm::Value*> argsValues;
+
+    for (unsigned i = 0; i < args.size(); ++i)
     {
+        // 获取参数表达式
+        if (!args[i])
+        {
+            logError("函数 '" + callee + "' 的第 " + std::to_string(i + 1) + " 个参数为空",
+                     expr->line.value_or(-1), expr->column.value_or(-1));
+            lastExprValue = nullptr;
+            lastExprType = PyType::getAny();
+            return;
+        }
+
         // 生成参数表达式代码
         llvm::Value* argValue = handleExpr(const_cast<ExprAST*>(args[i].get()));
-        if (!argValue) return;  // 处理参数出错
+        if (!argValue)
+        {
+            logError("无法为参数 " + std::to_string(i + 1) + " 生成代码",
+                     args[i]->line.value_or(-1), args[i]->column.value_or(-1));
+            lastExprValue = nullptr;
+            lastExprType = PyType::getAny();
+            return;
+        }
 
         // 获取参数类型
         auto argTypePtr = args[i]->getType();
         if (!argTypePtr)
         {
-            logError("Cannot determine type of argument " + std::to_string(i),
+            logError("无法确定参数 " + std::to_string(i + 1) + " 的类型",
                      args[i]->line.value_or(-1), args[i]->column.value_or(-1));
+            lastExprValue = nullptr;
+            lastExprType = PyType::getAny();
             return;
         }
 
-        ObjectType* paramType = nullptr;
-        if (funcTypeObj && i < funcTypeObj->getParamTypes().size())
-        {
-            paramType = const_cast<ObjectType*>(funcTypeObj->getParamTypes()[i]);
-        }
+        ObjectType* argType = argTypePtr->getObjectType();
+        ObjectType* paramType = (i < paramTypes.size()) ? paramTypes[i] : nullptr;
 
-        // 如果有参数类型信息，检查类型兼容性并进行必要的转换
+        // 如果有参数类型信息，检查类型兼容性并转换
         if (paramType)
         {
-            ObjectType* argType = argTypePtr->getObjectType();
+            DEBUG_LOG("参数 " << (i + 1) << " 类型: " << argType->getName() << ", 期望类型: " << paramType->getName());
+
+            // 类型不兼容，尝试转换
             if (!argType->canAssignTo(paramType))
             {
+                DEBUG_LOG("参数 " << (i + 1) << " 类型不兼容，尝试转换");
+
                 // 尝试类型转换
-                argValue = generateTypeConversion(argValue, argType, paramType);
-                if (!argValue)
+                llvm::Value* convertedValue = generateTypeConversion(argValue, argType, paramType);
+                if (!convertedValue)
                 {
-                    logTypeError("Cannot convert argument " + std::to_string(i) + " from " + argType->getName() + " to " + paramType->getName(),
+                    logTypeError("无法将参数 " + std::to_string(i + 1) + " 从 " + argType->getName() + " 转换为 " + paramType->getName(),
                                  args[i]->line.value_or(-1), args[i]->column.value_or(-1));
-                    return;
+
+                    // 继续使用原始值，让函数调用尝试执行
+                    convertedValue = argValue;
                 }
+                argValue = convertedValue;
             }
 
-            // 为参数准备对象生命周期管理
-            argValue = prepareParameter(argValue, paramType, const_cast<ExprAST*>(args[i].get()));
+            // 参数准备 - 处理引用计数和生命周期
+            if (paramType->isReference() || paramType->getCategory() == ObjectType::Container)
+            {
+                // 如果参数需要作为引用传递
+                if (!argValue->getType()->isPointerTy())
+                {
+                    // 将非指针值包装为对象指针
+                    argValue = ensurePythonObject(argValue, paramType);
+                }
+
+                // 增加引用计数（如果需要）
+                if (ObjectLifecycleManager::needsIncRef(paramType,
+                                                        ObjectLifecycleManager::ObjectSource::PARAMETER,
+                                                        ObjectLifecycleManager::ObjectDestination::PARAMETER))
+                {
+                    llvm::Function* incRefFunc = getOrCreateExternalFunction(
+                        "py_incref", llvm::Type::getVoidTy(getContext()),
+                        {llvm::PointerType::get(getContext(), 0)});
+
+                    if (incRefFunc)
+                    {
+                        builder->CreateCall(incRefFunc, {argValue});
+                        DEBUG_LOG("为参数 " << (i + 1) << " 增加引用计数");
+                    }
+                }
+            }
+        }
+        else
+        {
+            // 无类型信息，使用一般规则处理参数
+            DEBUG_LOG("无参数 " << (i + 1) << " 的类型信息，使用默认处理");
+
+            // 确保参数类型与函数参数匹配
+            llvm::Type* paramLLVMType = calleeF->getFunctionType()->getParamType(i);
+
+            // 类型不匹配，尝试转换
+            if (argValue->getType() != paramLLVMType)
+            {
+                if (paramLLVMType->isPointerTy() && !argValue->getType()->isPointerTy())
+                {
+                    // 将基本类型转换为对象指针
+                    argValue = ensurePythonObject(argValue, argType);
+                    DEBUG_LOG("将参数 " << (i + 1) << " 转换为对象指针");
+                }
+                else if (paramLLVMType->isIntegerTy(32) && argValue->getType()->isDoubleTy())
+                {
+                    // 浮点数转整数
+                    argValue = builder->CreateFPToSI(argValue, builder->getInt32Ty(), "fptosiarg");
+                    DEBUG_LOG("将参数 " << (i + 1) << " 从浮点数转换为整数");
+                }
+                else if (paramLLVMType->isDoubleTy() && argValue->getType()->isIntegerTy())
+                {
+                    // 整数转浮点数
+                    argValue = builder->CreateSIToFP(argValue, builder->getDoubleTy(), "sitofparg");
+                    DEBUG_LOG("将参数 " << (i + 1) << " 从整数转换为浮点数");
+                }
+                // 其他转换...
+            }
         }
 
+        // 添加到参数列表
         argsValues.push_back(argValue);
     }
 
-    // 创建函数调用
-    lastExprValue = builder->CreateCall(calleeF, argsValues, "calltmp");
+    // 6. 创建函数调用
+    llvm::Value* callResult = builder->CreateCall(calleeF, argsValues, "calltmp");
+    DEBUG_LOG("创建函数调用: " << callee);
 
-    // 确定返回类型
-    if (funcTypeObj)
+    // 7. 处理返回值和类型元数据
+    if (returnType)
     {
-        // 如果有函数类型信息，使用其返回类型
-        ObjectType* returnType = const_cast<ObjectType*>(funcTypeObj->getReturnType());
+        // 根据已知函数类型设置返回值类型
         lastExprType = std::make_shared<PyType>(returnType);
+
+        // 为对象类型的返回值添加类型元数据
+        if (returnType->isReference() || returnType->getCategory() == ObjectType::Container || returnType->getTypeId() >= PY_TYPE_LIST)
+        {
+            if (callResult->getType()->isPointerTy())
+            {
+                // 附加类型元数据到返回值
+                ObjectLifecycleManager::attachTypeMetadata(callResult, returnType->getTypeId());
+                DEBUG_LOG("为返回值附加类型元数据: " << returnType->getTypeId());
+            }
+        }
     }
     else
     {
-        // 否则根据LLVM函数的返回类型推断
+        // 根据LLVM返回类型推断类型
         llvm::Type* returnTy = calleeF->getReturnType();
+
         if (returnTy->isVoidTy())
         {
             lastExprType = PyType::getVoid();
@@ -2733,26 +4428,58 @@ void PyCodeGen::visit(CallExprAST* expr)
         }
         else if (returnTy->isPointerTy())
         {
-            lastExprType = PyType::getAny();  // 默认指针类型为Any
+            // 尝试从返回值获取类型元数据
+            if (callResult)
+            {
+                int typeId = ObjectLifecycleManager::getTypeIdFromMetadata(callResult);
+                if (typeId > 0)
+                {
+                    ObjectType* derivedType = TypeRegistry::getInstance().getTypeById(typeId);
+                    if (derivedType)
+                    {
+                        lastExprType = std::make_shared<PyType>(derivedType);
+                        DEBUG_LOG("从元数据推断返回类型: " << derivedType->getName());
+                    }
+                    else
+                    {
+                        lastExprType = PyType::getAny();
+                        DEBUG_LOG("从元数据获取到typeId但无法解析: " << typeId);
+                    }
+                }
+                else
+                {
+                    lastExprType = PyType::getAny();
+                    DEBUG_LOG("返回值没有类型元数据，使用Any类型");
+                }
+            }
+            else
+            {
+                lastExprType = PyType::getAny();
+            }
         }
         else
         {
-            lastExprType = PyType::getAny();  // 未知类型默认为Any
+            lastExprType = PyType::getAny();
+            DEBUG_LOG("未知返回类型，使用Any类型");
         }
     }
 
-    // 管理返回值的生命周期
-    if (lastExprType->getObjectType()->isReference())
+    // 8. 处理引用类型返回值的生命周期
+    if (lastExprType->getObjectType()->isReference() || lastExprType->getObjectType()->getCategory() == ObjectType::Container || lastExprType->getObjectType()->getTypeId() >= PY_TYPE_LIST)
     {
-        // 如果返回值是引用类型，需要管理其生命周期
-        if (lastExprValue->getType()->isPointerTy())
+        if (callResult->getType()->isPointerTy())
         {
-            addTempObject(lastExprValue, lastExprType->getObjectType());
+            // 跟踪对象供后续清理
+            addTempObject(callResult, lastExprType->getObjectType());
+            DEBUG_LOG("将返回的对象标记为临时对象以便后续清理");
         }
     }
+
+    lastExprValue = callResult;
+    DEBUG_LOG("函数调用完成: " << callee << ", 返回类型: " << lastExprType->getObjectType()->getName());
 }
 
-void PyCodeGen::visit(ListExprAST* expr)
+void llvmpy::PyCodeGen::visit(ListExprAST* expr)
 {
     const auto& elements = expr->getElements();
 
@@ -2937,7 +4664,7 @@ void PyCodeGen::visit(ListExprAST* expr)
     // 标记为需要管理的对象
     addTempObject(listObj, listType);
 }
-void PyCodeGen::visit(IndexExprAST* expr)
+void llvmpy::PyCodeGen::visit(IndexExprAST* expr)
 {
     // 获取目标和索引表达式
     auto* target = static_cast<const ExprAST*>(expr->getTarget());
@@ -3226,7 +4953,7 @@ void PyCodeGen::visit(IndexExprAST* expr)
     }
 }
 
-void PyCodeGen::visit(ExprStmtAST* stmt)
+void llvmpy::PyCodeGen::visit(ExprStmtAST* stmt)
 {
     // 获取表达式
     auto* expr = static_cast<const ExprAST*>(stmt->getExpr());
@@ -3246,8 +4973,17 @@ void PyCodeGen::visit(ExprStmtAST* stmt)
     }
 }
 
-void PyCodeGen::visit(ReturnStmtAST* stmt)
+void llvmpy::PyCodeGen::visit(ReturnStmtAST* stmt)
 {
+    // 空指针检查
+    if (!stmt)
+    {
+        logError("尝试处理空的return语句");
+        return;
+    }
+
+    DEBUG_LOG("处理return语句");
+
     // 标记我们正在处理return语句
     inReturnStmt = true;
 
@@ -3257,7 +4993,7 @@ void PyCodeGen::visit(ReturnStmtAST* stmt)
     // 确保我们在函数内部
     if (!currentFunction)
     {
-        logError("Return statement outside of function",
+        logError("函数外部的return语句",
                  stmt->line.value_or(-1), stmt->column.value_or(-1));
         inReturnStmt = false;
         return;
@@ -3266,21 +5002,24 @@ void PyCodeGen::visit(ReturnStmtAST* stmt)
     // 获取函数的返回类型
     if (!currentReturnType)
     {
-        logError("Cannot determine function return type",
+        logError("无法确定函数返回类型",
                  stmt->line.value_or(-1), stmt->column.value_or(-1));
         inReturnStmt = false;
         return;
     }
 
-    // 处理 void 返回
+    DEBUG_LOG("函数返回类型: " << currentReturnType->getName() << ", 类型ID: " << currentReturnType->getTypeId());
+
+    // 处理 void/None 返回
     if (currentReturnType->getTypeId() == PY_TYPE_NONE)
     {
         if (expr)
         {
-            logError("Cannot return a value from function with void return type",
+            logError("void返回类型的函数不能返回值",
                      stmt->line.value_or(-1), stmt->column.value_or(-1));
         }
         builder->CreateRetVoid();
+        DEBUG_LOG("创建void返回");
         inReturnStmt = false;
         return;
     }
@@ -3288,58 +5027,282 @@ void PyCodeGen::visit(ReturnStmtAST* stmt)
     // 确保有返回值表达式
     if (!expr)
     {
-        logError("Return statement requires an expression for non-void function",
-                 stmt->line.value_or(-1), stmt->column.value_or(-1));
+        // 处理非void函数的无返回值情况 - 创建默认返回值
+        llvm::Value* defaultValue = createDefaultValue(currentReturnType);
+        if (defaultValue)
+        {
+            DEBUG_LOG("为缺少的返回表达式创建默认值: " << currentReturnType->getName());
+
+            // 确保返回值类型匹配函数声明的返回类型
+            llvm::Type* returnLLVMType = currentFunction->getReturnType();
+            if (defaultValue->getType() != returnLLVMType)
+            {
+                // 需要加载或转换值
+                if (defaultValue->getType()->isPointerTy() && returnLLVMType->isIntegerTy(32))
+                {
+                    defaultValue = builder->CreateLoad(builder->getInt32Ty(), defaultValue, "load_ret_val");
+                    DEBUG_LOG("从指针加载整数返回值");
+                }
+                else if (defaultValue->getType()->isPointerTy() && returnLLVMType->isDoubleTy())
+                {
+                    defaultValue = builder->CreateLoad(builder->getDoubleTy(), defaultValue, "load_ret_val");
+                    DEBUG_LOG("从指针加载浮点返回值");
+                }
+                else if (defaultValue->getType()->isPointerTy() && returnLLVMType->isIntegerTy(1))
+                {
+                    defaultValue = builder->CreateLoad(builder->getInt1Ty(), defaultValue, "load_ret_val");
+                    DEBUG_LOG("从指针加载布尔返回值");
+                }
+                // 其他类型转换...
+            }
+
+            // 为返回值附加类型元数据
+            ObjectLifecycleManager::attachTypeMetadata(defaultValue, currentReturnType->getTypeId());
+            builder->CreateRet(defaultValue);
+        }
+        else
+        {
+            logError("非void函数需要return表达式",
+                     stmt->line.value_or(-1), stmt->column.value_or(-1));
+            // 防止编译器崩溃，仍然创建一个返回指令
+            builder->CreateRetVoid();
+            DEBUG_LOG("创建应急void返回以避免崩溃");
+        }
         inReturnStmt = false;
         return;
     }
 
-    // 生成返回值代码
-    llvm::Value* retValue = handleExpr(const_cast<ExprAST*>(expr));
-    if (!retValue)
+    // 检查是否是直接返回参数的情况（如 return a）
+    bool isParameterReturn = false;
+    std::string paramName;
+
+    if (auto varExpr = dynamic_cast<const VariableExprAST*>(expr))
     {
-        inReturnStmt = false;
-        return;  // 错误已经被记录
+        paramName = varExpr->getName();
+
+        // 检查是否为函数参数
+        for (auto& arg : currentFunction->args())
+        {
+            if (arg.getName() == paramName)
+            {
+                isParameterReturn = true;  // 添加这行，设置标志
+                DEBUG_LOG("检测到直接返回参数: " << paramName);
+                break;
+            }
+        }
     }
 
     // 获取表达式类型
     auto exprTypePtr = expr->getType();
     if (!exprTypePtr)
     {
-        logError("Cannot determine expression type",
-                 expr->line.value_or(-1), expr->column.value_or(-1));
+        DEBUG_LOG("无法确定表达式类型，使用Any类型");
+        exprTypePtr = PyType::getAny();
+    }
+
+    // 获取具体对象类型
+    ObjectType* exprType = exprTypePtr->getObjectType();
+
+    DEBUG_LOG("返回表达式类型: " << exprType->getName());
+
+    // 生成返回值代码
+    llvm::Value* retValue = handleExpr(const_cast<ExprAST*>(expr));
+    if (!retValue)
+    {
+        DEBUG_LOG("返回表达式生成失败，使用默认返回值");
+        // 表达式生成失败，使用默认值来避免崩溃
+        llvm::Value* defaultValue = createDefaultValue(currentReturnType);
+        if (defaultValue)
+        {
+            builder->CreateRet(defaultValue);
+        }
+        else
+        {
+            builder->CreateRetVoid();
+        }
         inReturnStmt = false;
         return;
     }
 
-    // 类型转换，如果需要
-    ObjectType* exprType = exprTypePtr->getObjectType();
-    if (!exprType->canAssignTo(currentReturnType))
+    // 如果是直接返回参数，并且返回类型是Any或者返回类型与参数类型不匹配
+    if (isParameterReturn && (currentReturnType->getTypeId() == PY_TYPE_ANY || exprType->getTypeId() != currentReturnType->getTypeId()))
     {
-        retValue = generateTypeConversion(retValue, exprType, currentReturnType);
-        if (!retValue)
+        DEBUG_LOG("参数直接返回场景: 保留原始类型");
+
+        // 获取或创建类型保留函数
+        llvm::Function* preserveTypeFunc = getOrCreateExternalFunction(
+            "py_convert_any_preserve_type",
+            llvm::PointerType::get(getContext(), 0),
+            {llvm::PointerType::get(getContext(), 0)});
+
+        // 调用类型保留函数
+        retValue = builder->CreateCall(preserveTypeFunc, {retValue}, "preserve_type_result");
+
+        // 检查是否是容器类型
+        bool isContainer = TypeFeatureChecker::isContainer(exprType) || exprType->getTypeId() == PY_TYPE_LIST || exprType->getTypeId() == PY_TYPE_DICT;
+
+        // 为容器类型设置适当的类型元数据
+        if (isContainer)
         {
-            logTypeError("Cannot convert return value from " + exprType->getName() + " to " + currentReturnType->getName(),
-                         expr->line.value_or(-1), expr->column.value_or(-1));
-            inReturnStmt = false;
-            return;
+            ObjectLifecycleManager::attachTypeMetadata(retValue, exprType->getTypeId());
+            DEBUG_LOG("为容器类型返回值附加类型元数据: " << exprType->getTypeId());
+        }
+    }
+    // 对于非参数直接返回的情况，或者类型明确匹配的情况
+    else if (!isParameterReturn && !exprType->canAssignTo(currentReturnType))
+    {
+        DEBUG_LOG("需要进行类型转换: " << exprType->getName() << " -> " << currentReturnType->getName());
+
+        // 使用类型操作系统执行智能转换
+        llvm::Value* convertedValue = generateTypeConversion(retValue, exprType, currentReturnType);
+
+        // 仅当转换成功时更新返回值
+        if (convertedValue)
+        {
+            retValue = convertedValue;
+            DEBUG_LOG("类型转换成功");
         }
     }
 
     // 准备返回值（处理生命周期）
-    retValue = prepareReturnValue(retValue, currentReturnType, const_cast<ExprAST*>(expr));
+    llvm::Value* preparedValue = prepareReturnValue(retValue, currentReturnType, const_cast<ExprAST*>(expr));
+    if (!preparedValue)
+    {
+        DEBUG_LOG("准备返回值失败，使用原始值");
+        preparedValue = retValue;
+    }
+
+    // 附加类型元数据，确保在运行时能识别正确类型
+    if (currentReturnType->isReference() || TypeFeatureChecker::isContainer(currentReturnType) || currentReturnType->getTypeId() >= PY_TYPE_LIST)
+    {
+        if (preparedValue->getType()->isPointerTy())
+        {
+            // 对于容器类型，优先使用表达式的类型ID
+            int typeId = isParameterReturn ? exprType->getTypeId() : currentReturnType->getTypeId();
+            ObjectLifecycleManager::attachTypeMetadata(preparedValue, typeId);
+            DEBUG_LOG("为返回值附加类型元数据: " << typeId);
+        }
+    }
+
+    // 确保返回值类型匹配函数的返回类型
+    llvm::Type* functionReturnType = currentFunction->getReturnType();
+    if (preparedValue->getType() != functionReturnType)
+    {
+        DEBUG_LOG("返回值类型不匹配，需要进行调整");
+        DEBUG_LOG("预期类型: " << functionReturnType->getTypeID() << ", 实际类型: " << preparedValue->getType()->getTypeID());
+
+        // 处理基本类型
+        if (functionReturnType->isIntegerTy(32) && preparedValue->getType()->isPointerTy())
+        {
+            // 从指针提取整数
+            if (currentReturnType->getTypeId() == PY_TYPE_INT)
+            {
+                preparedValue = builder->CreateLoad(builder->getInt32Ty(), preparedValue, "load_int_ret");
+                DEBUG_LOG("从指针加载整数返回值");
+            }
+            else
+            {
+                // 调用辅助函数获取整数，保留原始类型的整数提取
+                llvm::Function* extractIntFunc = getOrCreateExternalFunction(
+                    isParameterReturn ? "py_extract_preserve_int" : "py_extract_int",
+                    builder->getInt32Ty(),
+                    {llvm::PointerType::get(getContext(), 0)});
+
+                preparedValue = builder->CreateCall(extractIntFunc, {preparedValue}, "extract_int_ret");
+                DEBUG_LOG("从对象提取整数返回值");
+            }
+        }
+        else if (functionReturnType->isDoubleTy() && preparedValue->getType()->isPointerTy())
+        {
+            // 从指针提取浮点数
+            if (currentReturnType->getTypeId() == PY_TYPE_DOUBLE)
+            {
+                preparedValue = builder->CreateLoad(builder->getDoubleTy(), preparedValue, "load_double_ret");
+                DEBUG_LOG("从指针加载浮点返回值");
+            }
+            else
+            {
+                // 调用辅助函数获取浮点数
+                llvm::Function* extractDoubleFunc = getOrCreateExternalFunction(
+                    "py_extract_double",
+                    builder->getDoubleTy(),
+                    {llvm::PointerType::get(getContext(), 0)});
+
+                preparedValue = builder->CreateCall(extractDoubleFunc, {preparedValue}, "extract_double_ret");
+                DEBUG_LOG("从对象提取浮点返回值");
+            }
+        }
+        else if (functionReturnType->isIntegerTy(1) && preparedValue->getType()->isPointerTy())
+        {
+            // 从指针提取布尔值
+            if (currentReturnType->getTypeId() == PY_TYPE_BOOL)
+            {
+                preparedValue = builder->CreateLoad(builder->getInt1Ty(), preparedValue, "load_bool_ret");
+                DEBUG_LOG("从指针加载布尔返回值");
+            }
+            else
+            {
+                // 调用辅助函数获取布尔值
+                llvm::Function* extractBoolFunc = getOrCreateExternalFunction(
+                    "py_extract_bool",
+                    builder->getInt1Ty(),
+                    {llvm::PointerType::get(getContext(), 0)});
+
+                preparedValue = builder->CreateCall(extractBoolFunc, {preparedValue}, "extract_bool_ret");
+                DEBUG_LOG("从对象提取布尔返回值");
+            }
+        }
+        else if (functionReturnType->isPointerTy() && !preparedValue->getType()->isPointerTy())
+        {
+            // 基本类型需要包装为指针类型
+            llvm::Value* wrappedValue = nullptr;
+
+            if (preparedValue->getType()->isIntegerTy(32))
+            {
+                wrappedValue = builder->CreateCall(
+                    getOrCreateExternalFunction("py_create_int",
+                                                llvm::PointerType::get(getContext(), 0),
+                                                {builder->getInt32Ty()}),
+                    {preparedValue}, "wrap_int");
+            }
+            else if (preparedValue->getType()->isDoubleTy())
+            {
+                wrappedValue = builder->CreateCall(
+                    getOrCreateExternalFunction("py_create_double",
+                                                llvm::PointerType::get(getContext(), 0),
+                                                {builder->getDoubleTy()}),
+                    {preparedValue}, "wrap_double");
+            }
+            else if (preparedValue->getType()->isIntegerTy(1))
+            {
+                wrappedValue = builder->CreateCall(
+                    getOrCreateExternalFunction("py_create_bool",
+                                                llvm::PointerType::get(getContext(), 0),
+                                                {builder->getInt1Ty()}),
+                    {preparedValue}, "wrap_bool");
+            }
+
+            if (wrappedValue)
+            {
+                preparedValue = wrappedValue;
+                DEBUG_LOG("将基本类型包装为指针类型");
+            }
+        }
+    }
 
     // 创建返回指令
-    builder->CreateRet(retValue);
+    builder->CreateRet(preparedValue);
+    DEBUG_LOG("创建return指令，返回类型: " << (isParameterReturn ? exprType->getName() : currentReturnType->getName()));
 
     // 释放临时对象
     releaseTempObjects();
+    DEBUG_LOG("清理临时对象");
 
     // 重置标记
     inReturnStmt = false;
 }
 
-void PyCodeGen::visit(IfStmtAST* stmt)
+void llvmpy::PyCodeGen::visit(IfStmtAST* stmt)
 {
     auto* condExpr = static_cast<const ExprAST*>(stmt->getCondition());
     if (!condExpr)
@@ -3415,7 +5378,7 @@ void PyCodeGen::visit(IfStmtAST* stmt)
     builder->SetInsertPoint(mergeBlock);
 }
 // 添加到PyCodeGen类的适当位置
-void PyCodeGen::debugFunctionReuse(const std::string& name, llvm::Function* func)
+void llvmpy::PyCodeGen::debugFunctionReuse(const std::string& name, llvm::Function* func)
 {
     static std::unordered_map<std::string, llvm::Function*> seenFunctions;
 
@@ -3433,7 +5396,7 @@ void PyCodeGen::debugFunctionReuse(const std::string& name, llvm::Function* func
         std::cerr << "DEBUG: First use of function " << name << std::endl;
     }
 }
-void PyCodeGen::visit(WhileStmtAST* stmt)
+void llvmpy::PyCodeGen::visit(WhileStmtAST* stmt)
 {
     auto* condExpr = static_cast<const ExprAST*>(stmt->getCondition());
     if (!condExpr)
@@ -3508,7 +5471,7 @@ void PyCodeGen::visit(WhileStmtAST* stmt)
     builder->SetInsertPoint(afterBlock);
 }
 
-void PyCodeGen::visit(PrintStmtAST* stmt)
+void llvmpy::PyCodeGen::visit(PrintStmtAST* stmt)
 {
     auto* expr = static_cast<const ExprAST*>(stmt->getValue());
     if (!expr)
@@ -3646,31 +5609,24 @@ void PyCodeGen::visit(PrintStmtAST* stmt)
     }
 }
 // 完成 AssignStmtAST 的 visit 方法实现
-void PyCodeGen::visit(AssignStmtAST* stmt)
+void llvmpy::PyCodeGen::visit(AssignStmtAST* stmt)
 {
-    // 获取变量名和赋值表达式
+    // 1. 获取基本信息
     const std::string& name = stmt->getName();
     auto* expr = static_cast<const ExprAST*>(stmt->getValue());
 
-    if (name.empty())
+    if (name.empty() || !expr)
     {
-        logError("Assignment has no target variable",
+        logError("Invalid assignment statement",
                  stmt->line.value_or(-1), stmt->column.value_or(-1));
         return;
     }
 
-    if (!expr)
-    {
-        logError("Assignment has no value expression",
-                 stmt->line.value_or(-1), stmt->column.value_or(-1));
-        return;
-    }
-
-    // 生成表达式值
+    // 2. 生成表达式值
     llvm::Value* value = handleExpr(const_cast<ExprAST*>(expr));
-    if (!value) return;  // 错误已经被记录
+    if (!value) return;
 
-    // 获取表达式类型
+    // 3. 获取表达式类型和信息
     auto typePtr = expr->getType();
     if (!typePtr)
     {
@@ -3681,190 +5637,465 @@ void PyCodeGen::visit(AssignStmtAST* stmt)
 
     ObjectType* exprType = typePtr->getObjectType();
 
-    // 检查变量是否已存在
+    // 关键修改：确保容器类型始终被视为引用类型
+    bool exprIsReference = exprType->isReference() || exprType->getCategory() == ObjectType::Container || exprType->getTypeId() >= PY_TYPE_LIST;
+    int exprTypeId = exprType->getTypeId();
+
+    // 4. 检查变量是否已存在，获取变量存储位置和类型
     llvm::Value* varPtr = getVariable(name);
     bool isNewVariable = !varPtr;
+    ObjectType* varType = isNewVariable ? nullptr : getVariableType(name);
+    // 【新增部分 - 处理复合赋值】
+    // 检查是否是复合赋值产生的二元表达式
+    if (!isNewVariable && dynamic_cast<const BinaryExprAST*>(expr) != nullptr)
+    {
+        auto* binExpr = dynamic_cast<const BinaryExprAST*>(expr);
 
+        // 确认左操作数是同一个变量的引用
+        if (auto* varExpr = dynamic_cast<const VariableExprAST*>(binExpr->getLHS()))
+        {
+            if (varExpr->getName() == name)  // 确认是同名变量(如 a = a + 1)
+            {
+                DEBUG_LOG("处理复合赋值: " << name << " " << binExpr->getOp() << "= ...");
+
+                // 1. 获取变量当前值
+                llvm::Value* currentValue = nullptr;
+
+                if (varType->isReference() || varType->getCategory() == ObjectType::Container || varType->getTypeId() >= PY_TYPE_LIST)
+                {
+                    // 引用类型：加载指针
+                    currentValue = builder->CreateLoad(
+                        llvm::PointerType::get(getContext(), 0), varPtr, "current_val");
+                }
+                else
+                {
+                    // 基本类型：直接加载值
+                    llvm::Type* loadType = nullptr;
+                    switch (varType->getTypeId())
+                    {
+                        case PY_TYPE_INT:
+                            loadType = llvm::Type::getInt32Ty(getContext());
+                            break;
+                        case PY_TYPE_DOUBLE:
+                            loadType = llvm::Type::getDoubleTy(getContext());
+                            break;
+                        case PY_TYPE_BOOL:
+                            loadType = llvm::Type::getInt1Ty(getContext());
+                            break;
+                        default:
+                            loadType = llvm::PointerType::get(getContext(), 0);
+                            break;
+                    }
+                    currentValue = builder->CreateLoad(loadType, varPtr, "current_val");
+                }
+
+                // 2. 设置表达式左边的值（绕过AST，直接设置值）
+                lastExprValue = currentValue;
+                lastExprType = std::make_shared<PyType>(varType);
+            }
+        }
+    }
+    // 【新增部分结束】
+
+    // 同样确保变量类型如果是容器，也被视为引用类型
+    bool varIsReference = varType && (varType->isReference() || varType->getCategory() == ObjectType::Container || varType->getTypeId() >= PY_TYPE_LIST);
+    int varTypeId = varType ? varType->getTypeId() : -1;
+
+    DEBUG_LOG("赋值: 变量 '" << name << "' "
+                             << (isNewVariable ? "新创建" : "已存在")
+                             << ", 表达式类型: " << exprType->getName()
+                             << ", 表达式是引用: " << (exprIsReference ? "是" : "否"));
+
+    // 5. 变量类型决策 - 确定最终的变量类型和存储方式
     if (isNewVariable)
     {
-        // 创建新变量
-        if (exprType->isReference())
+        // 5.1. 创建新变量
+
+        // 对于ANY类型表达式，尝试用更具体的类型
+        if (exprTypeId == PY_TYPE_ANY && !exprIsReference)
         {
-            // 为引用类型创建指针变量
-            varPtr = PyCodeGenHelper::createLocalVariable(*this, name, exprType, nullptr);
+            // 根据实际值类型推断更具体的类型
+            if (value->getType()->isIntegerTy(32))
+            {
+                varType = TypeRegistry::getInstance().getType("int");
+                varIsReference = false;
+                DEBUG_LOG("ANY值具体化为int类型");
+            }
+            else if (value->getType()->isDoubleTy())
+            {
+                varType = TypeRegistry::getInstance().getType("double");
+                varIsReference = false;
+                DEBUG_LOG("ANY值具体化为double类型");
+            }
+            else if (value->getType()->isIntegerTy(1))
+            {
+                varType = TypeRegistry::getInstance().getType("bool");
+                varIsReference = false;
+                DEBUG_LOG("ANY值具体化为bool类型");
+            }
+            else if (value->getType()->isPointerTy())
+            {
+                // 保持ANY类型但是引用
+                varType = exprType;
+                varIsReference = true;
+                DEBUG_LOG("ANY值以引用方式存储");
+            }
+            else
+            {
+                varType = exprType;
+                varIsReference = exprIsReference;
+                DEBUG_LOG("保持ANY类型不变");
+            }
         }
         else
         {
-            // 为值类型创建直接存储
-            varPtr = PyCodeGenHelper::createLocalVariable(*this, name, exprType, nullptr);
+            // 使用表达式的类型，但确保容器类型总是引用
+            varType = exprType;
+            varIsReference = exprIsReference;
+
+            // 确保列表、字典等容器类型始终是引用类型
+            if (varType->getCategory() == ObjectType::Container || varType->getTypeId() >= PY_TYPE_LIST)
+            {
+                varIsReference = true;
+                DEBUG_LOG("确保容器类型作为引用存储");
+            }
         }
+
+        // 创建变量存储 - 根据是否是引用类型决定分配类型
+        if (varIsReference)
+        {
+            // 引用类型分配为指针
+            varPtr = builder->CreateAlloca(
+                llvm::PointerType::get(getContext(), 0),
+                nullptr, name);
+            DEBUG_LOG("为引用类型分配指针存储");
+        }
+        else
+        {
+            // 基本类型根据实际类型分配
+            llvm::Type* allocaType = nullptr;
+
+            switch (varType->getTypeId())
+            {
+                case PY_TYPE_INT:
+                    allocaType = llvm::Type::getInt32Ty(getContext());
+                    break;
+                case PY_TYPE_DOUBLE:
+                    allocaType = llvm::Type::getDoubleTy(getContext());
+                    break;
+                case PY_TYPE_BOOL:
+                    allocaType = llvm::Type::getInt1Ty(getContext());
+                    break;
+                default:
+                    // 其他类型默认作为引用处理
+                    allocaType = llvm::PointerType::get(getContext(), 0);
+                    varIsReference = true;
+                    DEBUG_LOG("无法识别的类型作为引用处理");
+                    break;
+            }
+
+            varPtr = builder->CreateAlloca(allocaType, nullptr, name);
+            DEBUG_LOG("为基本类型分配存储: " << varType->getName());
+        }
+
+        // 注册到符号表
+        setVariable(name, varPtr, varType);
+        DEBUG_LOG("创建新变量: '" << name << "', 类型: "
+                                  << varType->getName() << ", 是引用: "
+                                  << (varIsReference ? "是" : "否"));
     }
     else
     {
-        // 获取变量的类型
-        ObjectType* varType = getVariableType(name);
+        // 5.2. 更新现有变量，需检查类型兼容性
 
-        // 验证类型兼容性
-        if (varType && !exprType->canAssignTo(varType))
+        // 特殊处理ANY类型变量
+        if (varTypeId == PY_TYPE_ANY)
+        {
+            // ANY类型可以接受任何值，但存储形式取决于之前的存储方式
+            DEBUG_LOG("为ANY类型变量赋值，保持存储形式: "
+                      << (varIsReference ? "引用" : "值"));
+        }
+        // 检查类型兼容性
+        else if (!exprType->canAssignTo(varType))
         {
             logTypeError("Cannot assign value of type '" + exprType->getName() + "' to variable '" + name + "' of type '" + varType->getName() + "'",
                          stmt->line.value_or(-1), stmt->column.value_or(-1));
             return;
         }
 
-        // 如果需要，执行类型转换
-        if (varType && exprType->getTypeId() != varType->getTypeId())
-        {
-            value = generateTypeConversion(value, exprType, varType);
-            if (!value) return;  // 转换失败
-        }
+        DEBUG_LOG("为已存在变量赋值: '" << name << "', 变量类型: "
+                                        << varType->getName() << ", 变量是引用: "
+                                        << (varIsReference ? "是" : "否"));
     }
 
-    // 准备赋值
-    if (isNewVariable)
+    // 6. 值类型转换 - 确保值与最终变量类型匹配
+    if (exprTypeId != varType->getTypeId() && varTypeId != PY_TYPE_ANY)
     {
-        // 为新变量设置值和类型
-        setVariable(name, varPtr, exprType);
+        DEBUG_LOG("需要类型转换: 从 " << exprType->getName() << " 到 " << varType->getName());
 
-        // 将类型信息注册到TypeRegistry，用于类型推断
-        TypeRegistry::getInstance().registerSymbolType(name, exprType);
-    }
-    else
-    {
-        // 变量已存在，更新符号表中的类型信息
-        ObjectType* updatedType = getVariableType(name);
-        if (updatedType)
+        // 使用类型系统执行转换
+        auto& registry = TypeOperationRegistry::getInstance();
+        TypeConversionDescriptor* convDesc = registry.getTypeConversionDescriptor(exprTypeId, varType->getTypeId());
+
+        if (convDesc && !convDesc->runtimeFunction.empty())
         {
-            // 更新TypeRegistry中的类型信息
-            TypeRegistry::getInstance().registerSymbolType(name, updatedType);
-        }
-    }
+            // 使用运行时转换函数
+            DEBUG_LOG("使用运行时转换函数: " << convDesc->runtimeFunction);
 
-    // 生成储存指令
-    if (exprType->isReference())
-    {
-        // 对于引用类型，需要存储对象指针
-        if (value->getType()->isPointerTy())
-        {
-            // 执行引用计数管理
-            llvm::Function* incRefFunc = getOrCreateExternalFunction(
-                "py_incref",
-                llvm::Type::getVoidTy(getContext()),
-                {llvm::PointerType::get(getContext(), 0)});
-
-            // 增加新值的引用计数
-            builder->CreateCall(incRefFunc, {value});
-
-            // 如果变量已经存在，需要减少旧值的引用计数
-            if (!isNewVariable)
+            // 确保值是指针类型
+            if (!value->getType()->isPointerTy())
             {
-                llvm::Value* oldValue = builder->CreateLoad(
-                    llvm::PointerType::get(getContext(), 0), varPtr, "oldval");
-
-                llvm::Function* decRefFunc = getOrCreateExternalFunction(
-                    "py_decref",
-                    llvm::Type::getVoidTy(getContext()),
-                    {llvm::PointerType::get(getContext(), 0)});
-
-                builder->CreateCall(decRefFunc, {oldValue});
+                value = ensurePythonObject(value, exprType);
             }
 
-            // 存储新值
-            builder->CreateStore(value, varPtr);
+            llvm::Function* convFunc = getOrCreateExternalFunction(
+                convDesc->runtimeFunction,
+                llvm::PointerType::get(getContext(), 0),
+                {llvm::PointerType::get(getContext(), 0)});
+
+            value = builder->CreateCall(convFunc, {value}, "conv_result");
+
+            // 确保转换后的值带有正确的类型元数据
+            ObjectLifecycleManager::attachTypeMetadata(value, varType->getTypeId());
+        }
+        else if (convDesc && convDesc->customImpl)
+        {
+            // 使用自定义转换实现
+            DEBUG_LOG("使用自定义类型转换处理");
+            value = convDesc->customImpl(*this, value);
+            if (!value) return;
+
+            // 添加类型元数据
+            ObjectLifecycleManager::attachTypeMetadata(value, varType->getTypeId());
         }
         else
         {
-            logError("Expected pointer type for reference assignment",
-                     stmt->line.value_or(-1), stmt->column.value_or(-1));
-            return;
+            // 尝试通用转换方法
+            value = generateTypeConversion(value, exprType, varType);
+            if (!value)
+            {
+                logTypeError("无法将 " + exprType->getName() + " 转换为 " + varType->getName(),
+                             stmt->line.value_or(-1), stmt->column.value_or(-1));
+                return;
+            }
         }
+    }
+
+    // 7. 生成存储指令 - 根据变量存储方式处理
+    if (varIsReference)
+    {
+        // 7.1 引用类型变量 (任何Python对象，包括容器)
+
+        // 确保值是指针类型
+        if (!value->getType()->isPointerTy())
+        {
+            DEBUG_LOG("将非指针值包装为对象指针");
+            value = ensurePythonObject(value, varType);
+            if (!value)
+            {
+                logError("无法将值转换为对象指针",
+                         stmt->line.value_or(-1), stmt->column.value_or(-1));
+                return;
+            }
+        }
+
+        // 增加新值的引用计数
+        llvm::Function* incRefFunc = getOrCreateExternalFunction(
+            "py_incref", llvm::Type::getVoidTy(getContext()),
+            {llvm::PointerType::get(getContext(), 0)});
+        builder->CreateCall(incRefFunc, {value});
+
+        // 为旧值减少引用计数 (若非新变量)
+        if (!isNewVariable)
+        {
+            llvm::Value* oldValue = builder->CreateLoad(
+                llvm::PointerType::get(getContext(), 0), varPtr, "oldval");
+
+            llvm::Function* decRefFunc = getOrCreateExternalFunction(
+                "py_decref", llvm::Type::getVoidTy(getContext()),
+                {llvm::PointerType::get(getContext(), 0)});
+
+            // 添加非空检查
+            llvm::Value* isNonNull = builder->CreateICmpNE(
+                oldValue,
+                llvm::ConstantPointerNull::get(llvm::PointerType::get(getContext(), 0)),
+                "is_nonnull");
+
+            llvm::BasicBlock* decRefBlock = llvm::BasicBlock::Create(getContext(), "decref", builder->GetInsertBlock()->getParent());
+            llvm::BasicBlock* continueBlock = llvm::BasicBlock::Create(getContext(), "continue", builder->GetInsertBlock()->getParent());
+
+            builder->CreateCondBr(isNonNull, decRefBlock, continueBlock);
+
+            builder->SetInsertPoint(decRefBlock);
+            builder->CreateCall(decRefFunc, {oldValue});
+            builder->CreateBr(continueBlock);
+
+            builder->SetInsertPoint(continueBlock);
+        }
+
+        // 存储新对象指针
+        builder->CreateStore(value, varPtr);
     }
     else
     {
-        // 对于值类型，直接存储
+        // 7.2 基本类型变量 (int, double, bool)
+
+        // 从对象中提取基本值（如果是指针）
+        if (value->getType()->isPointerTy())
+        {
+            DEBUG_LOG("从Python对象提取基本值");
+
+            std::string extractFunc;
+            llvm::Type* basicType;
+
+            switch (varType->getTypeId())
+            {
+                case PY_TYPE_INT:
+                    extractFunc = "py_extract_int";
+                    basicType = llvm::Type::getInt32Ty(getContext());
+                    break;
+                case PY_TYPE_DOUBLE:
+                    extractFunc = "py_extract_double";
+                    basicType = llvm::Type::getDoubleTy(getContext());
+                    break;
+                case PY_TYPE_BOOL:
+                    extractFunc = "py_extract_bool";
+                    basicType = llvm::Type::getInt1Ty(getContext());
+                    break;
+                default:
+                    logTypeError("不支持的基本类型赋值",
+                                 stmt->line.value_or(-1), stmt->column.value_or(-1));
+                    return;
+            }
+
+            llvm::Function* extractFunc_ = getOrCreateExternalFunction(
+                extractFunc, basicType, {llvm::PointerType::get(getContext(), 0)});
+            value = builder->CreateCall(extractFunc_, {value}, "extracted_value");
+        }
+
+        // 确保类型精确匹配
+        if (varType->getTypeId() == PY_TYPE_INT && !value->getType()->isIntegerTy(32))
+        {
+            value = builder->CreateIntCast(value, llvm::Type::getInt32Ty(getContext()),
+                                           true, "to_i32_for_store");
+        }
+        else if (varType->getTypeId() == PY_TYPE_DOUBLE && !value->getType()->isDoubleTy())
+        {
+            if (value->getType()->isIntegerTy())
+            {
+                value = builder->CreateSIToFP(value, llvm::Type::getDoubleTy(getContext()),
+                                              "int_to_double_for_store");
+            }
+            else if (value->getType()->isFloatTy())
+            {
+                value = builder->CreateFPExt(value, llvm::Type::getDoubleTy(getContext()),
+                                             "float_to_double_for_store");
+            }
+        }
+        else if (varType->getTypeId() == PY_TYPE_BOOL && !value->getType()->isIntegerTy(1))
+        {
+            if (value->getType()->isIntegerTy())
+            {
+                value = builder->CreateICmpNE(value,
+                                              llvm::ConstantInt::get(value->getType(), 0), "to_bool_for_store");
+            }
+            else if (value->getType()->isFloatingPointTy())
+            {
+                value = builder->CreateFCmpONE(value,
+                                               llvm::ConstantFP::get(value->getType(), 0.0), "float_to_bool_for_store");
+            }
+        }
+
+        // 存储基本值
         builder->CreateStore(value, varPtr);
     }
 
-    // 清理临时对象
+    // 8. 清理临时对象
     releaseTempObjects();
+
+    DEBUG_LOG("赋值完成: 变量 '" << name << "'");
 }
 
-void PyCodeGen::visit(IndexAssignStmtAST* stmt) {
+void PyCodeGen::visit(IndexAssignStmtAST* stmt)
+{
     // 获取左侧索引表达式和右侧值表达式
     const ExprAST* targetExpr = stmt->getTarget();
     const ExprAST* valueExpr = stmt->getValue();
-    
+
     // 增加调试信息
-    std::cerr << "DEBUG: IndexAssignStmt - targetExpr kind: " 
+    std::cerr << "DEBUG: IndexAssignStmt - targetExpr kind: "
               << (targetExpr ? static_cast<int>(targetExpr->kind()) : -1) << std::endl;
-    
-    if (!targetExpr || !valueExpr) {
-        logError("Invalid index assignment statement", 
+
+    if (!targetExpr || !valueExpr)
+    {
+        logError("Invalid index assignment statement",
                  stmt->line.value_or(-1), stmt->column.value_or(-1));
         return;
     }
-    
+
     // 直接获取目标和索引
     // 索引赋值的目标通常有两种形式：
     // 1. 直接是一个变量，索引在stmt中单独存储
     // 2. 已经是一个IndexExprAST
-    
+
     const ExprAST* index = stmt->getIndex();
-    if (index) {
+    if (index)
+    {
         // 如果索引直接可用，使用它
         performIndexAssignment(targetExpr, index, valueExpr, stmt);
         return;
     }
-    
+
     // 否则，尝试从targetExpr提取目标和索引（如果它是IndexExprAST）
     const IndexExprAST* indexExpr = dynamic_cast<const IndexExprAST*>(targetExpr);
-    if (indexExpr) {
+    if (indexExpr)
+    {
         const ExprAST* target = indexExpr->getTarget();
         const ExprAST* index = indexExpr->getIndex();
-        
-        if (!target || !index) {
-            logError("Invalid index expression in assignment", 
+
+        if (!target || !index)
+        {
+            logError("Invalid index expression in assignment",
                      targetExpr->line.value_or(-1), targetExpr->column.value_or(-1));
             return;
         }
-        
+
         performIndexAssignment(target, index, valueExpr, stmt);
         return;
     }
-    
+
     // 目标既不是有效的IndexExprAST，也没有单独提供index
     std::string typeInfo = "unknown";
-    if (targetExpr->getType()) {
+    if (targetExpr->getType())
+    {
         typeInfo = targetExpr->getType()->getObjectType()->getName();
     }
-    
-    logError("Target of index assignment must be an index expression, got: " + 
-            typeInfo + " (kind: " + std::to_string(static_cast<int>(targetExpr->kind())) + ")", 
-            targetExpr->line.value_or(-1), targetExpr->column.value_or(-1));
+
+    logError("Target of index assignment must be an index expression, got: " + typeInfo + " (kind: " + std::to_string(static_cast<int>(targetExpr->kind())) + ")",
+             targetExpr->line.value_or(-1), targetExpr->column.value_or(-1));
 }
 
-void PyCodeGen::performIndexAssignment(const ExprAST* target, const ExprAST* index,
-                                       const ExprAST* valueExpr, const StmtAST* stmt)
+void llvmpy::PyCodeGen::performIndexAssignment(const ExprAST* target, const ExprAST* index,
+                                               const ExprAST* valueExpr, const StmtAST* stmt)
 {
-    // 生成目标和索引的代码
+    // 1. 生成目标、索引和值的代码
     llvm::Value* targetValue = handleExpr(const_cast<ExprAST*>(target));
     if (!targetValue) return;
 
     llvm::Value* indexValue = handleExpr(const_cast<ExprAST*>(index));
     if (!indexValue) return;
 
-    // 生成右侧表达式的代码
     llvm::Value* value = handleExpr(const_cast<ExprAST*>(valueExpr));
     if (!value) return;
 
-    // 获取类型信息
+    // 2. 获取类型信息
     auto targetTypePtr = target->getType();
     auto indexTypePtr = index->getType();
     auto valueTypePtr = valueExpr->getType();
 
     if (!targetTypePtr || !indexTypePtr || !valueTypePtr)
     {
-        logError("Cannot determine types for index assignment",
+        logError("无法确定索引赋值的类型信息",
                  stmt->line.value_or(-1), stmt->column.value_or(-1));
         return;
     }
@@ -3874,12 +6105,12 @@ void PyCodeGen::performIndexAssignment(const ExprAST* target, const ExprAST* ind
     ObjectType* valueType = valueTypePtr->getObjectType();
 
     // 调试输出
-    std::cerr << "DEBUG: IndexAssign - Target type: " << targetType->getName()
-              << ", TypeID: " << targetType->getTypeId()
-              << ", Index type: " << indexType->getName()
-              << ", Value type: " << valueType->getName() << std::endl;
+    DEBUG_LOG("索引赋值 - 目标类型: " << targetType->getName()
+                                      << ", 类型ID: " << targetType->getTypeId()
+                                      << ", 索引类型: " << indexType->getName()
+                                      << ", 值类型: " << valueType->getName());
 
-    // 检查符号表中是否有更准确的类型信息
+    // 3. 检查符号表中是否有更准确的类型信息
     bool hasMoreAccurateType = false;
     std::string varName;
 
@@ -3888,18 +6119,18 @@ void PyCodeGen::performIndexAssignment(const ExprAST* target, const ExprAST* ind
         varName = varExpr->getName();
         ObjectType* symbolType = getVariableType(varName);
 
-        if (symbolType && (symbolType->getTypeId() == PY_TYPE_LIST || TypeFeatureChecker::hasFeature(symbolType, "container") || TypeFeatureChecker::hasFeature(symbolType, "sequence")))
+        if (symbolType && (symbolType->getTypeId() == PY_TYPE_LIST || symbolType->getCategory() == ObjectType::Container || TypeFeatureChecker::hasFeature(symbolType, "container") || TypeFeatureChecker::hasFeature(symbolType, "sequence")))
         {
-            std::cerr << "DEBUG: Using symbol table type for " << varName
-                      << ": " << symbolType->getName()
-                      << ", TypeID: " << symbolType->getTypeId() << std::endl;
+            DEBUG_LOG("使用符号表中'" << varName
+                                      << "'的更精确类型: " << symbolType->getName()
+                                      << ", 类型ID: " << symbolType->getTypeId());
 
             targetType = symbolType;  // 使用符号表中的更准确类型
             hasMoreAccurateType = true;
         }
     }
 
-    // 检查目标是否为变量地址，如果是则需要加载实际指针
+    // 4. 如果目标是变量地址，加载实际指针
     if (auto allocaInst = llvm::dyn_cast<llvm::AllocaInst>(targetValue))
     {
         auto allocatedType = allocaInst->getAllocatedType();
@@ -3907,33 +6138,33 @@ void PyCodeGen::performIndexAssignment(const ExprAST* target, const ExprAST* ind
         llvm::raw_string_ostream allocRso(allocTypeStr);
         allocatedType->print(allocRso);
 
-        std::cerr << "DEBUG: Target is AllocaInst, allocated type: " << allocTypeStr << std::endl;
+        DEBUG_LOG("目标是分配指令，分配的类型: " << allocTypeStr);
 
-        // 如果分配的类型是指针，加载其中的值
+        // 如果分配的类型是指针，加载实际的容器指针
         if (allocatedType->isPointerTy())
         {
-            std::cerr << "DEBUG: Loading actual list pointer from variable "
-                      << (varName.empty() ? "target" : varName) << std::endl;
-            targetValue = builder->CreateLoad(allocatedType, targetValue, "loaded_target_ptr");
+            DEBUG_LOG("从变量 " << (varName.empty() ? "target" : varName) << " 加载实际容器指针");
+            targetValue = builder->CreateLoad(allocatedType, targetValue, "loaded_container_ptr");
+
+            // 确保加载的值具有正确的类型元数据
+            if (hasMoreAccurateType)
+            {
+                ObjectLifecycleManager::attachTypeMetadata(targetValue, targetType->getTypeId());
+            }
         }
     }
 
-    // 验证索引操作
+    // 5. 验证索引操作
     if (!validateIndexOperation(const_cast<ExprAST*>(target), const_cast<ExprAST*>(index)))
     {
         return;
     }
 
-    // 确保类型一致
-    if (hasMoreAccurateType)
-    {
-        std::cerr << "DEBUG: Applied better type from symbol table for assignment operation" << std::endl;
-    }
-
-    // 根据目标类型执行不同的索引赋值操作
-    bool isList = (targetType->getTypeId() == PY_TYPE_LIST) || dynamic_cast<ListType*>(targetType);
-    bool isDict = (targetType->getTypeId() == PY_TYPE_DICT) || dynamic_cast<DictType*>(targetType);
-    bool isString = (targetType->getTypeId() == PY_TYPE_STRING) || (targetType->getName() == "string");
+    // 6. 根据目标类型执行不同的索引赋值操作
+    // 明确检测类型 - 不依赖于dynamic_cast
+    bool isList = (targetType->getTypeId() == PY_TYPE_LIST || targetType->getName().find("list") != std::string::npos);
+    bool isDict = (targetType->getTypeId() == PY_TYPE_DICT || targetType->getName().find("dict") != std::string::npos);
+    bool isString = (targetType->getTypeId() == PY_TYPE_STRING || targetType->getName() == "string");
 
     // 强制应用符号表中的类型信息
     if (hasMoreAccurateType && targetType->getTypeId() == PY_TYPE_LIST)
@@ -3943,67 +6174,191 @@ void PyCodeGen::performIndexAssignment(const ExprAST* target, const ExprAST* ind
         isString = false;
     }
 
+    // 7. 处理列表索引赋值
+    // 7. 处理列表索引赋值
     if (isList)
     {
-        std::cerr << "DEBUG: Generating list index assignment operation" << std::endl;
+        DEBUG_LOG("生成列表索引赋值操作");
 
-        // 验证索引和值类型
-        if (indexType->getTypeId() != PY_TYPE_INT)
+        // 7.1 验证索引类型
+        if (indexType->getTypeId() != PY_TYPE_INT && indexType->getTypeId() != PY_TYPE_ANY)
         {
-            logTypeError("List indices must be integers",
+            logTypeError("列表索引必须是整数类型，得到: " + indexType->getName(),
                          index->line.value_or(-1), index->column.value_or(-1));
             return;
         }
 
-        // 确保索引是整数值
+        // 7.2 确保索引是整数值
         llvm::Value* indexIntValue = indexValue;
         if (indexValue->getType()->isPointerTy())
         {
-            // 如果是对象指针，需要提取整数值
+            // 从对象指针提取整数值
             llvm::Function* extractIntFunc = getOrCreateExternalFunction(
                 "py_extract_int",
                 llvm::Type::getInt32Ty(getContext()),
                 {llvm::PointerType::get(getContext(), 0)});
 
-            indexIntValue = builder->CreateCall(extractIntFunc, {indexValue}, "idxtmp");
+            indexIntValue = builder->CreateCall(extractIntFunc, {indexValue}, "extracted_idx");
         }
         else if (!indexValue->getType()->isIntegerTy(32))
         {
-            // 类型转换
+            // 类型转换为i32
             indexIntValue = builder->CreateIntCast(
-                indexValue, llvm::Type::getInt32Ty(getContext()), true, "idxtmp");
+                indexValue, llvm::Type::getInt32Ty(getContext()), true, "idx_to_i32");
         }
 
-        // 检查值是否需要转换为对象
-        llvm::Value* valueObj = value;
-        if (!value->getType()->isPointerTy())
+        // 7.3 确保值是对象指针 - 这里是关键修复！
+        llvm::Value* valueObj = nullptr;
+
+        // 检测栈上基本类型变量，如int, double, bool
+        if (auto allocaInst = llvm::dyn_cast<llvm::AllocaInst>(value))
         {
-            // 如果不是对象指针，根据值类型创建对象
-            // 修改: 直接使用getOrCreateExternalFunction而不是通过ObjectLifecycleManager创建
-            llvm::Function* createIntFunc = getOrCreateExternalFunction(
-                "py_create_int",  // 关键: 使用固定名称，不添加后缀
-                llvm::PointerType::get(getContext(), 0),
-                {llvm::Type::getInt32Ty(getContext())});
-                
-            valueObj = builder->CreateCall(createIntFunc, {value}, "int_obj");
+            llvm::Type* allocatedType = allocaInst->getAllocatedType();
+            DEBUG_LOG("值是栈变量，分配类型: " << (allocatedType->isIntegerTy(32) ? "int32" : allocatedType->isDoubleTy() ? "double"
+                                                                                          : allocatedType->isIntegerTy(1) ? "bool"
+                                                                                                                          : "其他"));
+
+            if (allocatedType->isIntegerTy(32))  // int
+            {
+                // 从栈变量加载整数值
+                llvm::Value* loadedInt = builder->CreateLoad(allocatedType, value, "loaded_int_val");
+
+                // 创建Python整数对象
+                valueObj = builder->CreateCall(
+                    getOrCreateExternalFunction(
+                        "py_create_int",
+                        llvm::PointerType::get(getContext(), 0),
+                        {llvm::Type::getInt32Ty(getContext())}),
+                    {loadedInt},
+                    "int_obj_for_list_assign");
+
+                // 附加类型元数据
+                ObjectLifecycleManager::attachTypeMetadata(valueObj, PY_TYPE_INT);
+                DEBUG_LOG("从栈变量创建整数对象");
+            }
+            else if (allocatedType->isDoubleTy())  // double
+            {
+                llvm::Value* loadedDouble = builder->CreateLoad(allocatedType, value, "loaded_double_val");
+
+                valueObj = builder->CreateCall(
+                    getOrCreateExternalFunction(
+                        "py_create_double",
+                        llvm::PointerType::get(getContext(), 0),
+                        {llvm::Type::getDoubleTy(getContext())}),
+                    {loadedDouble},
+                    "double_obj_for_list_assign");
+
+                ObjectLifecycleManager::attachTypeMetadata(valueObj, PY_TYPE_DOUBLE);
+                DEBUG_LOG("从栈变量创建浮点对象");
+            }
+            else if (allocatedType->isIntegerTy(1))  // bool
+            {
+                llvm::Value* loadedBool = builder->CreateLoad(allocatedType, value, "loaded_bool_val");
+
+                valueObj = builder->CreateCall(
+                    getOrCreateExternalFunction(
+                        "py_create_bool",
+                        llvm::PointerType::get(getContext(), 0),
+                        {llvm::Type::getInt1Ty(getContext())}),
+                    {loadedBool},
+                    "bool_obj_for_list_assign");
+
+                ObjectLifecycleManager::attachTypeMetadata(valueObj, PY_TYPE_BOOL);
+                DEBUG_LOG("从栈变量创建布尔对象");
+            }
+            else if (allocatedType->isPointerTy())  // 如果是指针类型的栈变量(可能已经是对象指针)
+            {
+                llvm::Value* loadedPtr = builder->CreateLoad(allocatedType, value, "loaded_ptr_val");
+                valueObj = loadedPtr;  // 直接使用加载的指针
+                DEBUG_LOG("从栈变量加载对象指针");
+            }
+        }
+        // 直接字面量或已经是对象指针的情况
+        else if (value->getType()->isPointerTy())
+        {
+            // 已经是指针，可能是对象指针
+            valueObj = value;
+            DEBUG_LOG("值已经是对象指针");
+        }
+        else if (value->getType()->isIntegerTy(32))  // int字面量
+        {
+            valueObj = builder->CreateCall(
+                getOrCreateExternalFunction(
+                    "py_create_int",
+                    llvm::PointerType::get(getContext(), 0),
+                    {llvm::Type::getInt32Ty(getContext())}),
+                {value},
+                "int_obj_from_literal");
+
+            ObjectLifecycleManager::attachTypeMetadata(valueObj, PY_TYPE_INT);
+            DEBUG_LOG("从整数字面量创建对象");
+        }
+        else if (value->getType()->isDoubleTy())  // double字面量
+        {
+            valueObj = builder->CreateCall(
+                getOrCreateExternalFunction(
+                    "py_create_double",
+                    llvm::PointerType::get(getContext(), 0),
+                    {llvm::Type::getDoubleTy(getContext())}),
+                {value},
+                "double_obj_from_literal");
+
+            ObjectLifecycleManager::attachTypeMetadata(valueObj, PY_TYPE_DOUBLE);
+            DEBUG_LOG("从浮点字面量创建对象");
+        }
+        else if (value->getType()->isIntegerTy(1))  // bool字面量
+        {
+            valueObj = builder->CreateCall(
+                getOrCreateExternalFunction(
+                    "py_create_bool",
+                    llvm::PointerType::get(getContext(), 0),
+                    {llvm::Type::getInt1Ty(getContext())}),
+                {value},
+                "bool_obj_from_literal");
+
+            ObjectLifecycleManager::attachTypeMetadata(valueObj, PY_TYPE_BOOL);
+            DEBUG_LOG("从布尔字面量创建对象");
+        }
+        else
+        {
+            // 如果以上情况都不是，尝试通用转换
+            valueObj = ensurePythonObject(value, valueType);
+            DEBUG_LOG("使用通用方法确保对象指针");
         }
 
-        // 获取列表元素类型并验证值是否兼容
-        ObjectType* elemType = nullptr;
-        if (auto listType = dynamic_cast<ListType*>(targetType))
+        // 检查是否成功创建/获取对象指针
+        if (!valueObj)
         {
-            elemType = const_cast<ObjectType*>(listType->getElementType());
+            logTypeError("无法将值类型 " + valueType->getName() + " 转换为对象指针",
+                         valueExpr->line.value_or(-1), valueExpr->column.value_or(-1));
+            return;
+        }
+
+        // 7.4 验证元素类型与值类型兼容性
+        ListType* listType = dynamic_cast<ListType*>(targetType);
+        if (listType && listType->getElementType())
+        {
+            ObjectType* elemType = const_cast<ObjectType*>(listType->getElementType());
 
             // 验证值类型与元素类型的兼容性
-            if (elemType && !valueType->canAssignTo(elemType))
+            if (!valueType->canAssignTo(elemType))
             {
-                logTypeError("Cannot assign " + valueType->getName() + " to list of " + elemType->getName(),
+                logTypeError("无法将 " + valueType->getName() + " 类型的值赋给列表类型 " + elemType->getName() + " 的元素",
                              valueExpr->line.value_or(-1), valueExpr->column.value_or(-1));
                 return;
             }
         }
 
-        // 调用列表设置元素函数
+        // 7.5 增加新值的引用计数
+        llvm::Function* incRefFunc = getOrCreateExternalFunction(
+            "py_incref",
+            llvm::Type::getVoidTy(getContext()),
+            {llvm::PointerType::get(getContext(), 0)});
+
+        builder->CreateCall(incRefFunc, {valueObj});
+        DEBUG_LOG("增加对象引用计数");
+
+        // 7.6 调用列表设置元素函数
         llvm::Function* setItemFunc = getOrCreateExternalFunction(
             "py_list_set_item",
             llvm::Type::getVoidTy(getContext()),
@@ -4014,26 +6369,77 @@ void PyCodeGen::performIndexAssignment(const ExprAST* target, const ExprAST* ind
             });
 
         builder->CreateCall(setItemFunc, {targetValue, indexIntValue, valueObj});
+        DEBUG_LOG("列表索引赋值操作完成");
     }
+    // 8. 处理字典索引赋值
     else if (isDict)
     {
-        std::cerr << "DEBUG: Generating dictionary index assignment operation" << std::endl;
+        DEBUG_LOG("生成字典索引赋值操作");
 
-        // 确保键是对象指针
+        // 8.1 确保键是对象指针
         llvm::Value* keyObj = indexValue;
         if (!indexValue->getType()->isPointerTy())
         {
-            keyObj = ObjectLifecycleManager::createObject(*this, indexValue, indexType->getTypeId());
+            DEBUG_LOG("将键值转换为对象指针");
+            // 根据索引值类型选择合适的转换函数
+            keyObj = ensurePythonObject(indexValue, indexType);
+
+            if (!keyObj)
+            {
+                logTypeError("无法将索引值转换为对象指针",
+                             index->line.value_or(-1), index->column.value_or(-1));
+                return;
+            }
         }
 
-        // 确保值是对象指针
+        // 8.2 确保值是对象指针
         llvm::Value* valueObj = value;
         if (!value->getType()->isPointerTy())
         {
-            valueObj = ObjectLifecycleManager::createObject(*this, value, valueType->getTypeId());
+            DEBUG_LOG("将值转换为对象指针");
+            valueObj = ensurePythonObject(value, valueType);
+
+            if (!valueObj)
+            {
+                logTypeError("无法将值转换为对象指针",
+                             valueExpr->line.value_or(-1), valueExpr->column.value_or(-1));
+                return;
+            }
         }
 
-        // 调用字典设置项函数
+        // 8.3 验证键值类型兼容性
+        // 获取字典键值类型
+        if (DictType* dictType = dynamic_cast<DictType*>(targetType))
+        {
+            ObjectType* keyType = const_cast<ObjectType*>(dictType->getKeyType());
+            ObjectType* valType = const_cast<ObjectType*>(dictType->getValueType());
+
+            // 验证类型兼容性
+            if (keyType && !indexType->canAssignTo(keyType))
+            {
+                logTypeError("无法将 " + indexType->getName() + " 类型的键赋给字典键类型 " + keyType->getName(),
+                             index->line.value_or(-1), index->column.value_or(-1));
+                return;
+            }
+
+            if (valType && !valueType->canAssignTo(valType))
+            {
+                logTypeError("无法将 " + valueType->getName() + " 类型的值赋给字典值类型 " + valType->getName(),
+                             valueExpr->line.value_or(-1), valueExpr->column.value_or(-1));
+                return;
+            }
+        }
+
+        // 8.4 增加键和值的引用计数
+        llvm::Function* incRefFunc = getOrCreateExternalFunction(
+            "py_incref",
+            llvm::Type::getVoidTy(getContext()),
+            {llvm::PointerType::get(getContext(), 0)});
+
+        builder->CreateCall(incRefFunc, {keyObj});
+        builder->CreateCall(incRefFunc, {valueObj});
+
+        // 8.5 调用字典设置项函数
         llvm::Function* setItemFunc = getOrCreateExternalFunction(
             "py_dict_set_item",
             llvm::Type::getVoidTy(getContext()),
@@ -4044,31 +6450,69 @@ void PyCodeGen::performIndexAssignment(const ExprAST* target, const ExprAST* ind
             });
 
         builder->CreateCall(setItemFunc, {targetValue, keyObj, valueObj});
+
+        DEBUG_LOG("字典索引赋值操作完成");
     }
+    // 9. 处理字符串索引赋值 (一般不允许)
     else if (isString)
     {
         // 字符串不支持索引赋值
-        logError("String objects do not support item assignment",
+        logError("字符串对象不支持索引赋值",
                  stmt->line.value_or(-1), stmt->column.value_or(-1));
         return;
     }
+    // 10. 处理其他未知类型
     else
     {
-        // 不支持的目标类型
-        logError("Cannot assign to index of type " + targetType->getName(),
-                 stmt->line.value_or(-1), stmt->column.value_or(-1));
-        return;
+        // 尝试识别可能的容器类型
+        int typeId = targetType->getTypeId();
+        bool isContainer = (targetType->getCategory() == ObjectType::Container) || (typeId >= PY_TYPE_LIST && typeId <= PY_TYPE_SET) || targetType->hasFeature("container") || targetType->hasFeature("sequence");
+
+        if (isContainer)
+        {
+            DEBUG_LOG("尝试通用容器索引赋值: " << targetType->getName());
+
+            // 确保索引和值都是对象指针
+            llvm::Value* idxObj = ensurePythonObject(indexValue, indexType);
+            llvm::Value* valObj = ensurePythonObject(value, valueType);
+
+            // 增加引用计数
+            llvm::Function* incRefFunc = getOrCreateExternalFunction(
+                "py_incref", llvm::Type::getVoidTy(getContext()),
+                {llvm::PointerType::get(getContext(), 0)});
+
+            builder->CreateCall(incRefFunc, {valObj});
+
+            // 尝试通用容器赋值函数
+            llvm::Function* setItemFunc = getOrCreateExternalFunction(
+                "py_container_set_item",
+                llvm::Type::getVoidTy(getContext()),
+                {
+                    llvm::PointerType::get(getContext(), 0),  // container
+                    llvm::PointerType::get(getContext(), 0),  // index
+                    llvm::PointerType::get(getContext(), 0)   // value
+                });
+
+            builder->CreateCall(setItemFunc, {targetValue, idxObj, valObj});
+        }
+        else
+        {
+            // 目标不支持索引赋值
+            logError("目标类型 " + targetType->getName() + " 不支持索引赋值",
+                     stmt->line.value_or(-1), stmt->column.value_or(-1));
+            return;
+        }
     }
 
-    // 成功执行索引赋值后，可能需要释放临时对象
-    // 如果系统支持对象生命周期管理，可以添加临时对象清理代码
+    // 11. 清理临时对象
+    releaseTempObjects();
 }
-void PyCodeGen::visit(PassStmtAST* stmt)
+void llvmpy::PyCodeGen::visit(PassStmtAST* stmt)
 {
     // pass语句不做任何事情
 }
 
-void PyCodeGen::visit(ImportStmtAST* stmt)
+void llvmpy::PyCodeGen::visit(ImportStmtAST* stmt)
 {
     // 获取模块名称和别名
     const std::string& moduleName = stmt->getModuleName();
@@ -4097,7 +6541,7 @@ void PyCodeGen::visit(ImportStmtAST* stmt)
     setVariable(varName, varPtr, TypeRegistry::getInstance().getType("module"));
 }
 
-void PyCodeGen::visit(ClassStmtAST* stmt)
+void llvmpy::PyCodeGen::visit(ClassStmtAST* stmt)
 {
     // 获取类名和基类
     const std::string& className = stmt->getClassName();
@@ -4223,13 +6667,21 @@ void PyCodeGen::visit(ClassStmtAST* stmt)
     setVariable(className, varPtr, TypeRegistry::getInstance().getType("class"));
 }
 
-void PyCodeGen::visit(FunctionAST* func)
+void llvmpy::PyCodeGen::visit(FunctionAST* func)
 {
-    // 获取函数名和参数
+    if (!func)
+    {
+        logError("尝试处理空函数AST");
+        return;
+    }
+
+    DEBUG_LOG("开始生成函数: " << func->name);
+
+    // 1. 获取函数名和参数
     const std::string& name = func->getName();
     const auto& params = func->getParams();
 
-    // 获取或创建函数类型
+    // 2. 获取或创建函数类型
     std::vector<ObjectType*> paramTypes;
     for (const auto& param : params)
     {
@@ -4237,39 +6689,45 @@ void PyCodeGen::visit(FunctionAST* func)
         if (!param.typeName.empty())
         {
             paramType = TypeRegistry::getInstance().getType(param.typeName);
+            DEBUG_LOG("参数 '" << param.name << "' 声明类型: " << param.typeName);
         }
         if (!paramType)
         {
             paramType = TypeRegistry::getInstance().getType("any");
+            DEBUG_LOG("参数 '" << param.name << "' 未声明类型，使用any类型");
         }
         paramTypes.push_back(paramType);
     }
 
-    // 获取返回类型
+    // 3. 获取返回类型，优先使用显式声明，其次推断
     ObjectType* returnType = nullptr;
     if (!func->getReturnTypeName().empty())
     {
         returnType = TypeRegistry::getInstance().getType(func->getReturnTypeName());
+        DEBUG_LOG("函数 '" << name << "' 声明返回类型: " << func->getReturnTypeName());
     }
+
     if (!returnType)
     {
-        // 如果未指定返回类型，尝试推断
+        // 尝试推断返回类型
         auto inferredType = func->inferReturnType();
-        if (inferredType)
+        if (inferredType && inferredType->getObjectType())
         {
             returnType = inferredType->getObjectType();
+            DEBUG_LOG("函数 '" << name << "' 推断返回类型: " << returnType->getName());
         }
         else
         {
+            // 默认为None类型
             returnType = TypeRegistry::getInstance().getType("none");
+            DEBUG_LOG("函数 '" << name << "' 无法推断返回类型，使用默认类型: none");
         }
     }
 
-    // 创建函数类型
+    // 4. 创建函数类型和LLVM函数类型
     FunctionType* funcType = TypeRegistry::getInstance().getFunctionType(
         returnType, paramTypes);
 
-    // 创建函数参数类型
     std::vector<llvm::Type*> llvmParamTypes;
     for (auto paramType : paramTypes)
     {
@@ -4277,16 +6735,36 @@ void PyCodeGen::visit(FunctionAST* func)
         llvmParamTypes.push_back(llvmType);
     }
 
-    // 创建函数类型
     llvm::Type* returnLLVMType = PyCodeGenHelper::getLLVMType(getContext(), returnType);
     llvm::FunctionType* llvmFuncType = llvm::FunctionType::get(
         returnLLVMType, llvmParamTypes, false);
 
-    // 创建函数
-    llvm::Function* llvmFunc = llvm::Function::Create(
-        llvmFuncType, llvm::Function::ExternalLinkage, name, getModule());
+    // 5. 检查函数是否已存在，或创建新函数
+    llvm::Function* llvmFunc = getModule()->getFunction(name);
+    if (llvmFunc)
+    {
+        // 函数已存在，验证类型是否兼容
+        if (llvmFunc->getFunctionType() != llvmFuncType)
+        {
+            logError("函数 '" + name + "' 重定义，类型不匹配",
+                     func->line.value_or(-1), func->column.value_or(-1));
+            return;
+        }
+        DEBUG_LOG("函数 '" << name << "' 已经存在，跳过定义");
+    }
+    else
+    {
+        // 创建新函数
+        llvmFunc = llvm::Function::Create(
+            llvmFuncType, llvm::Function::ExternalLinkage, name, getModule());
 
-    // 设置参数名称
+        DEBUG_LOG("创建新函数 '" << name << "'");
+
+        // 记录到外部函数缓存以避免重复创建
+        debugFunctionReuse(name, llvmFunc);
+    }
+
+    // 6. 设置参数名称
     unsigned idx = 0;
     for (auto& arg : llvmFunc->args())
     {
@@ -4297,23 +6775,24 @@ void PyCodeGen::visit(FunctionAST* func)
         idx++;
     }
 
-    // 创建入口基本块
+    // 7. 创建入口基本块
     llvm::BasicBlock* entryBlock = llvm::BasicBlock::Create(getContext(), "entry", llvmFunc);
     builder->SetInsertPoint(entryBlock);
 
-    // 保存之前的函数和返回类型
+    // 8. 保存之前的函数上下文
     llvm::Function* prevFunc = currentFunction;
     ObjectType* prevRetType = currentReturnType;
     llvm::BasicBlock* prevBlock = savedBlock;
 
-    // 设置当前函数和返回类型
+    // 9. 设置当前函数上下文
     currentFunction = llvmFunc;
     currentReturnType = returnType;
+    savedBlock = builder->GetInsertBlock();
 
-    // 创建函数作用域
+    // 10. 创建函数作用域
     pushScope();
 
-    // 分配参数
+    // 11. 分配参数
     idx = 0;
     for (auto& arg : llvmFunc->args())
     {
@@ -4323,92 +6802,140 @@ void PyCodeGen::visit(FunctionAST* func)
             ObjectType* paramType = paramTypes[idx];
 
             // 为参数创建局部变量
-            llvm::Value* paramPtr = PyCodeGenHelper::createLocalVariable(
-                *this, paramName, paramType, &arg);
+            llvm::Value* paramPtr = nullptr;
 
-            // 记录在符号表中
-            setVariable(paramName, paramPtr, paramType);
+            // 根据类型决定分配方式
+            if (paramType->isReference() || paramType->getCategory() == ObjectType::Container || paramType->getTypeId() >= PY_TYPE_LIST)
+            {
+                // 引用类型参数
+                paramPtr = builder->CreateAlloca(
+                    llvm::PointerType::get(getContext(), 0), nullptr, paramName);
+
+                // 存储参数值到分配的内存
+                builder->CreateStore(&arg, paramPtr);
+
+                DEBUG_LOG("创建引用类型参数 '" << paramName << "', 类型: " << paramType->getName());
+            }
+            else
+            {
+                // 基本类型参数
+                llvm::Type* allocaType = nullptr;
+
+                switch (paramType->getTypeId())
+                {
+                    case PY_TYPE_INT:
+                        allocaType = llvm::Type::getInt32Ty(getContext());
+                        break;
+                    case PY_TYPE_DOUBLE:
+                        allocaType = llvm::Type::getDoubleTy(getContext());
+                        break;
+                    case PY_TYPE_BOOL:
+                        allocaType = llvm::Type::getInt1Ty(getContext());
+                        break;
+                    default:
+                        // 未知类型，使用指针
+                        allocaType = llvm::PointerType::get(getContext(), 0);
+                        break;
+                }
+
+                paramPtr = builder->CreateAlloca(allocaType, nullptr, paramName);
+
+                // 存储参数值到分配的内存
+                builder->CreateStore(&arg, paramPtr);
+
+                DEBUG_LOG("创建基本类型参数 '" << paramName << "', 类型: " << paramType->getName());
+            }
+
+            // 记录到符号表
+            if (paramPtr)
+            {
+                setVariable(paramName, paramPtr, paramType);
+            }
+            else
+            {
+                logError("无法为参数 '" + paramName + "' 创建内存空间",
+                         func->line.value_or(-1), func->column.value_or(-1));
+            }
         }
         idx++;
     }
 
-    // 生成函数体
+    // 12. 生成函数体
     for (const auto& stmt : func->getBody())
     {
-        handleStmt(const_cast<StmtAST*>(stmt.get()));
+        if (stmt)
+        {
+            handleStmt(const_cast<StmtAST*>(stmt.get()));
+        }
+        else
+        {
+            DEBUG_LOG("函数体中发现空语句，已跳过");
+        }
     }
 
-    // 检查函数是否有返回语句
+    // 13. 检查是否缺少终结指令，添加默认返回
     if (!builder->GetInsertBlock()->getTerminator())
     {
-        // 如果没有返回语句，根据返回类型添加默认返回
+        DEBUG_LOG("函数 '" << name << "' 没有明确的返回语句，添加默认返回");
+
+        // 根据返回类型生成默认返回值
         if (returnType->getTypeId() == PY_TYPE_NONE)
         {
             builder->CreateRetVoid();
+            DEBUG_LOG("插入默认void返回");
         }
         else
         {
             // 创建默认返回值
-            llvm::Value* defaultReturn = nullptr;
-
-            switch (returnType->getTypeId())
-            {
-                case PY_TYPE_INT:
-                    defaultReturn = llvm::ConstantInt::get(llvm::Type::getInt32Ty(getContext()), 0);
-                    break;
-                case PY_TYPE_DOUBLE:
-                    defaultReturn = llvm::ConstantFP::get(llvm::Type::getDoubleTy(getContext()), 0.0);
-                    break;
-                case PY_TYPE_BOOL:
-                    defaultReturn = llvm::ConstantInt::get(llvm::Type::getInt1Ty(getContext()), 0);
-                    break;
-                default:
-                    // 对于引用类型，返回None
-                    if (returnType->isReference())
-                    {
-                        llvm::Function* getNoneFunc = getOrCreateExternalFunction(
-                            "py_get_none",
-                            llvm::PointerType::get(getContext(), 0),
-                            {});
-                        defaultReturn = builder->CreateCall(getNoneFunc, {}, "defretval");
-                    }
-                    else
-                    {
-                        defaultReturn = llvm::Constant::getNullValue(returnLLVMType);
-                    }
-                    break;
-            }
+            llvm::Value* defaultReturn = createDefaultValue(returnType);
 
             if (defaultReturn)
             {
+                // 为返回值附加类型元数据
+                if (returnType->getTypeId() != PY_TYPE_NONE)
+                {
+                    ObjectLifecycleManager::attachTypeMetadata(defaultReturn, returnType->getTypeId());
+                }
+
                 builder->CreateRet(defaultReturn);
+                DEBUG_LOG("插入默认返回值，类型: " << returnType->getName()
+                                                   << ", 类型ID: " << returnType->getTypeId());
             }
             else
             {
-                // 如果无法创建默认返回值，使用void返回
+                // 无法创建默认返回值，使用空返回
                 builder->CreateRetVoid();
+                DEBUG_LOG("无法创建默认返回值，插入void返回");
             }
         }
     }
 
-    // 结束函数作用域
+    // 14. 结束函数作用域
     popScope();
 
-    // 恢复之前的函数和返回类型
+    // 15. 恢复之前的函数上下文
     currentFunction = prevFunc;
     currentReturnType = prevRetType;
     savedBlock = prevBlock;
 
-    // 验证函数
-    if (llvm::verifyFunction(*llvmFunc, &llvm::errs()))
+    // 16. 验证函数
+    std::string verifyError;
+    llvm::raw_string_ostream errStream(verifyError);
+    if (llvm::verifyFunction(*llvmFunc, &errStream))
     {
-        llvmFunc->eraseFromParent();
-        logError("Function verification failed: " + name,
+        logError("函数验证失败: " + name + " - " + verifyError,
                  func->line.value_or(-1), func->column.value_or(-1));
+
+        // 删除无效函数
+        llvmFunc->eraseFromParent();
+    }
+    else
+    {
+        DEBUG_LOG("函数 '" << name << "' 生成成功");
     }
 }
 
-void PyCodeGen::visit(ModuleAST* module)
+void llvmpy::PyCodeGen::visit(ModuleAST* module)
 {
     // 获取模块名
     const std::string& moduleName = module->getModuleName();

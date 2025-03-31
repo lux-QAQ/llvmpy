@@ -939,74 +939,138 @@ void FunctionAST::registerWithFactory()
         ); });
 }
 
-std::shared_ptr<PyType> FunctionAST::inferReturnType() const
-{
-    // 如果已经有显式声明的返回类型
-    if (!returnTypeName.empty() && returnTypeName != "auto")
-    {
-        return PyType::fromString(returnTypeName);
+std::shared_ptr<PyType> FunctionAST::inferReturnType() const {
+    // 1. 优先使用显式声明的返回类型
+    if (!returnTypeName.empty()) {
+        TypeRegistry::getInstance().ensureBasicTypesRegistered();
+        ObjectType* declaredType = TypeRegistry::getInstance().getType(returnTypeName);
+        if (declaredType) {
+            return std::make_shared<PyType>(declaredType);
+        }
     }
-
-    // 分析函数体中的所有return语句
-    std::shared_ptr<PyType> inferredType = PyType::getVoid();
-    bool hasReturnStmt = false;
-
-    // 递归分析函数体中的每个语句
-    std::function<void(const StmtAST*)> analyzeStmt = [&](const StmtAST* stmt)
-    {
-        if (!stmt) return;
-
-        if (auto returnStmt = dynamic_cast<const ReturnStmtAST*>(stmt))
-        {
-            hasReturnStmt = true;
-            if (auto returnExpr = returnStmt->getValue())
-            {
-                auto returnType = inferExprType(returnExpr);
-                if (inferredType->isVoid())
-                {
-                    inferredType = returnType;
+    
+    // 2. 构建参数类型映射表，用于检测参数透传
+    std::unordered_map<std::string, ObjectType*> paramTypeMap;
+    for (const auto& param : params) {
+        ObjectType* paramType = nullptr;
+        if (!param.typeName.empty()) {
+            paramType = TypeRegistry::getInstance().getType(param.typeName);
+        }
+        // 尝试从符号表获取类型信息
+        if (!paramType) {
+            paramType = TypeRegistry::getInstance().getSymbolType(param.name);
+        }
+        // 如果还是没有，使用any类型
+        if (!paramType) {
+            paramType = TypeRegistry::getInstance().getType("any");
+        }
+        
+        paramTypeMap[param.name] = paramType;
+    }
+    
+    // 3. 分析所有return语句
+    for (const auto& stmt : body) {
+        if (auto retStmt = dynamic_cast<const ReturnStmtAST*>(stmt.get())) {
+            const ExprAST* retExpr = retStmt->getValue();
+            
+            // 3.1 处理无返回值的情况
+            if (!retExpr) {
+                return std::make_shared<PyType>(TypeRegistry::getInstance().getType("none"));
+            }
+            
+            // 3.2 检查是否是直接返回参数的情况（如 return a）
+            if (auto varExpr = dynamic_cast<const VariableExprAST*>(retExpr)) {
+                const std::string& varName = varExpr->getName();
+                auto paramIt = paramTypeMap.find(varName);
+                
+                if (paramIt != paramTypeMap.end()) {
+                    // 这是直接参数透传的情况，优先保留参数类型
+                    ObjectType* paramType = paramIt->second;
+                    
+                    // 检查参数是否是容器类型
+                    int typeId = paramType->getTypeId();
+                    if (typeId == PY_TYPE_LIST || 
+                        (typeId >= PY_TYPE_LIST_BASE && typeId < PY_TYPE_DICT_BASE) ||
+                        TypeFeatureChecker::hasFeature(paramType, "container") ||
+                        TypeFeatureChecker::hasFeature(paramType, "sequence")) {
+                        // 对于容器类型，保留其完整类型信息
+                        return std::make_shared<PyType>(paramType);
+                    }
+                    
+                    // 对于浮点数等，也保留原始类型
+                    if (typeId == PY_TYPE_DOUBLE || typeId == PY_TYPE_INT) {
+                        return std::make_shared<PyType>(paramType);
+                    }
+                    
+                    // 对于其他参数类型，也直接返回参数类型
+                    return std::make_shared<PyType>(paramType);
                 }
-                else
-                {
-                    inferredType = getCommonType(inferredType, returnType);
+                
+                // 检查是否是局部变量
+                ObjectType* varType = TypeRegistry::getInstance().getSymbolType(varName);
+                if (varType) {
+                    return std::make_shared<PyType>(varType);
                 }
             }
-        }
-        else if (auto ifStmt = dynamic_cast<const IfStmtAST*>(stmt))
-        {
-            // 分析if和else分支
-            for (const auto& thenStmt : ifStmt->getThenBody())
-            {
-                analyzeStmt(thenStmt.get());
+            
+            // 3.3 检查是否是特定类型表达式
+            if (dynamic_cast<const ListExprAST*>(retExpr)) {
+                // 是列表字面量
+                return PyType::getList(PyType::getAny());
             }
-            for (const auto& elseStmt : ifStmt->getElseBody())
-            {
-                analyzeStmt(elseStmt.get());
+            
+            // 3.4 如果是函数调用，尝试获取函数返回类型
+            if (auto callExpr = dynamic_cast<const CallExprAST*>(retExpr)) {
+                FunctionType* funcType = TypeRegistry::getInstance().getFunctionType(callExpr->getCallee());
+                if (funcType) {
+                    ObjectType* returnType = const_cast<ObjectType*>(funcType->getReturnType());
+                    if (returnType) {
+                        return std::make_shared<PyType>(returnType);
+                    }
+                }
+            }
+            
+            // 3.5 使用表达式自身的类型
+            if (retExpr->getType()) {
+                // 优先使用表达式自身类型
+                auto exprType = retExpr->getType();
+                
+                // 特别处理容器类型，确保类型信息完整保留
+                ObjectType* objType = exprType->getObjectType();
+                if (objType) {
+                    int typeId = objType->getTypeId();
+                    if (typeId == PY_TYPE_LIST || 
+                        (typeId >= PY_TYPE_LIST_BASE && typeId < PY_TYPE_DICT_BASE) ||
+                        TypeFeatureChecker::hasFeature(objType, "container")) {
+                        return std::make_shared<PyType>(objType);
+                    }
+                }
+                
+                return exprType;
             }
         }
-        else if (auto whileStmt = dynamic_cast<const WhileStmtAST*>(stmt))
-        {
-            // 分析while循环体
-            for (const auto& bodyStmt : whileStmt->getBody())
-            {
-                analyzeStmt(bodyStmt.get());
-            }
-        }
-    };
-
-    // 分析函数体中的所有语句
-    for (const auto& stmt : body)
-    {
-        analyzeStmt(stmt.get());
     }
-
-    // 如果没有return语句，则返回void
-    if (!hasReturnStmt)
-    {
-        return PyType::getVoid();
+    
+    // 4. 如果无法从return语句推断，尝试通过函数名推断
+    if (name.find("get_") == 0 || name.find("create_") == 0) {
+        std::string typeName = name.substr(name.find("_") + 1);
+        if (typeName == "list" || typeName == "array") {
+            return PyType::getList(PyType::getAny());
+        } else if (typeName == "dict" || typeName == "map") {
+            return PyType::getDict(PyType::getAny(), PyType::getAny());
+        } else if (typeName == "int") {
+            return PyType::getInt();
+        } else if (typeName == "float" || typeName == "double") {
+            return PyType::getDouble();
+        } else if (typeName == "bool") {
+            return PyType::getBool();
+        } else if (typeName == "str" || typeName == "string") {
+            return PyType::getString();
+        }
     }
-
-    return inferredType;
+    
+    // 5. 如果所有推断方法都失败，默认使用Any类型
+    return std::make_shared<PyType>(TypeRegistry::getInstance().getType("any"));
 }
 
 std::shared_ptr<PyType> FunctionAST::getReturnType() const

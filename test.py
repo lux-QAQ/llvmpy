@@ -1,9 +1,15 @@
+def test(a,b):
+    print(a)
+    print(b)
+    return a
+def test2():
+    return [999]
 def main():
-    a=[2,2,1,24,5,3]
+    b=test([1,2],2) # 多传参，函数类型不固定
+    a=test(1.1,[1,2,3])# 多传参，函数类型不固定
+    b2=test2()# 列表返回
+    print(b2)
     print(a)
-    a[1] = 3
-    a[2] = 4
-    a[3] = 5
-    a[0] = 2
-    print(a)
+    print(b)
+    print(b2)
     return 0

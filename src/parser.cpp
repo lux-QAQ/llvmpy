@@ -33,89 +33,158 @@ std::string PyParseError::formatError() const
 void PyParser::initializeRegistries()
 {
     if (isInitialized) return;
-    
+
     // 表达式解析器注册
-    registerExprParser(TOK_INTEGER, [](PyParser& p) { return p.parseNumberExpr(); });
-    registerExprParser(TOK_FLOAT, [](PyParser& p) { return p.parseNumberExpr(); });
-    registerExprParser(TOK_NUMBER, [](PyParser& p) { return p.parseNumberExpr(); });
-    registerExprParser(TOK_IDENTIFIER, [](PyParser& p) { return p.parseIdentifierExpr(); });
-    registerExprParser(TOK_LPAREN, [](PyParser& p) { return p.parseParenExpr(); });
-    registerExprParser(TOK_STRING, [](PyParser& p) { return p.parseStringExpr(); });
-    registerExprParser(TOK_MINUS, [](PyParser& p) { return p.parseUnaryExpr(); });
-    registerExprParser(TOK_BOOL, [](PyParser& p) { return p.parseBoolExpr(); });
-    registerExprParser(TOK_NONE, [](PyParser& p) { return p.parseNoneExpr(); });
-    registerExprParser(TOK_LBRACK, [](PyParser& p) { return p.parseListExpr(); });
-    
+    registerExprParser(TOK_INTEGER, [](PyParser& p)
+                       { return p.parseNumberExpr(); });
+    registerExprParser(TOK_FLOAT, [](PyParser& p)
+                       { return p.parseNumberExpr(); });
+    registerExprParser(TOK_NUMBER, [](PyParser& p)
+                       { return p.parseNumberExpr(); });
+    registerExprParser(TOK_IDENTIFIER, [](PyParser& p)
+                       { return p.parseIdentifierExpr(); });
+    registerExprParser(TOK_LPAREN, [](PyParser& p)
+                       { return p.parseParenExpr(); });
+    registerExprParser(TOK_STRING, [](PyParser& p)
+                       { return p.parseStringExpr(); });
+    registerExprParser(TOK_MINUS, [](PyParser& p)
+                       { return p.parseUnaryExpr(); });
+    registerExprParser(TOK_BOOL, [](PyParser& p)
+                       { return p.parseBoolExpr(); });
+    registerExprParser(TOK_NONE, [](PyParser& p)
+                       { return p.parseNoneExpr(); });
+    registerExprParser(TOK_LBRACK, [](PyParser& p)
+                       { return p.parseListExpr(); });
+
     // 语句解析器注册 - 标识符特殊处理
-    registerStmtParser(TOK_IDENTIFIER, [](PyParser& p) -> std::unique_ptr<StmtAST> {
-        // 保存当前状态用于回溯
-        auto state = p.saveState();
-        std::string idName = p.getCurrentToken().value;
-        int line = p.getCurrentToken().line;
-        int column = p.getCurrentToken().column;
+    // filepath: [parser.cpp](http://_vscodecontentref_/0)
+    registerStmtParser(TOK_IDENTIFIER, [](PyParser& p) -> std::unique_ptr<StmtAST>
+                       {
+    // 保存当前状态用于回溯
+    auto state = p.saveState();
+    std::string idName = p.getCurrentToken().value;
+    int line = p.getCurrentToken().line;
+    int column = p.getCurrentToken().column;
+    
+    // 消费标识符
+    p.nextToken();
+    
+    // 索引赋值: a[index] = value
+    if (p.getCurrentToken().type == TOK_LBRACK) {
+        // 创建变量表达式
+        auto varExpr = std::make_unique<VariableExprAST>(idName);
         
-        // 消费标识符
-        p.nextToken();
-        
-        // 索引赋值: a[index] = value
-        if (p.getCurrentToken().type == TOK_LBRACK) {
-            auto target = p.makeExpr<VariableExprAST>(idName);
+        // 解析索引
+        p.nextToken(); // 消费'['
+        auto index = p.parseExpression();
+        if (!index)
+            return nullptr;
             
-            p.nextToken(); // 消费 '['
-            auto index = p.parseExpression();
-            if (!index) return nullptr;
+        if (!p.expectToken(TOK_RBRACK, "Expected ']' after index"))
+            return nullptr;
             
-            if (!p.expectToken(TOK_RBRACK, "Expected ']' after index")) {
+        // 如果后面是赋值符号，创建索引赋值语句
+        if (p.getCurrentToken().type == TOK_ASSIGN) {
+            p.nextToken(); // 消费'='
+            
+            // 解析右侧值表达式
+            auto value = p.parseExpression();
+            if (!value)
                 return nullptr;
-            }
-            
-            // 赋值
-            if (p.getCurrentToken().type == TOK_ASSIGN) {
-                p.nextToken(); // 消费 '='
-                auto value = p.parseExpression();
-                if (!value) return nullptr;
                 
-                // 处理可能的换行
-                if (p.getCurrentToken().type == TOK_NEWLINE) {
-                    p.nextToken();
-                }
-                
-                return p.makeStmt<IndexAssignStmtAST>(
-                    std::move(target), std::move(index), std::move(value));
-            }
-            
-            // 不是赋值，回溯并当作表达式处理
-            p.restoreState(state);
-            return p.parseExpressionStmt();
+            // 使用第一个构造函数，明确提供target、index和value
+            return std::make_unique<IndexAssignStmtAST>(std::move(varExpr), std::move(index), std::move(value));
         }
-        // 普通赋值: a = value
-        else if (p.getCurrentToken().type == TOK_ASSIGN) {
-            return p.parseAssignStmt(idName);
+    }
+    // 处理复合赋值操作符 (+=, -=, *=, /=)
+    else if (p.getCurrentToken().type == TOK_PLUS_ASSIGN ||
+             p.getCurrentToken().type == TOK_MINUS_ASSIGN ||
+             p.getCurrentToken().type == TOK_MUL_ASSIGN ||
+             p.getCurrentToken().type == TOK_DIV_ASSIGN) {
+        
+        PyTokenType opType = p.getCurrentToken().type;
+        char op = '?';
+        
+        // 根据token类型确定操作符
+        switch (opType) {
+            case TOK_PLUS_ASSIGN: op = '+'; break;
+            case TOK_MINUS_ASSIGN: op = '-'; break;
+            case TOK_MUL_ASSIGN: op = '*'; break;
+            case TOK_DIV_ASSIGN: op = '/'; break;
+            default: break;
         }
-        // 表达式语句
-        else {
-            p.restoreState(state);
-            return p.parseExpressionStmt();
+        
+        p.nextToken(); // 消费操作符
+        
+        // 解析右侧表达式
+        auto rightExpr = p.parseExpression();
+        if (!rightExpr)
+            return nullptr;
+        
+        // 创建变量表达式作为左操作数
+        auto varExpr = std::make_unique<VariableExprAST>(idName);
+        varExpr->setLocation(line, column);
+        
+        // 创建二元表达式: a + 1
+        auto binExpr = std::make_unique<BinaryExprAST>(op, std::move(varExpr), std::move(rightExpr));
+        binExpr->setLocation(line, column);
+        
+        // 创建赋值语句: a = (a + 1)
+        auto stmt = std::make_unique<AssignStmtAST>(idName, std::move(binExpr));
+        stmt->setLocation(line, column);
+        
+        // 确保语句正确结束
+        if (p.getCurrentToken().type == TOK_NEWLINE) {
+            p.nextToken(); // 消费换行符
         }
-    });
-    
+        
+        return stmt;
+    }
+    // 普通赋值: a = value
+    else if (p.getCurrentToken().type == TOK_ASSIGN) {
+        return p.parseAssignStmt(idName);
+    }
+    // 表达式语句
+    else {
+        p.restoreState(state);
+        return p.parseExpressionStmt();
+    }
+
+    // 如果没有匹配的情况，返回null
+    p.restoreState(state);
+    return nullptr; });
+
     // 其他语句解析器注册
-    registerStmtParser(TOK_RETURN, [](PyParser& p) { return p.parseReturnStmt(); });
-    registerStmtParser(TOK_IF, [](PyParser& p) { return p.parseIfStmt(); });
-    registerStmtParser(TOK_WHILE, [](PyParser& p) { return p.parseWhileStmt(); });
-    registerStmtParser(TOK_FOR, [](PyParser& p) { return p.parseForStmt(); });
-    registerStmtParser(TOK_PRINT, [](PyParser& p) { return p.parsePrintStmt(); });
-    registerStmtParser(TOK_IMPORT, [](PyParser& p) { return p.parseImportStmt(); });
-    registerStmtParser(TOK_PASS, [](PyParser& p) { return p.parsePassStmt(); });
-    registerStmtParser(TOK_CLASS, [](PyParser& p) { return p.parseClassDefinition(); });
-    
+    registerStmtParser(TOK_RETURN, [](PyParser& p)
+                       { return p.parseReturnStmt(); });
+    registerStmtParser(TOK_IF, [](PyParser& p)
+                       { return p.parseIfStmt(); });
+    registerStmtParser(TOK_WHILE, [](PyParser& p)
+                       { return p.parseWhileStmt(); });
+    registerStmtParser(TOK_FOR, [](PyParser& p)
+                       { return p.parseForStmt(); });
+    registerStmtParser(TOK_PRINT, [](PyParser& p)
+                       { return p.parsePrintStmt(); });
+    registerStmtParser(TOK_IMPORT, [](PyParser& p)
+                       { return p.parseImportStmt(); });
+    registerStmtParser(TOK_PASS, [](PyParser& p)
+                       { return p.parsePassStmt(); });
+    registerStmtParser(TOK_CLASS, [](PyParser& p)
+                       { return p.parseClassDefinition(); });
+
     // 可能作为表达式语句开头的其他token类型
-    registerStmtParser(TOK_INTEGER, [](PyParser& p) { return p.parseExpressionStmt(); });
-    registerStmtParser(TOK_FLOAT, [](PyParser& p) { return p.parseExpressionStmt(); });
-    registerStmtParser(TOK_STRING, [](PyParser& p) { return p.parseExpressionStmt(); });
-    registerStmtParser(TOK_LPAREN, [](PyParser& p) { return p.parseExpressionStmt(); });
-    registerStmtParser(TOK_MINUS, [](PyParser& p) { return p.parseExpressionStmt(); });
-    registerStmtParser(TOK_LBRACK, [](PyParser& p) { return p.parseExpressionStmt(); });
+    registerStmtParser(TOK_INTEGER, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });
+    registerStmtParser(TOK_FLOAT, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });
+    registerStmtParser(TOK_STRING, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });
+    registerStmtParser(TOK_LPAREN, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });
+    registerStmtParser(TOK_MINUS, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });
+    registerStmtParser(TOK_LBRACK, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });
 
     // 操作符信息注册
     registerOperator(TOK_PLUS, '+', 20);
@@ -130,7 +199,7 @@ void PyParser::initializeRegistries()
     registerOperator(TOK_EQ, 'e', 10);           // 用'e'表示==
     registerOperator(TOK_NEQ, 'n', 10);          // 用'n'表示!=
     registerOperator(TOK_POWER, '^', 60, true);  // 幂运算符是右结合的
-    
+
     isInitialized = true;
 }
 
@@ -266,26 +335,28 @@ std::unique_ptr<ExprAST> PyParser::parseIdentifierExpr()
     {
         nextToken();  // 消费'('
         std::vector<std::unique_ptr<ExprAST>> args;
-        
+
         // 处理空参数列表
-        if (currentToken.type != TOK_RPAREN) {
-            while (true) {
+        if (currentToken.type != TOK_RPAREN)
+        {
+            while (true)
+            {
                 auto arg = parseExpression();
                 if (!arg) return nullptr;
                 args.push_back(std::move(arg));
-                
+
                 if (currentToken.type == TOK_RPAREN)
                     break;
-                
+
                 if (!expectToken(TOK_COMMA, "Expected ',' or ')' in argument list"))
                     return nullptr;
             }
         }
-        
+
         // 消费右括号
         if (!expectToken(TOK_RPAREN, "Expected ')' after arguments"))
             return nullptr;
-        
+
         auto callExpr = makeExpr<CallExprAST>(idName, std::move(args));
         return callExpr;
     }
@@ -330,8 +401,8 @@ std::unique_ptr<ExprAST> PyParser::parseNoneExpr()
 std::unique_ptr<ExprAST> PyParser::parseUnaryExpr()
 {
     // 记录操作符位置
-    char opCode = '-'; // 默认为负号
-    
+    char opCode = '-';  // 默认为负号
+
     nextToken();  // 消费操作符
 
     // 解析操作数
@@ -347,13 +418,13 @@ std::unique_ptr<ExprAST> PyParser::parsePrimary()
 {
     // 通过查找注册表获取并调用适当的解析函数
     auto parser = exprRegistry.getParser(currentToken.type);
-    if (parser) {
+    if (parser)
+    {
         return parser(*this);
     }
 
     // 没有匹配的解析器，报告错误
-    return logParseError<ExprAST>("Unexpected token when expecting an expression: " + 
-                                lexer.getTokenName(currentToken.type));
+    return logParseError<ExprAST>("Unexpected token when expecting an expression: " + lexer.getTokenName(currentToken.type));
 }
 
 std::unique_ptr<ExprAST> PyParser::parseBinOpRHS(int exprPrec, std::unique_ptr<ExprAST> LHS)
@@ -364,9 +435,9 @@ std::unique_ptr<ExprAST> PyParser::parseBinOpRHS(int exprPrec, std::unique_ptr<E
         auto it = operatorRegistry.find(currentToken.type);
         if (it == operatorRegistry.end())
             return LHS;
-            
+
         const PyOperatorInfo& opInfo = it->second;
-        
+
         // 获取当前token的操作符优先级
         int tokPrec = opInfo.precedence;
 
@@ -378,7 +449,7 @@ std::unique_ptr<ExprAST> PyParser::parseBinOpRHS(int exprPrec, std::unique_ptr<E
         PyTokenType opToken = currentToken.type;
         char binOp = opInfo.symbol;
         bool isRightAssoc = opInfo.rightAssoc;
-        
+
         int line = currentToken.line;
         int column = currentToken.column;
 
@@ -394,8 +465,7 @@ std::unique_ptr<ExprAST> PyParser::parseBinOpRHS(int exprPrec, std::unique_ptr<E
         int nextPrec = (it != operatorRegistry.end()) ? it->second.precedence : -1;
 
         // 处理右结合性和优先级
-        if ((!isRightAssoc && tokPrec < nextPrec) || 
-            (isRightAssoc && tokPrec <= nextPrec))
+        if ((!isRightAssoc && tokPrec < nextPrec) || (isRightAssoc && tokPrec <= nextPrec))
         {
             int newPrec = tokPrec + (!isRightAssoc ? 1 : 0);
             RHS = parseBinOpRHS(newPrec, std::move(RHS));
@@ -410,13 +480,27 @@ std::unique_ptr<ExprAST> PyParser::parseBinOpRHS(int exprPrec, std::unique_ptr<E
     }
 }
 
+// 在parseExpression函数中添加
 std::unique_ptr<ExprAST> PyParser::parseExpression()
 {
     auto LHS = parsePrimary();
     if (!LHS)
         return nullptr;
 
-    return parseBinOpRHS(0, std::move(LHS));
+    auto result = parseBinOpRHS(0, std::move(LHS));
+
+    // 添加类型检查，确保表达式类型与代码生成器期望一致
+    if (result)
+    {
+        auto type = result->getType();
+        if (!type)
+        {
+            std::cerr << "Warning: Expression at line " << currentToken.line
+                      << " has no type information" << std::endl;
+        }
+    }
+
+    return result;
 }
 
 // 解析列表字面量
@@ -424,56 +508,64 @@ std::unique_ptr<ExprAST> PyParser::parseListExpr()
 {
     int line = currentToken.line;
     int column = currentToken.column;
-    
+
     nextToken();  // 消费'['
-    
+
     std::vector<std::unique_ptr<ExprAST>> elements;
-    
+
     // 处理空列表
-    if (currentToken.type == TOK_RBRACK) {
+    if (currentToken.type == TOK_RBRACK)
+    {
         nextToken();  // 消费']'
         auto listExpr = makeExpr<ListExprAST>(std::move(elements));
-        listExpr->setHeapAllocation(true);  // 列表总是要堆分配
+        listExpr->setLocation(line, column);
         return listExpr;
     }
-    
-    // 解析列表元素
-    while (true) {
+
+    while (true)
+    {
         auto element = parseExpression();
-        if (!element) return nullptr;
+        if (!element)
+            return nullptr;
+
         elements.push_back(std::move(element));
-        
+
         if (currentToken.type == TOK_RBRACK)
             break;
-            
+
         if (!expectToken(TOK_COMMA, "Expected ',' or ']' in list literal"))
             return nullptr;
-            
-        // 处理可能的尾随逗号
+
         if (currentToken.type == TOK_RBRACK)
             break;
     }
-    
+
     if (!expectToken(TOK_RBRACK, "Expected ']' at end of list literal"))
         return nullptr;
-        
+
     auto listExpr = makeExpr<ListExprAST>(std::move(elements));
-    listExpr->setHeapAllocation(true);  // 列表总是要堆分配
+    listExpr->setLocation(line, column);
     return listExpr;
 }
 
 // 解析索引表达式
 std::unique_ptr<ExprAST> PyParser::parseIndexExpr(std::unique_ptr<ExprAST> target)
 {
+    int line = currentToken.line;
+    int column = currentToken.column;
+
     nextToken();  // 消费'['
-    
+
     auto index = parseExpression();
-    if (!index) return nullptr;
-    
+    if (!index)
+        return nullptr;
+
     if (!expectToken(TOK_RBRACK, "Expected ']' after index expression"))
         return nullptr;
-        
-    return makeExpr<IndexExprAST>(std::move(target), std::move(index));
+
+    auto indexExpr = makeExpr<IndexExprAST>(std::move(target), std::move(index));
+    indexExpr->setLocation(line, column);
+    return indexExpr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -484,13 +576,13 @@ std::unique_ptr<StmtAST> PyParser::parseStatement()
 {
     // 使用注册表查找解析器
     auto parser = stmtRegistry.getParser(currentToken.type);
-    if (parser) {
+    if (parser)
+    {
         return parser(*this);
     }
 
     // 没有匹配的解析器，报告错误
-    return logParseError<StmtAST>("Unknown statement type: " + 
-                                lexer.getTokenName(currentToken.type));
+    return logParseError<StmtAST>("Unknown statement type: " + lexer.getTokenName(currentToken.type));
 }
 
 std::unique_ptr<StmtAST> PyParser::parseExpressionStmt()
@@ -514,7 +606,8 @@ std::unique_ptr<StmtAST> PyParser::parseReturnStmt()
     nextToken();  // 消费'return'
 
     // 处理空return语句
-    if (currentToken.type == TOK_NEWLINE) {
+    if (currentToken.type == TOK_NEWLINE)
+    {
         nextToken();  // 消费换行
         auto noneExpr = makeExpr<NoneExprAST>();
         auto stmt = makeStmt<ReturnStmtAST>(std::move(noneExpr));
@@ -556,10 +649,11 @@ std::unique_ptr<StmtAST> PyParser::parseIfStmt()
 
     // 解析if语句体
     auto thenBody = parseBlock();
-    
+
     // 处理elif部分
     std::vector<std::unique_ptr<StmtAST>> elseBody;
-    while (currentToken.type == TOK_ELIF) {
+    while (currentToken.type == TOK_ELIF)
+    {
         auto elifStmt = parseElifPart();
         if (!elifStmt)
             return nullptr;
@@ -567,14 +661,15 @@ std::unique_ptr<StmtAST> PyParser::parseIfStmt()
     }
 
     // 处理else部分
-    if (currentToken.type == TOK_ELSE) {
+    if (currentToken.type == TOK_ELSE)
+    {
         if (parseElsePart(elseBody) == nullptr)
             return nullptr;
     }
 
-    return makeStmt<IfStmtAST>(std::move(condition), 
-                             std::move(thenBody), 
-                             std::move(elseBody));
+    return makeStmt<IfStmtAST>(std::move(condition),
+                               std::move(thenBody),
+                               std::move(elseBody));
 }
 
 std::unique_ptr<StmtAST> PyParser::parseElifPart()
@@ -600,11 +695,11 @@ std::unique_ptr<StmtAST> PyParser::parseElifPart()
 
     // 解析elif语句体
     auto thenBody = parseBlock();
-    
+
     // elif语句本质上是一个没有else的if语句
-    return makeStmt<IfStmtAST>(std::move(condition), 
-                             std::move(thenBody), 
-                             std::vector<std::unique_ptr<StmtAST>>());
+    return makeStmt<IfStmtAST>(std::move(condition),
+                               std::move(thenBody),
+                               std::vector<std::unique_ptr<StmtAST>>());
 }
 
 std::unique_ptr<StmtAST> PyParser::parseElsePart(std::vector<std::unique_ptr<StmtAST>>& elseBody)
@@ -625,9 +720,10 @@ std::unique_ptr<StmtAST> PyParser::parseElsePart(std::vector<std::unique_ptr<Stm
 
     // 解析else语句体
     auto elseStmts = parseBlock();
-    
+
     // 将解析到的else语句添加到传入的elseBody中
-    for (auto& stmt : elseStmts) {
+    for (auto& stmt : elseStmts)
+    {
         elseBody.push_back(std::move(stmt));
     }
 
@@ -658,7 +754,7 @@ std::unique_ptr<StmtAST> PyParser::parseWhileStmt()
 
     // 解析while语句体
     auto body = parseBlock();
-    
+
     return makeStmt<WhileStmtAST>(std::move(condition), std::move(body));
 }
 
@@ -688,32 +784,36 @@ std::unique_ptr<StmtAST> PyParser::parsePrintStmt()
 
 std::unique_ptr<StmtAST> PyParser::parseAssignStmt(const std::string& varName)
 {
-    // 当前token应该是ASSIGN (=)
-    if (currentToken.type != TOK_ASSIGN) {
+    if (currentToken.type != TOK_ASSIGN)
+    {
         return logParseError<StmtAST>("Expected '=' in assignment");
     }
-    
+
     nextToken();  // 消费'='
-    
+
     auto value = parseExpression();
     if (!value)
         return nullptr;
-    
-    // 检查可能的类型注解
+
+    // 可选的类型注解处理
     std::shared_ptr<PyType> typeAnnotation = tryParseTypeAnnotation();
-    
-    // 可选的换行
+
+    // 创建赋值语句
+    auto stmt = std::make_unique<AssignStmtAST>(varName, std::move(value));
+
+    // 设置位置信息
+    stmt->setLocation(currentToken.line, currentToken.column);
+
+    // 确保语句正确结束
     if (currentToken.type == TOK_NEWLINE)
-        nextToken();  // 消费换行
-    
-    // 创建带类型注解的赋值语句
-    auto stmt = makeStmt<AssignStmtAST>(varName, std::move(value));
-    
-    // 如果有类型注解，存储起来
-    if (typeAnnotation) {
-        // 使用typeAnnotation (需要扩展AssignStmtAST以支持类型注解)
+    {
+        nextToken();  // 消费换行符
     }
-    
+    else if (currentToken.type != TOK_EOF)
+    {
+        return logParseError<StmtAST>("Expected newline after assignment");
+    }
+
     return stmt;
 }
 
@@ -728,186 +828,203 @@ std::unique_ptr<StmtAST> PyParser::parseImportStmt()
     nextToken();  // 消费'import'
 
     // 导入的模块名必须是标识符
-    if (currentToken.type != TOK_IDENTIFIER) {
+    if (currentToken.type != TOK_IDENTIFIER)
+    {
         return logParseError<StmtAST>("Expected module name after 'import'");
     }
-    
+
     std::string moduleName = currentToken.value;
     nextToken();  // 消费模块名
-    
+
     // 检查是否有别名
     std::string alias = "";
-    if (currentToken.type == TOK_AS) {
+    if (currentToken.type == TOK_AS)
+    {
         nextToken();  // 消费'as'
-        
-        if (currentToken.type != TOK_IDENTIFIER) {
+
+        if (currentToken.type != TOK_IDENTIFIER)
+        {
             return logParseError<StmtAST>("Expected identifier after 'as'");
         }
-        
+
         alias = currentToken.value;
         nextToken();  // 消费别名
     }
-    
+
     // 可选的换行
     if (currentToken.type == TOK_NEWLINE)
         nextToken();  // 消费换行
-    
+
     return makeStmt<ImportStmtAST>(moduleName, alias);
 }
 
 std::unique_ptr<StmtAST> PyParser::parsePassStmt()
 {
     nextToken();  // 消费'pass'
-    
+
     // 可选的换行
     if (currentToken.type == TOK_NEWLINE)
         nextToken();  // 消费换行
-    
+
     return makeStmt<PassStmtAST>();
 }
 
 std::unique_ptr<StmtAST> PyParser::parseClassDefinition()
 {
     nextToken();  // 消费'class'
-    
+
     // 类名必须是标识符
-    if (currentToken.type != TOK_IDENTIFIER) {
+    if (currentToken.type != TOK_IDENTIFIER)
+    {
         return logParseError<StmtAST>("Expected class name after 'class'");
     }
-    
+
     std::string className = currentToken.value;
     nextToken();  // 消费类名
-    
+
     // 解析可能的基类列表
     std::vector<std::string> baseClasses;
-    if (currentToken.type == TOK_LPAREN) {
+    if (currentToken.type == TOK_LPAREN)
+    {
         nextToken();  // 消费'('
-        
+
         // 空的基类列表
-        if (currentToken.type != TOK_RPAREN) {
-            while (true) {
-                if (currentToken.type != TOK_IDENTIFIER) {
+        if (currentToken.type != TOK_RPAREN)
+        {
+            while (true)
+            {
+                if (currentToken.type != TOK_IDENTIFIER)
+                {
                     return logParseError<StmtAST>("Expected base class name in inheritance list");
                 }
-                
+
                 baseClasses.push_back(currentToken.value);
                 nextToken();  // 消费基类名
-                
+
                 if (currentToken.type == TOK_RPAREN)
                     break;
-                    
+
                 if (!expectToken(TOK_COMMA, "Expected ')' or ',' in base class list"))
                     return nullptr;
             }
         }
-        
+
         nextToken();  // 消费')'
     }
-    
+
     // 检查冒号
     if (!expectToken(TOK_COLON, "Expected ':' after class definition"))
         return nullptr;
-        
+
     // 跳过到行尾的所有token
     while (currentToken.type != TOK_NEWLINE && currentToken.type != TOK_EOF)
         nextToken();
-        
+
     // 检查换行
     if (!expectToken(TOK_NEWLINE, "Expected newline after ':'"))
         return nullptr;
-        
+
     // 检查缩进
     if (!expectToken(TOK_INDENT, "Expected indented block after class definition"))
         return nullptr;
-        
+
     // 解析类体
     std::vector<std::unique_ptr<StmtAST>> classBody;
     std::vector<std::unique_ptr<FunctionAST>> methods;
-    
-    while (currentToken.type != TOK_DEDENT && currentToken.type != TOK_EOF) {
+
+    while (currentToken.type != TOK_DEDENT && currentToken.type != TOK_EOF)
+    {
         // 跳过空行
-        if (currentToken.type == TOK_NEWLINE) {
+        if (currentToken.type == TOK_NEWLINE)
+        {
             nextToken();
             continue;
         }
-        
+
         // 如果遇到dedent，说明块结束了
         if (currentToken.type == TOK_DEDENT || currentToken.type == TOK_EOF)
             break;
-            
+
         // 解析方法定义 (以def开头)
-        if (currentToken.type == TOK_DEF) {
+        if (currentToken.type == TOK_DEF)
+        {
             auto method = parseFunction();
             if (!method)
                 return nullptr;
-                
+
             methods.push_back(std::move(method));
         }
         // 解析其他类体语句
-        else {
+        else
+        {
             auto stmt = parseStatement();
             if (!stmt)
                 return nullptr;
-                
+
             classBody.push_back(std::move(stmt));
         }
     }
-    
+
     // 检查dedent
     if (!expectToken(TOK_DEDENT, "Expected dedent after class body"))
         return nullptr;
-        
-    return makeStmt<ClassStmtAST>(className, baseClasses, 
-                                std::move(classBody), 
-                                std::move(methods));
+
+    return makeStmt<ClassStmtAST>(className, baseClasses,
+                                  std::move(classBody),
+                                  std::move(methods));
 }
 
 std::vector<ParamAST> PyParser::parseParameters()
 {
     std::vector<ParamAST> params;
-    
+
     if (!expectToken(TOK_LPAREN, "Expected '(' in parameter list"))
         return params;
-        
+
     // 空参数列表
-    if (currentToken.type == TOK_RPAREN) {
+    if (currentToken.type == TOK_RPAREN)
+    {
         nextToken();  // 消费')'
         return params;
     }
-    
+
     // 解析参数列表
-    while (true) {
-        if (currentToken.type != TOK_IDENTIFIER) {
+    while (true)
+    {
+        if (currentToken.type != TOK_IDENTIFIER)
+        {
             logParseError<ParamAST>("Expected parameter name");
             return params;
         }
-        
+
         std::string paramName = currentToken.value;
         nextToken();  // 消费参数名
-        
+
         // 检查是否有类型注解
         std::string typeName = "";
-        if (currentToken.type == TOK_COLON) {
+        if (currentToken.type == TOK_COLON)
+        {
             nextToken();  // 消费':'
-            
-            if (currentToken.type != TOK_IDENTIFIER) {
+
+            if (currentToken.type != TOK_IDENTIFIER)
+            {
                 logParseError<ParamAST>("Expected type name after ':'");
                 return params;
             }
-            
+
             typeName = currentToken.value;
             nextToken();  // 消费类型名
         }
-        
+
         params.emplace_back(paramName, typeName);
-        
+
         if (currentToken.type == TOK_RPAREN)
             break;
-            
+
         if (!expectToken(TOK_COMMA, "Expected ')' or ',' in parameter list"))
             return params;
     }
-    
+
     nextToken();  // 消费')'
     return params;
 }
@@ -915,154 +1032,178 @@ std::vector<ParamAST> PyParser::parseParameters()
 std::string PyParser::parseReturnTypeAnnotation()
 {
     std::string returnType = "";
-    
-    if (currentToken.type == TOK_ARROW) {
+
+    if (currentToken.type == TOK_ARROW)
+    {
         nextToken();  // 消费'->'
-        
-        if (currentToken.type != TOK_IDENTIFIER) {
+
+        if (currentToken.type != TOK_IDENTIFIER)
+        {
             logParseError<std::string>("Expected return type after '->'");
             return returnType;
         }
-        
+
         returnType = currentToken.value;
         nextToken();  // 消费返回类型
     }
-    
+
     return returnType;
 }
 
 std::unique_ptr<FunctionAST> PyParser::parseFunction()
 {
     nextToken();  // 消费'def'
-    
+
     // 函数名必须是标识符
-    if (currentToken.type != TOK_IDENTIFIER) {
+    if (currentToken.type != TOK_IDENTIFIER)
+    {
         return logParseError<FunctionAST>("Expected function name after 'def'");
     }
-    
+
     std::string funcName = currentToken.value;
     nextToken();  // 消费函数名
-    
+
     // 解析参数列表
     auto params = parseParameters();
-    
+
     // 解析可能的返回类型注解
     std::string returnType = parseReturnTypeAnnotation();
-    
+
     // 检查冒号
     if (!expectToken(TOK_COLON, "Expected ':' after function signature"))
         return nullptr;
-        
+
     // 跳过到行尾的所有token
     while (currentToken.type != TOK_NEWLINE && currentToken.type != TOK_EOF)
         nextToken();
-        
+
     // 检查换行
     if (!expectToken(TOK_NEWLINE, "Expected newline after ':'"))
         return nullptr;
-        
+
     // 解析函数体
     auto body = parseBlock();
-    
+
     // 创建函数AST
-    auto result = std::make_unique<FunctionAST>(funcName, std::move(params), 
-                                              returnType, std::move(body));
+    auto result = std::make_unique<FunctionAST>(funcName, std::move(params),
+                                                returnType, std::move(body));
     result->setLocation(currentToken.line, currentToken.column);
-    
-        // 设置返回类型自动推断标志
-        if (returnType == "auto" || returnType.empty()) {
-            result->resolveParamTypes();
-        }
-    
+
+    // 设置返回类型自动推断标志
+    if (returnType == "auto" || returnType.empty())
+    {
+        result->resolveParamTypes();
+    }
+
     return result;
 }
 
+// 在parseBlock函数中添加作用域管理
 std::vector<std::unique_ptr<StmtAST>> PyParser::parseBlock()
 {
-    std::vector<std::unique_ptr<StmtAST>> statements;
-    
-    // 块必须以缩进开始
     if (!expectToken(TOK_INDENT, "Expected indented block"))
-        return statements;
-    
-    // 解析块中的所有语句，直到遇到dedent
-    while (currentToken.type != TOK_DEDENT && currentToken.type != TOK_EOF) {
-        // 跳过空行
-        if (currentToken.type == TOK_NEWLINE) {
+        return {};
+
+    std::vector<std::unique_ptr<StmtAST>> statements;
+
+    // 创建一个局部变量表，记录在此块中声明的变量
+    std::unordered_map<std::string, std::shared_ptr<PyType>> localVars;
+
+    while (currentToken.type != TOK_DEDENT && currentToken.type != TOK_EOF)
+    {
+        if (currentToken.type == TOK_NEWLINE)
+        {
             nextToken();
             continue;
         }
-        
-        // 解析语句
+
         auto stmt = parseStatement();
         if (!stmt)
-            continue; // 错误恢复 - 继续解析其余语句
-        
+            continue;
+
+        // 如果是赋值语句，记录变量类型信息
+        if (auto assignStmt = dynamic_cast<AssignStmtAST*>(stmt.get()))
+        {
+            std::string varName = assignStmt->getName();
+            const ExprAST* valueExpr = assignStmt->getValue();
+
+            if (valueExpr)
+            {
+                localVars[varName] = valueExpr->getType();
+            }
+        }
+
         statements.push_back(std::move(stmt));
     }
-    
-    // 消费dedent
+
     if (currentToken.type == TOK_DEDENT)
-        nextToken();
-    
+        nextToken();  // 消费DEDENT
+
     return statements;
 }
 
 std::unique_ptr<ModuleAST> PyParser::parseModule()
 {
-    std::string moduleName = "main"; // 默认模块名
+    std::string moduleName = "main";  // 默认模块名
     std::vector<std::unique_ptr<StmtAST>> topLevelStmts;
     std::vector<std::unique_ptr<FunctionAST>> functions;
-    
+
     // 解析文件中的所有语句
-    while (currentToken.type != TOK_EOF) {
+    while (currentToken.type != TOK_EOF)
+    {
         // 跳过多余的空行
-        if (currentToken.type == TOK_NEWLINE) {
+        if (currentToken.type == TOK_NEWLINE)
+        {
             nextToken();
             continue;
         }
-        
+
         // 解析函数定义
-        if (currentToken.type == TOK_DEF) {
+        if (currentToken.type == TOK_DEF)
+        {
             auto func = parseFunction();
             if (func)
                 functions.push_back(std::move(func));
         }
         // 解析类定义（类也是顶级语句）
-        else if (currentToken.type == TOK_CLASS) {
+        else if (currentToken.type == TOK_CLASS)
+        {
             auto classStmt = parseClassDefinition();
             if (classStmt)
                 topLevelStmts.push_back(std::move(classStmt));
         }
         // 解析其他顶级语句
-        else {
+        else
+        {
             auto stmt = parseStatement();
             if (stmt)
                 topLevelStmts.push_back(std::move(stmt));
         }
     }
-    
+
     // 创建模块AST
-    auto module = std::make_unique<ModuleAST>(moduleName, 
-                                             std::move(topLevelStmts), 
-                                             std::move(functions));
+    auto module = std::make_unique<ModuleAST>(moduleName,
+                                              std::move(topLevelStmts),
+                                              std::move(functions));
     return module;
 }
 std::shared_ptr<PyType> PyParser::tryParseTypeAnnotation()
 {
     // 保存当前解析状态以便回溯
     auto state = saveState();
-    
+
     // 尝试解析类型注解
-    if (currentToken.type == TOK_COLON) {
-        nextToken(); // 消费冒号
-        
+    if (currentToken.type == TOK_COLON)
+    {
+        nextToken();  // 消费冒号
+
         auto typeAnnotation = parseTypeAnnotation();
-        if (typeAnnotation) {
+        if (typeAnnotation)
+        {
             return typeAnnotation;
         }
     }
-    
+
     // 没有解析到类型注解，恢复状态
     restoreState(state);
     return nullptr;
@@ -1071,55 +1212,63 @@ std::shared_ptr<PyType> PyParser::tryParseTypeAnnotation()
 std::shared_ptr<PyType> PyParser::parseTypeAnnotation()
 {
     // 基本类型直接对应标识符
-    if (currentToken.type == TOK_IDENTIFIER) {
+    if (currentToken.type == TOK_IDENTIFIER)
+    {
         std::string typeName = currentToken.value;
-        nextToken(); // 消费类型名
-        
+        nextToken();  // 消费类型名
+
         // 检查是否有泛型参数，如list[int]
-        if (currentToken.type == TOK_LBRACK) {
-            nextToken(); // 消费'['
-            
+        if (currentToken.type == TOK_LBRACK)
+        {
+            nextToken();  // 消费'['
+
             // 解析列表元素类型
-            if (typeName == "list") {
+            if (typeName == "list")
+            {
                 auto elemType = parseTypeAnnotation();
-                if (!elemType) {
+                if (!elemType)
+                {
                     return logParseError<PyType>("Expected type in list[]");
                 }
-                
+
                 if (!expectToken(TOK_RBRACK, "Expected ']' after list element type"))
                     return nullptr;
-                
+
                 return PyType::getList(elemType);
             }
             // 解析字典类型：dict[KeyType, ValueType]
-            else if (typeName == "dict") {
+            else if (typeName == "dict")
+            {
                 auto keyType = parseTypeAnnotation();
-                if (!keyType) {
+                if (!keyType)
+                {
                     return logParseError<PyType>("Expected key type in dict[]");
                 }
-                
+
                 if (!expectToken(TOK_COMMA, "Expected ',' after dict key type"))
                     return nullptr;
-                
+
                 auto valueType = parseTypeAnnotation();
-                if (!valueType) {
+                if (!valueType)
+                {
                     return logParseError<PyType>("Expected value type in dict[]");
                 }
-                
+
                 if (!expectToken(TOK_RBRACK, "Expected ']' after dict value type"))
                     return nullptr;
-                
+
                 return PyType::getDict(keyType, valueType);
             }
-            else {
+            else
+            {
                 return logParseError<PyType>("Unsupported generic type: " + typeName);
             }
         }
-        
+
         // 处理基本类型
         return PyType::fromString(typeName);
     }
-    
+
     return logParseError<PyType>("Expected type name");
 }
 
@@ -1130,22 +1279,25 @@ std::shared_ptr<PyType> PyParser::parseTypeAnnotation()
 std::shared_ptr<PyType> PyTypeParser::parseType(const std::string& typeStr)
 {
     // 如果类型字符串为空，返回Any类型
-    if (typeStr.empty()) {
+    if (typeStr.empty())
+    {
         return PyType::getAny();
     }
-    
+
     // 检查是否是列表类型
     size_t listPos = typeStr.find("list[");
-    if (listPos == 0 && typeStr.back() == ']') {
+    if (listPos == 0 && typeStr.back() == ']')
+    {
         return parseListType(typeStr);
     }
-    
+
     // 检查是否是字典类型
     size_t dictPos = typeStr.find("dict[");
-    if (dictPos == 0 && typeStr.back() == ']') {
+    if (dictPos == 0 && typeStr.back() == ']')
+    {
         return parseDictType(typeStr);
     }
-    
+
     // 处理基本类型
     return parsePrimitiveType(typeStr);
 }
@@ -1158,7 +1310,7 @@ std::shared_ptr<PyType> PyTypeParser::parsePrimitiveType(const std::string& name
     if (name == "str" || name == "string") return PyType::getString();
     if (name == "None" || name == "void") return PyType::getVoid();
     if (name == "any" || name == "Any") return PyType::getAny();
-    
+
     // 未知类型当作动态类型处理
     return PyType::getAny();
 }
@@ -1168,15 +1320,16 @@ std::shared_ptr<PyType> PyTypeParser::parseListType(const std::string& typeStr)
     // 从list[ElementType]中提取ElementType
     size_t start = typeStr.find('[') + 1;
     size_t end = typeStr.rfind(']');
-    
-    if (start >= end || start == std::string::npos || end == std::string::npos) {
+
+    if (start >= end || start == std::string::npos || end == std::string::npos)
+    {
         // 解析错误，返回列表<any>类型
         return PyType::getList(PyType::getAny());
     }
-    
+
     std::string elementTypeStr = typeStr.substr(start, end - start);
     auto elementType = parseType(elementTypeStr);
-    
+
     return PyType::getList(elementType);
 }
 
@@ -1185,74 +1338,78 @@ std::shared_ptr<PyType> PyTypeParser::parseDictType(const std::string& typeStr)
     // 从dict[KeyType, ValueType]中提取KeyType和ValueType
     size_t start = typeStr.find('[') + 1;
     size_t end = typeStr.rfind(']');
-    
-    if (start >= end || start == std::string::npos || end == std::string::npos) {
+
+    if (start >= end || start == std::string::npos || end == std::string::npos)
+    {
         // 解析错误，返回dict<any, any>类型
         return PyType::getDict(PyType::getAny(), PyType::getAny());
     }
-    
+
     std::string innerTypes = typeStr.substr(start, end - start);
-    
+
     // 查找逗号分隔的两个类型
     size_t commaPos = innerTypes.find(',');
-    if (commaPos == std::string::npos) {
+    if (commaPos == std::string::npos)
+    {
         // 解析错误，返回dict<any, any>类型
         return PyType::getDict(PyType::getAny(), PyType::getAny());
     }
-    
+
     std::string keyTypeStr = innerTypes.substr(0, commaPos);
     std::string valueTypeStr = innerTypes.substr(commaPos + 1);
-    
+
     // 去除可能的空格
     keyTypeStr.erase(remove_if(keyTypeStr.begin(), keyTypeStr.end(), isspace), keyTypeStr.end());
     valueTypeStr.erase(remove_if(valueTypeStr.begin(), valueTypeStr.end(), isspace), valueTypeStr.end());
-    
+
     auto keyType = parseType(keyTypeStr);
     auto valueType = parseType(valueTypeStr);
-    
+
     return PyType::getDict(keyType, valueType);
 }
 
-template<typename T>
+template <typename T>
 std::vector<T> PyParser::parseDelimitedList(PyTokenType start, PyTokenType end, PyTokenType separator,
-                                          std::function<T()> parseElement)
+                                            std::function<T()> parseElement)
 {
     std::vector<T> elements;
-    
+
     // 消费开始标记
     if (!expectToken(start, "Expected delimiter"))
         return elements;
-    
+
     // 处理空列表
-    if (currentToken.type == end) {
-        nextToken(); // 消费结束标记
+    if (currentToken.type == end)
+    {
+        nextToken();  // 消费结束标记
         return elements;
     }
-    
+
     // 解析元素列表
-    while (true) {
+    while (true)
+    {
         // 解析一个元素
         auto element = parseElement();
         elements.push_back(std::move(element));
-        
+
         // 如果遇到结束标记，退出循环
         if (currentToken.type == end)
             break;
-        
+
         // 否则应该遇到分隔符
         if (!expectToken(separator, "Expected separator or end delimiter"))
             break;
-        
+
         // 处理可能的尾随分隔符
         if (currentToken.type == end)
             break;
     }
-    
+
     // 消费结束标记
     if (!expectToken(end, "Expected end delimiter"))
         return elements;
-    
+
     return elements;
 }
 
-}
+}  // namespace llvmpy
