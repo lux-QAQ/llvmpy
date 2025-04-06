@@ -6,7 +6,7 @@
 #include <cstdbool>
 #include <cmath>
 #include <climits>
-
+#include <cctype> // 添加这一行，提供isspace函数
 #include "TypeIDs.h"
 
 // 添加extern "C"声明，防止C++名称修饰
@@ -34,6 +34,7 @@ extern "C"
     PyObject* py_object_copy(PyObject* obj, int typeId);
     void py_incref(PyObject* obj);
     void py_decref(PyObject* obj);
+    int py_object_len(PyObject* obj);
 
     // 列表操作函数
     PyObject* py_list_copy(PyObject* obj);
@@ -42,7 +43,11 @@ extern "C"
     PyObject* py_list_append(PyObject* obj, PyObject* item);
     int py_list_len(PyObject* obj);
     int py_get_object_type_id(PyObject* obj);
+    int py_extract_int_from_any(PyObject* obj);
     void py_list_decref_items(PyListObject* list);
+    // 函数前向声明部分...
+PyObject* py_list_get_item_with_type(PyObject* list, int index, int* out_type_id);
+PyObject* py_dict_get_item_with_type(PyObject* dict, PyObject* key, int* out_type_id);
 
     // 字典操作函数
     void py_dict_set_item(PyObject* obj, PyObject* key, PyObject* value);
@@ -62,6 +67,17 @@ extern "C"
     bool py_are_types_compatible(int typeIdA, int typeIdB);
     bool py_ensure_type_compatibility(PyObject* obj, int expectedTypeId);
     bool py_check_list_element_type(PyListObject* list, PyObject* item);
+    int py_get_container_type_info(PyObject* container);
+PyObject* py_object_index_with_type(PyObject* obj, PyObject* index, int* out_type_id);
+int py_get_list_element_type_id(PyObject* list);
+PyObject* py_object_index(PyObject* obj, PyObject* index);
+bool py_is_container(PyObject* obj);
+bool py_is_sequence(PyObject* obj);
+int py_extract_constant_int(PyObject* obj);
+int py_get_type_id(PyObject* obj);
+const char* py_type_id_to_string(int typeId);
+int py_get_safe_type_id(PyObject* obj);
+void py_set_index_result_type(PyObject* result, int typeId);
 
     // 比较函数前向声明
     typedef enum
@@ -1152,6 +1168,463 @@ PyObject* py_convert_any_to_string(PyObject* obj)
     }
 }
 
+
+// 执行索引操作并获取结果类型 - 核心函数
+PyObject* py_object_index_with_type(PyObject* obj, PyObject* index, int* out_type_id)
+{
+    if (!obj || !out_type_id) {
+        // 确保有效参数
+        if (out_type_id) *out_type_id = llvmpy::PY_TYPE_NONE;
+        return py_get_none();
+    }
+    
+    // 解包可能的指针
+    PyObject* actual_obj = obj;
+    if (obj->typeId >= 400) { // 指针类型范围
+        PyObject** ptr_obj = (PyObject**)obj;
+        if (ptr_obj && *ptr_obj) {
+            actual_obj = *ptr_obj;
+        }
+    }
+    
+    // 同样解包索引
+    PyObject* actual_index = index;
+    if (index && index->typeId >= 400) {
+        PyObject** ptr_index = (PyObject**)index;
+        if (ptr_index && *ptr_index) {
+            actual_index = *ptr_index;
+        }
+    }
+    
+    // 获取基本类型ID
+    int baseTypeId = llvmpy::getBaseTypeId(actual_obj->typeId);
+    
+    // 根据对象类型执行相应的索引操作
+    switch (baseTypeId) {
+        case llvmpy::PY_TYPE_LIST: {
+            PyListObject* list = (PyListObject*)actual_obj;
+            int idx = py_extract_int_from_any(actual_index);
+            
+            if (idx < 0 || idx >= list->length) {
+                fprintf(stderr, "错误: 列表索引越界: %d, 长度: %d\n", idx, list->length);
+                *out_type_id = llvmpy::PY_TYPE_NONE;
+                return py_get_none();
+            }
+            
+            PyObject* item = list->data[idx];
+            
+            // 确定结果类型
+            if (item) {
+                *out_type_id = item->typeId;
+                
+                // 如果是列表且有元素类型，使用特殊的列表类型ID编码
+                if (list->elemTypeId > 0 && list->elemTypeId != llvmpy::PY_TYPE_ANY) {
+                    // 检查是否与列表声明的元素类型匹配
+                    if (llvmpy::getBaseTypeId(item->typeId) == llvmpy::getBaseTypeId(list->elemTypeId)) {
+                        *out_type_id = list->elemTypeId;
+                    }
+                }
+            } else {
+                *out_type_id = llvmpy::PY_TYPE_NONE;
+            }
+            
+            py_incref(item);
+            return item;
+        }
+            
+        case llvmpy::PY_TYPE_DICT: {
+            PyDictObject* dict = (PyDictObject*)actual_obj;
+            PyDictEntry* entry = py_dict_find_entry(dict, actual_index);
+            
+            if (entry && entry->used && entry->value) {
+                *out_type_id = entry->value->typeId;
+                py_incref(entry->value);
+                return entry->value;
+            } else {
+                fprintf(stderr, "警告: 字典中找不到指定的键\n");
+                *out_type_id = llvmpy::PY_TYPE_NONE;
+                return py_get_none();
+            }
+        }
+            
+        case llvmpy::PY_TYPE_STRING: {
+            int idx = py_extract_int_from_any(actual_index);
+            PyPrimitiveObject* strObj = (PyPrimitiveObject*)actual_obj;
+            
+            if (!strObj->value.stringValue) {
+                *out_type_id = llvmpy::PY_TYPE_STRING;
+                return py_create_string("");
+            }
+            
+            size_t len = strlen(strObj->value.stringValue);
+            if (idx < 0 || (size_t)idx >= len) {
+                fprintf(stderr, "警告: 字符串索引越界: %d, 长度: %zu\n", idx, len);
+                *out_type_id = llvmpy::PY_TYPE_STRING;
+                return py_create_string("");
+            }
+            
+            char buf[2] = {strObj->value.stringValue[idx], '\0'};
+            *out_type_id = llvmpy::PY_TYPE_STRING;
+            return py_create_string(buf);
+        }
+            
+        default:
+            fprintf(stderr, "错误: 类型 %d 不支持索引操作\n", actual_obj->typeId);
+            *out_type_id = llvmpy::PY_TYPE_ANY;
+            return py_get_none();
+    }
+}
+
+// 获取容器类型信息
+int py_get_container_type_info(PyObject* container)
+{
+    if (!container) {
+        return llvmpy::PY_TYPE_ANY;
+    }
+    
+    // 解包指针类型
+    PyObject* actual = container;
+    if (container->typeId >= 400) {
+        PyObject** ptrObj = (PyObject**)container;
+        if (ptrObj && *ptrObj) {
+            actual = *ptrObj;
+        }
+    }
+    
+    // 检查容器类型
+    int baseTypeId = llvmpy::getBaseTypeId(actual->typeId);
+    
+    if (baseTypeId == llvmpy::PY_TYPE_LIST) {
+        PyListObject* list = (PyListObject*)actual;
+        
+        // 获取列表声明的元素类型
+        if (list->elemTypeId > 0) {
+            return list->elemTypeId;
+        }
+        
+        // 尝试从实际元素推断类型
+        if (list->length > 0 && list->data[0]) {
+            return list->data[0]->typeId;
+        }
+        
+        // 默认为ANY类型
+        return llvmpy::PY_TYPE_ANY;
+    }
+    else if (baseTypeId == llvmpy::PY_TYPE_DICT) {
+        PyDictObject* dict = (PyDictObject*)actual;
+        
+        // 返回值类型
+        return dict->keyTypeId > 0 ? 
+               llvmpy::PY_TYPE_DICT_BASE + dict->keyTypeId : 
+               llvmpy::PY_TYPE_DICT;
+    }
+    
+    // 其他容器类型或不是容器
+    return llvmpy::PY_TYPE_ANY;
+}
+
+// 获取列表元素类型ID
+int py_get_list_element_type_id(PyObject* list)
+{
+    if (!list || llvmpy::getBaseTypeId(list->typeId) != llvmpy::PY_TYPE_LIST) {
+        return 0; // 无效或不是列表
+    }
+    
+    PyListObject* listObj = (PyListObject*)list;
+    
+    // 如果列表声明了元素类型，直接返回
+    if (listObj->elemTypeId > 0) {
+        return listObj->elemTypeId;
+    }
+    
+    // 尝试从第一个元素推断类型
+    if (listObj->length > 0 && listObj->data[0]) {
+        return listObj->data[0]->typeId;
+    }
+    
+    return 0; // 未知元素类型
+}
+
+
+
+// 类型检测函数 - 检查对象是否为容器类型
+bool py_is_container(PyObject* obj)
+{
+    if (!obj) return false;
+    
+    int typeId = obj->typeId;
+    int baseTypeId = llvmpy::getBaseTypeId(typeId);
+    
+    return (baseTypeId == llvmpy::PY_TYPE_LIST || 
+            baseTypeId == llvmpy::PY_TYPE_DICT || 
+            baseTypeId == llvmpy::PY_TYPE_TUPLE ||
+            (typeId >= llvmpy::PY_TYPE_LIST_BASE && typeId < llvmpy::PY_TYPE_DICT_BASE) ||
+            (typeId >= llvmpy::PY_TYPE_DICT_BASE && typeId < llvmpy::PY_TYPE_FUNC_BASE));
+}
+
+// 类型检测函数 - 检查对象是否为序列类型
+bool py_is_sequence(PyObject* obj)
+{
+    if (!obj) return false;
+    
+    int typeId = obj->typeId;
+    int baseTypeId = llvmpy::getBaseTypeId(typeId);
+    
+    return (baseTypeId == llvmpy::PY_TYPE_LIST || 
+            baseTypeId == llvmpy::PY_TYPE_TUPLE || 
+            baseTypeId == llvmpy::PY_TYPE_STRING ||
+            (typeId >= llvmpy::PY_TYPE_LIST_BASE && typeId < llvmpy::PY_TYPE_DICT_BASE));
+}
+
+// 将ANY类型转换为整数
+// 将返回int的版本重命名为 py_extract_int_from_any
+// 增强版本的提取整数函数
+int py_extract_int_from_any(PyObject* obj)
+{
+    if (!obj) {
+        return 0;
+    }
+    
+    // 首先检查是否是整数指针 (i32*)
+    // 通过尝试安全地访问 typeId 来检测
+    int typeId = 0;
+    bool isRawIntPtr = false;
+    
+    // 使用轻量级的指针有效性检查
+    if ((uintptr_t)obj < 0x10000) {
+        // 小值通常是无效指针或直接传递的整数
+        return (int)(intptr_t)obj;
+    }
+    
+    // 首先尝试访问typeId - 如果是整数指针，这将返回整数值
+    try {
+        // 可能的整数指针处理
+        int* intPtr = (int*)obj;
+        if (intPtr) {
+            // 尝试安全读取值
+            int intValue = *intPtr;
+            // 如果值在合理范围内，很可能是整数指针
+            if (intValue >= -10000000 && intValue <= 10000000) {
+                return intValue;
+            }
+        }
+        
+        // 尝试作为PyObject处理
+        typeId = obj->typeId;
+    } catch (...) {
+        // 如果出现异常，假设这是一个整数指针
+        int* intPtr = (int*)obj;
+        if (intPtr) {
+            return *intPtr;
+        }
+        return 0;
+    }
+    
+    // 处理指针类型
+    PyObject* actual = obj;
+    if (typeId >= 400) {
+        PyObject** ptrObj = (PyObject**)obj;
+        if (ptrObj && *ptrObj) {
+            actual = *ptrObj;
+        }
+    }
+    
+    // 根据实际类型提取整数
+    int baseTypeId = llvmpy::getBaseTypeId(actual->typeId);
+    
+    switch (baseTypeId) {
+        case llvmpy::PY_TYPE_INT: {
+            PyPrimitiveObject* intObj = (PyPrimitiveObject*)actual;
+            return intObj->value.intValue;
+        }
+        
+        case llvmpy::PY_TYPE_DOUBLE: {
+            PyPrimitiveObject* doubleObj = (PyPrimitiveObject*)actual;
+            return (int)doubleObj->value.doubleValue;
+        }
+        
+        case llvmpy::PY_TYPE_BOOL: {
+            PyPrimitiveObject* boolObj = (PyPrimitiveObject*)actual;
+            return boolObj->value.boolValue ? 1 : 0;
+        }
+        
+        case llvmpy::PY_TYPE_STRING: {
+            PyPrimitiveObject* strObj = (PyPrimitiveObject*)actual;
+            if (strObj->value.stringValue) {
+                // 尝试直接转换
+                char* endptr;
+                long value = strtol(strObj->value.stringValue, &endptr, 10);
+                
+                // 检查是否成功转换
+                if (*endptr == '\0' || isspace(*endptr)) {
+                    return (int)value;
+                }
+                
+                // 尝试作为浮点数解析
+                if (strchr(strObj->value.stringValue, '.')) {
+                    double dblVal = strtod(strObj->value.stringValue, &endptr);
+                    if (*endptr == '\0' || isspace(*endptr)) {
+                        return (int)dblVal;
+                    }
+                }
+                
+                // 最后尝试使用atoi
+                return atoi(strObj->value.stringValue);
+            }
+            return 0;
+        }
+        
+        case llvmpy::PY_TYPE_LIST: {
+            PyListObject* listObj = (PyListObject*)actual;
+            return listObj->length; // 返回列表长度
+        }
+        
+        case llvmpy::PY_TYPE_DICT: {
+            PyDictObject* dictObj = (PyDictObject*)actual;
+            return dictObj->size; // 返回字典大小
+        }
+        
+        case llvmpy::PY_TYPE_ANY: {
+            // 尝试根据实际值转换
+            fprintf(stderr, "警告: 尝试从ANY类型提取整数值，可能不准确\n");
+            return 0;
+        }
+        
+        default:
+            // 对于小整数值，可能是直接传递的整数指针
+            if ((uintptr_t)obj < 10000) {
+                return (int)(intptr_t)obj;
+            }
+            
+            fprintf(stderr, "警告: 无法从类型 %d 提取整数，返回0\n", actual->typeId);
+            return 0;
+    }
+}
+
+
+
+
+PyObject* py_object_index(PyObject* obj, PyObject* index)
+{
+    if (!obj) {
+        fprintf(stderr, "错误: 试图在NULL对象上执行索引操作\n");
+        return py_get_none();
+    }
+    
+    // 首先解包，确保处理真实对象而不是指针
+    PyObject* actual_obj = obj;
+    if (obj->typeId >= 400) { // 指针类型范围
+        PyObject** ptr_obj = (PyObject**)obj;
+        if (ptr_obj && *ptr_obj) {
+            actual_obj = *ptr_obj;
+        }
+    }
+    
+    // 同样解包索引
+    PyObject* actual_index = index;
+    if (index && index->typeId >= 400) {
+        PyObject** ptr_index = (PyObject**)index;
+        if (ptr_index && *ptr_index) {
+            actual_index = *ptr_index;
+        }
+    }
+    
+    // 获取对象的基本类型ID
+    int baseTypeId = llvmpy::getBaseTypeId(actual_obj->typeId);
+    
+    // 尝试根据对象类型选择适当的索引函数
+    switch (baseTypeId) {
+        case llvmpy::PY_TYPE_LIST: {
+            int idx = py_extract_int_from_any(actual_index);
+            PyListObject* list = (PyListObject*)actual_obj;
+            
+            if (idx < 0 || idx >= list->length) {
+                fprintf(stderr, "错误: 列表索引越界: %d, 长度: %d\n", idx, list->length);
+                return py_get_none();
+            }
+            
+            PyObject* item = list->data[idx];
+            py_incref(item);
+            return item;
+        }
+            
+        case llvmpy::PY_TYPE_DICT: {
+            PyDictObject* dict = (PyDictObject*)actual_obj;
+            PyDictEntry* entry = py_dict_find_entry(dict, actual_index);
+            
+            if (entry && entry->used) {
+                py_incref(entry->value);
+                return entry->value;
+            } else {
+                fprintf(stderr, "警告: 字典中找不到指定的键\n");
+                return py_get_none();
+            }
+        }
+            
+        case llvmpy::PY_TYPE_STRING: {
+            int idx = py_extract_int_from_any(actual_index);
+            PyPrimitiveObject* strObj = (PyPrimitiveObject*)actual_obj;
+            
+            if (!strObj->value.stringValue) {
+                return py_create_string("");
+            }
+            
+            size_t len = strlen(strObj->value.stringValue);
+            if (idx < 0 || (size_t)idx >= len) {
+                fprintf(stderr, "警告: 字符串索引越界: %d, 长度: %zu\n", idx, len);
+                return py_create_string("");
+            }
+            
+            char buf[2] = {strObj->value.stringValue[idx], '\0'};
+            return py_create_string(buf);
+        }
+            
+        case llvmpy::PY_TYPE_TUPLE: {
+            // 假设元组结构与列表相似
+            int idx = py_extract_int_from_any(actual_index);
+            PyListObject* tuple = (PyListObject*)actual_obj; // 使用列表对象结构
+            
+            if (idx < 0 || idx >= tuple->length) {
+                fprintf(stderr, "错误: 元组索引越界: %d, 长度: %d\n", idx, tuple->length);
+                return py_get_none();
+            }
+            
+            PyObject* item = tuple->data[idx];
+            py_incref(item);
+            return item;
+        }
+            
+        default:
+            fprintf(stderr, "错误: 类型 %d 不支持索引操作\n", actual_obj->typeId);
+            return py_get_none();
+    }
+}
+
+// 字符串字符访问
+PyObject* py_string_get_char(PyObject* str, int index)
+{
+    if (!str || str->typeId != llvmpy::PY_TYPE_STRING) {
+        fprintf(stderr, "错误: py_string_get_char 需要字符串对象\n");
+        return py_create_string("");
+    }
+    
+    PyPrimitiveObject* strObj = (PyPrimitiveObject*)str;
+    if (!strObj->value.stringValue) {
+        return py_create_string("");
+    }
+    
+    size_t len = strlen(strObj->value.stringValue);
+    if (index < 0 || (size_t)index >= len) {
+        fprintf(stderr, "警告: 字符串索引越界: %d, 长度: %zu\n", index, len);
+        return py_create_string("");
+    }
+    
+    char buf[2] = {strObj->value.stringValue[index], '\0'};
+    return py_create_string(buf);
+}
+
+
+
 // 从具体类型转换到 any 类型
 PyObject* py_convert_to_any(PyObject* obj)
 {
@@ -1249,15 +1722,72 @@ int py_get_actual_type(PyObject* obj) {
     return obj->typeId;
 }
 
-// 容器类型检测函数
-bool py_is_container(PyObject* obj) {
-    if (!obj) return false;
-    
-    int typeId = py_get_actual_type(obj);
-    return typeId == llvmpy::PY_TYPE_LIST || 
-           typeId == llvmpy::PY_TYPE_DICT || 
-           (typeId >= llvmpy::PY_TYPE_LIST_BASE && typeId < llvmpy::PY_TYPE_DICT_BASE);
+
+// 类型ID转字符串，用于调试
+const char* py_type_id_to_string(int typeId) {
+    switch (llvmpy::getBaseTypeId(typeId)) {
+        case llvmpy::PY_TYPE_NONE: return "none";
+        case llvmpy::PY_TYPE_INT: return "int";
+        case llvmpy::PY_TYPE_DOUBLE: return "double";
+        case llvmpy::PY_TYPE_BOOL: return "bool";
+        case llvmpy::PY_TYPE_STRING: return "string";
+        case llvmpy::PY_TYPE_LIST: return "list";
+        case llvmpy::PY_TYPE_DICT: return "dict";
+        case llvmpy::PY_TYPE_ANY: return "any";
+        case llvmpy::PY_TYPE_TUPLE: return "tuple";
+        default: return "unknown";
+    }
 }
+
+// 安全获取对象的类型ID
+int py_get_safe_type_id(PyObject* obj) {
+    if (!obj) return llvmpy::PY_TYPE_NONE;
+    return obj->typeId;
+}
+
+// 为索引操作设置结果类型元数据的函数 - 安全处理所有类型
+void py_set_index_result_type(PyObject* result, int typeId) {
+    if (!result) return;
+    
+    // 设置类型ID
+    result->typeId = typeId;
+    
+    // 打印调试信息
+    #ifdef DEBUG
+    fprintf(stderr, "设置索引结果类型: %s (ID: %d)\n", py_type_id_to_string(typeId), typeId);
+    #endif
+}
+int py_extract_constant_int(PyObject* obj) {
+    if (!obj) return 0;
+    
+    // 处理基本类型
+    switch (obj->typeId) {
+        case llvmpy::PY_TYPE_INT:
+            return ((PyPrimitiveObject*)obj)->value.intValue;
+        case llvmpy::PY_TYPE_BOOL:
+            return ((PyPrimitiveObject*)obj)->value.boolValue ? 1 : 0;
+        case llvmpy::PY_TYPE_DOUBLE: {
+            double val = ((PyPrimitiveObject*)obj)->value.doubleValue;
+            return (int)val;
+        }
+        case llvmpy::PY_TYPE_STRING: {
+            try {
+                const char* str = ((PyPrimitiveObject*)obj)->value.stringValue;
+                return str ? atoi(str) : 0;
+            } catch (...) {
+                return 0;
+            }
+        }
+        default:
+            return 0;
+    }
+}
+
+// 获取对象的类型ID - 运行时函数
+int py_get_type_id(PyObject* obj) {
+    return obj ? obj->typeId : llvmpy::PY_TYPE_NONE;
+}
+
 
 
 
@@ -2110,6 +2640,85 @@ bool py_is_container(PyObject* obj) {
     // 列表操作函数
     //===----------------------------------------------------------------------===//
 
+
+// 获取列表元素并返回其类型ID - 用于索引操作
+PyObject* py_list_get_item_with_type(PyObject* list, int index, int* out_type_id)
+{
+    if (!list || !out_type_id) {
+        if (out_type_id) *out_type_id = llvmpy::PY_TYPE_NONE;
+        return py_get_none();
+    }
+    
+    // 确保是列表类型
+    if (list->typeId != llvmpy::PY_TYPE_LIST) {
+        fprintf(stderr, "类型错误: 对象不是列表 (类型ID: %d)\n", list->typeId);
+        *out_type_id = llvmpy::PY_TYPE_NONE;
+        return py_get_none();
+    }
+    
+    PyListObject* listObj = (PyListObject*)list;
+    
+    // 边界检查
+    if (index < 0 || index >= listObj->length) {
+        fprintf(stderr, "索引错误: 列表索引 %d 超出范围 [0, %d)\n", index, listObj->length);
+        *out_type_id = llvmpy::PY_TYPE_NONE;
+        return py_get_none();
+    }
+    
+    // 获取元素
+    PyObject* item = listObj->data[index];
+    
+    // 设置类型ID
+    if (item) {
+        *out_type_id = item->typeId;
+        
+        // 如果列表有元素类型信息但元素没有明确类型，使用列表的元素类型
+        if (listObj->elemTypeId > 0 && listObj->elemTypeId != llvmpy::PY_TYPE_ANY) {
+            *out_type_id = listObj->elemTypeId;
+        }
+    } else {
+        *out_type_id = llvmpy::PY_TYPE_NONE;
+    }
+    
+    // 增加引用计数并返回
+    if (item) py_incref(item);
+    return item ? item : py_get_none();
+}
+
+// 获取字典值并返回其类型ID - 用于索引操作
+PyObject* py_dict_get_item_with_type(PyObject* dict, PyObject* key, int* out_type_id)
+{
+    if (!dict || !key || !out_type_id) {
+        if (out_type_id) *out_type_id = llvmpy::PY_TYPE_NONE;
+        return py_get_none();
+    }
+    
+    // 确保是字典类型
+    if (dict->typeId != llvmpy::PY_TYPE_DICT) {
+        fprintf(stderr, "类型错误: 对象不是字典 (类型ID: %d)\n", dict->typeId);
+        *out_type_id = llvmpy::PY_TYPE_NONE;
+        return py_get_none();
+    }
+    
+    PyDictObject* dictObj = (PyDictObject*)dict;
+    
+    // 查找条目
+    PyDictEntry* entry = py_dict_find_entry(dictObj, key);
+    if (!entry || !entry->used || !entry->value) {
+        fprintf(stderr, "警告: 字典中找不到指定的键\n");
+        *out_type_id = llvmpy::PY_TYPE_NONE;
+        return py_get_none();
+    }
+    
+    // 设置类型ID
+    *out_type_id = entry->value->typeId;
+    
+    // 增加引用计数并返回
+    py_incref(entry->value);
+    return entry->value;
+}
+
+
     // 创建列表对象
     PyObject* py_create_list(int size, int elemTypeId)
     {
@@ -2147,27 +2756,55 @@ bool py_is_container(PyObject* obj) {
         return list->length;
     }
 
-    // 获取列表元素
-    PyObject* py_list_get_item(PyObject* obj, int index)
+    int py_object_len(PyObject* obj)
     {
-        if (!py_check_type(obj, llvmpy::PY_TYPE_LIST))
-        {
-            py_type_error(obj, llvmpy::PY_TYPE_LIST);
-            return NULL;
+        if (!obj) return 0;
+        
+        // 根据对象类型获取长度
+        switch (obj->typeId) {
+            case llvmpy::PY_TYPE_LIST:
+                return ((PyListObject*)obj)->length;
+                
+            case llvmpy::PY_TYPE_DICT:
+                return ((PyDictObject*)obj)->size;
+                
+            case llvmpy::PY_TYPE_STRING:
+                return ((PyPrimitiveObject*)obj)->value.stringValue ? 
+                       strlen(((PyPrimitiveObject*)obj)->value.stringValue) : 0;
+                
+            default:
+                return 0;
         }
-
-        PyListObject* list = (PyListObject*)obj;
-
-        // 索引检查
-        if (index < 0 || index >= list->length)
-        {
-            fprintf(stderr, "IndexError: list index out of range\n");
-            return NULL;
-        }
-
-        // 返回元素，不增加引用计数
-        return list->data[index];
     }
+
+
+    // 获取列表元素
+    PyObject* py_list_get_item(PyObject* list, int index)
+{
+    if (!list) {
+        fprintf(stderr, "错误: 尝试从NULL列表获取元素\n");
+        return py_get_none();
+    }
+    
+    // 确保是列表类型
+    if (list->typeId != llvmpy::PY_TYPE_LIST) {
+        fprintf(stderr, "类型错误: 对象不是列表 (类型ID: %d)\n", list->typeId);
+        return py_get_none();
+    }
+    
+    PyListObject* listObj = (PyListObject*)list;
+    
+    // 边界检查
+    if (index < 0 || index >= listObj->length) {
+        fprintf(stderr, "索引错误: 列表索引 %d 超出范围 [0, %d)\n", index, listObj->length);
+        return py_get_none();
+    }
+    
+    // 增加引用计数并返回
+    PyObject* item = listObj->data[index];
+    py_incref(item);
+    return item;
+}
 
     // 设置列表元素
     void py_list_set_item(PyObject* obj, int index, PyObject* item)

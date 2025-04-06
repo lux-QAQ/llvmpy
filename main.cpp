@@ -1,9 +1,11 @@
-#include "lexer.h"
-#include "parser.h"
-#include "codegen.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
+
+// 先包含完整代码生成器定义
+#include "CodeGen/codegen.h"  // 包含统一的头文件
+
+// 然后包含其他库
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/IR/LegacyPassManager.h>
@@ -11,7 +13,16 @@
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Scalar/GVN.h>
 
+// 再包含应用特定头文件
+#include "TypeIDs.h"
+#include "ObjectType.h"
+#include "lexer.h"
+#include "parser.h"
+#include "Debugdefine.h"
+
 using namespace llvmpy;
+
+
 
 std::string readFile(const std::string& filename)
 {

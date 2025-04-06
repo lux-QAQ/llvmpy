@@ -1,7 +1,9 @@
 #include "parser.h"
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include "Debugdefine.h"
+#include "ast.h"
 
 namespace llvmpy
 {
@@ -186,6 +188,25 @@ void PyParser::initializeRegistries()
     registerStmtParser(TOK_LBRACK, [](PyParser& p)
                        { return p.parseExpressionStmt(); });
 
+    // 为INDENT和DEDENT注册解析器，以防处理意外的缩进token
+registerStmtParser(TOK_INDENT, [](PyParser& p) ->std::unique_ptr<StmtAST>{
+    p.nextToken();  // 消费INDENT token
+    
+    // 如果遇到DEDENT或EOF，直接返回一个空语句
+    if (p.getCurrentToken().type == TOK_DEDENT || p.getCurrentToken().type == TOK_EOF) {
+        return std::make_unique<PassStmtAST>();
+    }
+    
+    // 否则尝试解析下一个语句
+    return p.parseStatement();
+});
+
+registerStmtParser(TOK_DEDENT, [](PyParser& p) {
+    p.nextToken();  // 消费DEDENT token
+    
+    // 尝试解析下一个语句
+    return p.parseStatement();
+});
     // 操作符信息注册
     registerOperator(TOK_PLUS, '+', 20);
     registerOperator(TOK_MINUS, '-', 20);

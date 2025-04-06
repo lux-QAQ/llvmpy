@@ -4,6 +4,8 @@
 #include "TypeIDs.h"
 #include "lexer.h"
 #include "ObjectType.h"
+#include "CodeGen/CodeGenBase.h"
+#include "ObjectType.h"
 #include <functional>
 #include <unordered_map>
 #include <functional>  // 确保 std::hash 可用
@@ -17,9 +19,7 @@ namespace llvmpy {
 
 class PyCodeGen;
 
-
-
-
+// 哈希元组的辅助类
 struct TupleHash {
     template <typename... T>
     std::size_t operator()(const std::tuple<T...>& t) const {
@@ -31,13 +31,12 @@ struct TupleHash {
     }
     
 private:
-    // Helper function to combine hash values
+    // 组合哈希值的辅助函数
     template <typename T>
     static void hash_combine(std::size_t& seed, const T& val) {
         seed ^= std::hash<T>{}(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     }
 };
-
 
 /**
  * 操作类型枚举 - 描述支持的操作种类
@@ -92,6 +91,19 @@ struct TypeConversionDescriptor {
 };
 
 /**
+ * 索引操作描述符 - 描述容器和索引类型之间的规则 (新增)
+ */
+struct IndexOpDescriptor {
+    int containerTypeId;          // 容器类型ID
+    int indexTypeId;              // 索引类型ID
+    int resultTypeId;             // 结果类型ID
+    std::string runtimeFunction;  // 对应的运行时函数名
+    
+    // 自定义索引实现 (可选)
+    std::function<llvm::Value*(PyCodeGen&, llvm::Value*, llvm::Value*)> customImpl;
+};
+
+/**
  * 哈希函数，用于std::pair<int, int>
  */
 struct PairHash {
@@ -128,6 +140,12 @@ private:
         std::unordered_map<int, TypeConversionDescriptor>
     > typeConversions;
     
+    // 索引操作映射: 容器类型ID -> 索引类型ID -> 索引描述符 (新增)
+    std::unordered_map<
+        int,
+        std::unordered_map<int, IndexOpDescriptor, PairHash>
+    > indexOps;
+    
     // 类型兼容性映射: (类型A, 类型B) -> 是否兼容
     std::unordered_map<
         std::pair<int, int>,
@@ -135,12 +153,12 @@ private:
         PairHash
     > typeCompatibility;
     
-       // 类型上升规则: (类型A, 类型B, 操作符) -> 结果类型
-       std::unordered_map<
-       std::tuple<int, int, char>,
-       int,
-       TupleHash  // 使用自定义哈希函数
-   > typePromotions;
+    // 类型提升规则: (类型A, 类型B, 操作符) -> 结果类型
+    std::unordered_map<
+        std::tuple<int, int, char>,
+        int,
+        TupleHash
+    > typePromotions;
     
     // 私有构造函数 (单例模式)
     TypeOperationRegistry();
@@ -207,6 +225,22 @@ public:
     );
     
     /**
+     * 注册索引操作 (新增)
+     * @param containerTypeId 容器类型ID
+     * @param indexTypeId 索引类型ID
+     * @param resultTypeId 结果类型ID
+     * @param runtimeFunc 运行时函数名
+     * @param customImpl 自定义实现函数 (可选)
+     */
+    void registerIndexOp(
+        int containerTypeId,
+        int indexTypeId,
+        int resultTypeId,
+        const std::string& runtimeFunc,
+        std::function<llvm::Value*(PyCodeGen&, llvm::Value*, llvm::Value*)> customImpl = nullptr
+    );
+    
+    /**
      * 注册类型兼容性
      * @param typeIdA 类型A ID
      * @param typeIdB 类型B ID
@@ -249,12 +283,28 @@ public:
     TypeConversionDescriptor* getTypeConversionDescriptor(int sourceTypeId, int targetTypeId);
     
     /**
+     * 获取索引操作描述符 (新增)
+     * @param containerTypeId 容器类型ID
+     * @param indexTypeId 索引类型ID
+     * @return 索引描述符指针，如果不存在则返回nullptr
+     */
+    IndexOpDescriptor* getIndexOpDescriptor(int containerTypeId, int indexTypeId);
+    
+    /**
      * 判断两种类型是否兼容
      * @param typeIdA 类型A ID
      * @param typeIdB 类型B ID
      * @return 是否兼容
      */
     bool areTypesCompatible(int typeIdA, int typeIdB);
+    
+    /**
+     * 判断索引类型是否与容器兼容 (新增)
+     * @param containerTypeId 容器类型ID
+     * @param indexTypeId 索引类型ID
+     * @return 是否兼容
+     */
+    bool isIndexCompatible(int containerTypeId, int indexTypeId);
     
     /**
      * 获取操作的结果类型ID
@@ -266,12 +316,27 @@ public:
     int getResultTypeId(int leftTypeId, int rightTypeId, char op);
     
     /**
+     * 获取索引操作的结果类型ID (新增)
+     * @param containerTypeId 容器类型ID
+     * @param indexTypeId 索引类型ID
+     * @return 结果类型ID
+     */
+    int getIndexResultTypeId(int containerTypeId, int indexTypeId);
+    
+    /**
      * 为操作数自动选择正确的类型转换
      * @param fromTypeId 源类型ID
      * @param toTypeId 目标类型ID
      * @return 转换描述符指针，如果不需要转换则返回nullptr
      */
     TypeConversionDescriptor* findBestConversion(int fromTypeId, int toTypeId);
+    
+    /**
+     * 为索引自动选择正确的类型转换 (新增)
+     * @param indexTypeId 索引类型ID
+     * @return 转换描述符指针，如果不需要转换则返回nullptr
+     */
+    TypeConversionDescriptor* findBestIndexConversion(int indexTypeId);
     
     /**
      * 查找可行的二元操作路径
@@ -281,6 +346,14 @@ public:
      * @return 转换后的操作数类型对 (如果不需要转换则返回原始类型对)
      */
     std::pair<int, int> findOperablePath(char op, int leftTypeId, int rightTypeId);
+    
+    /**
+     * 查找可行的索引操作路径 (新增)
+     * @param containerTypeId 容器类型ID
+     * @param indexTypeId 索引类型ID
+     * @return 转换后的索引类型 (如果不需要转换则返回原始索引类型)
+     */
+    int findIndexablePath(int containerTypeId, int indexTypeId);
 };
 
 /**
@@ -317,7 +390,7 @@ public:
      * @return 操作结果值
      */
     static llvm::Value* handleBinaryOp(
-        PyCodeGen& gen,
+        CodeGenBase& gen,
         char op,
         llvm::Value* left,
         llvm::Value* right,
@@ -334,10 +407,27 @@ public:
      * @return 操作结果值
      */
     static llvm::Value* handleUnaryOp(
-        PyCodeGen& gen,
+        CodeGenBase& gen,
         char op,
         llvm::Value* operand,
         int operandTypeId
+    );
+    
+    /**
+     * 处理索引操作 (新增)
+     * @param gen 代码生成器
+     * @param container 容器值
+     * @param index 索引值
+     * @param containerTypeId 容器类型ID
+     * @param indexTypeId 索引类型ID
+     * @return 索引操作结果值
+     */
+    static llvm::Value* handleIndexOp(
+        CodeGenBase& gen,
+        llvm::Value* container,
+        llvm::Value* index,
+        int containerTypeId,
+        int indexTypeId
     );
     
     /**
@@ -349,10 +439,36 @@ public:
      * @return 转换后的值
      */
     static llvm::Value* handleTypeConversion(
-        PyCodeGen& gen,
+        CodeGenBase& gen,
         llvm::Value* value,
         int fromTypeId,
         int toTypeId
+    );
+    
+    /**
+     * 准备索引值 - 确保索引值可用于容器访问 (新增)
+     * @param gen 代码生成器
+     * @param index 索引值
+     * @param indexTypeId 索引类型ID
+     * @return 准备好的索引值 (通常是整数)
+     */
+    static llvm::Value* prepareIndexValue(
+        CodeGenBase& gen,
+        llvm::Value* index,
+        int indexTypeId
+    );
+    
+    /**
+     * 从任何类型值中提取整数 (新增)
+     * @param gen 代码生成器
+     * @param value 值
+     * @param typeId 值的类型ID
+     * @return 提取的整数值
+     */
+    static llvm::Value* extractIntFromValue(
+        CodeGenBase& gen,
+        llvm::Value* value,
+        int typeId
     );
     
     /**
@@ -370,6 +486,21 @@ public:
      * @return 创建的对象
      */
     static llvm::Value* createObject(PyCodeGen& gen, llvm::Value* value, int typeId);
+    
+    /**
+     * 对ANY类型执行索引操作 (新增)
+     * @param gen 代码生成器
+     * @param container ANY类型的容器
+     * @param index 索引值
+     * @param indexTypeId 索引类型ID
+     * @return 索引操作结果
+     */
+    static llvm::Value* handleAnyTypeIndexing(
+        CodeGenBase& gen,
+        llvm::Value* container,
+        llvm::Value* index,
+        int indexTypeId
+    );
 };
 
 /**
@@ -386,7 +517,7 @@ public:
      * @return 调整后的结果
      */
     static llvm::Value* adjustResult(
-        PyCodeGen& gen,
+        CodeGenBase& gen,
         llvm::Value* result,
         int resultTypeId,
         int expectedTypeId
@@ -421,6 +552,21 @@ public:
         int fromTypeId,
         int toTypeId
     );
+    
+    /**
+     * 处理索引操作结果 (新增)
+     * @param gen 代码生成器
+     * @param result 索引操作结果
+     * @param containerTypeId 容器类型ID
+     * @param indexTypeId 索引类型ID
+     * @return 处理后的结果
+     */
+    static llvm::Value* handleIndexResult(
+        PyCodeGen& gen,
+        llvm::Value* result,
+        int containerTypeId,
+        int indexTypeId
+    );
 };
 
 /**
@@ -451,14 +597,40 @@ public:
         ObjectType* operandType,
         char op
     );
+    
+    /**
+     * 推断二元操作的结果类型 (Token版本)
+     * @param leftType 左操作数类型
+     * @param rightType 右操作数类型
+     * @param opToken 操作符Token
+     * @return 结果类型
+     */
     static ObjectType* inferBinaryOpResultType(
         ObjectType* leftType,
         ObjectType* rightType,
         PyTokenType opToken
     );
+    
+    /**
+     * 推断一元操作的结果类型 (Token版本)
+     * @param operandType 操作数类型
+     * @param opToken 操作符Token
+     * @return 结果类型
+     */
     static ObjectType* inferUnaryOpResultType(
         ObjectType* operandType,
         PyTokenType opToken
+    );
+    
+    /**
+     * 推断索引操作的结果类型 (新增)
+     * @param containerType 容器类型
+     * @param indexType 索引类型
+     * @return 结果类型
+     */
+    static ObjectType* inferIndexOpResultType(
+        ObjectType* containerType,
+        ObjectType* indexType
     );
     
     /**
@@ -471,7 +643,19 @@ public:
         ObjectType* typeA,
         ObjectType* typeB
     );
+    
+    /**
+     * 检查索引是否可用于容器 (新增)
+     * @param containerType 容器类型
+     * @param indexType 索引类型
+     * @return 是否可用
+     */
+    static bool canIndexContainer(
+        ObjectType* containerType,
+        ObjectType* indexType
+    );
 };
+
 
 } // namespace llvmpy
 

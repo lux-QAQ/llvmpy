@@ -14,8 +14,9 @@ echo "正在将IR编译为可执行文件..."
 # 2. 将LLVM IR编译为目标文件 - 添加PIC支持
 llc -filetype=obj output.ll -o output.o -relocation-model=pic
 
-# 3. 使用clang++而不是clang，并明确指定extern "C"处理
-clang++ -O0 output.o src/runtime.cpp -Iinclude/ -o program -Wl,--no-demangle
+# 3. 使用clang++编译所有的Runtime源文件
+RUNTIME_SRC=$(find src/RunTime -name "*.cpp")
+clang++ -O0 output.o $RUNTIME_SRC -Iinclude/ -o program -Wl,--no-demangle
 
 echo "编译完成，生成可执行文件 'program'"
 ./program

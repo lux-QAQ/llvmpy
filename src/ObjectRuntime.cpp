@@ -1,5 +1,5 @@
 #include "ObjectRuntime.h"
-#include "codegen.h"
+#include "CodeGen/codegen.h"
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
 #include "TypeIDs.h"
@@ -751,7 +751,7 @@ llvm::Value* ObjectRuntime::prepareArgument(llvm::Value* value, ObjectType* from
 }
 
 // 补全 prepareAssignmentTarget 方法，为赋值目标做准备
-llvm::Value* PyCodeGen::prepareAssignmentTarget(llvm::Value* value, ObjectType* targetType, ExprAST* expr) {
+/* llvm::Value* PyCodeGen::prepareAssignmentTarget(llvm::Value* value, ObjectType* targetType, ExprAST* expr) {
     if (!value || !targetType || !expr) return value;
     
     // 获取表达式来源
@@ -818,7 +818,7 @@ llvm::Value* PyCodeGen::prepareAssignmentTarget(llvm::Value* value, ObjectType* 
     }
     
     return value;
-}
+} */
 //===----------------------------------------------------------------------===//
 // 运行时类型信息
 //===----------------------------------------------------------------------===//

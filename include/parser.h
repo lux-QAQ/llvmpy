@@ -126,7 +126,7 @@ public:
 // ============================ 生命周期管理集成 ============================
 
 // 解析时类型安全器 - 防止类型不一致导致的错误
-class TypeSafetyChecker {
+/* class TypeSafetyChecker {
 public:
     // 检查表达式类型与期望类型是否兼容
     static bool isTypeCompatible(const std::shared_ptr<PyType>& exprType, 
@@ -200,7 +200,7 @@ public:
         
         return false;
     }
-};
+}; */
 
 // ============================ 解析错误 ============================
 

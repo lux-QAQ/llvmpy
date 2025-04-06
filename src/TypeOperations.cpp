@@ -1,6 +1,8 @@
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
-#include "codegen.h"
+#include "CodeGen/PyCodeGen.h"  // 添加这一行，确保有完整类型定义
+#include "CodeGen/CodeGenRuntime.h"
+//#include "codegen.h"
 #include "TypeIDs.h"
 #include "lexer.h"
 
@@ -87,6 +89,9 @@ void TypeOperationRegistry::initializeBuiltinOperations()
         registerTypeConversion(PY_TYPE_BOOL, PY_TYPE_ANY, "py_convert_to_any", 1);
         registerTypeConversion(PY_TYPE_ANY, PY_TYPE_STRING, "py_convert_any_to_string", 1);
         registerTypeConversion(PY_TYPE_STRING, PY_TYPE_ANY, "py_convert_to_any", 1);
+
+        registerTypeConversion(PY_TYPE_INT, PY_TYPE_ANY, "py_convert_int_to_any", 1);
+        registerTypeConversion(PY_TYPE_DOUBLE, PY_TYPE_ANY, "py_convert_double_to_any", 1);
     
 
     // 注册类型兼容性
@@ -172,6 +177,45 @@ void TypeOperationRegistry::initializeBuiltinOperations()
         registerTypeConversion(PY_TYPE_DICT_BASE, PY_TYPE_ANY, "py_convert_to_any", 1);
         registerTypeConversion(PY_TYPE_ANY, PY_TYPE_LIST_BASE, "py_convert_any_to_list_base", 2);
         registerTypeConversion(PY_TYPE_ANY, PY_TYPE_DICT_BASE, "py_convert_any_to_dict_base", 2);
+
+        // 注册索引操作
+// 1. 列表索引操作
+registerTypeCompatibility(PY_TYPE_LIST, PY_TYPE_INT, true);  // 列表可以用整数索引
+registerTypeCompatibility(PY_TYPE_LIST_BASE, PY_TYPE_INT, true);  // 通用列表类型也可以用整数索引
+
+// 2. 字典索引操作 - 字典可以用各种类型作为键
+registerTypeCompatibility(PY_TYPE_DICT, PY_TYPE_INT, true);
+registerTypeCompatibility(PY_TYPE_DICT, PY_TYPE_STRING, true);
+registerTypeCompatibility(PY_TYPE_DICT, PY_TYPE_DOUBLE, true);
+registerTypeCompatibility(PY_TYPE_DICT, PY_TYPE_BOOL, true);
+registerTypeCompatibility(PY_TYPE_DICT_BASE, PY_TYPE_ANY, true);
+
+// 3. 字符串索引操作
+registerTypeCompatibility(PY_TYPE_STRING, PY_TYPE_INT, true);  // 字符串可以用整数索引
+
+// 4. ANY类型索引操作 - ANY可以用任何类型索引，会在运行时处理
+registerTypeCompatibility(PY_TYPE_ANY, PY_TYPE_ANY, true);
+registerTypeCompatibility(PY_TYPE_ANY, PY_TYPE_INT, true);
+registerTypeCompatibility(PY_TYPE_ANY, PY_TYPE_STRING, true);
+registerTypeCompatibility(PY_TYPE_ANY, PY_TYPE_DOUBLE, true);
+registerTypeCompatibility(PY_TYPE_ANY, PY_TYPE_BOOL, true);
+
+// 5. 索引操作的类型转换 - 支持将各种类型转换为索引
+registerTypeConversion(PY_TYPE_ANY, PY_TYPE_INT, "py_extract_int_from_any", 1);
+registerTypeConversion(PY_TYPE_STRING, PY_TYPE_INT, "py_extract_int_from_any", 2);
+registerTypeConversion(PY_TYPE_DOUBLE, PY_TYPE_INT, "py_extract_int_from_any", 2);
+registerTypeConversion(PY_TYPE_BOOL, PY_TYPE_INT, "py_extract_int_from_any", 1);
+
+
+// 6. 列表元素类型兼容性
+for (int i = 1; i <= 10; i++) {
+    // 允许任何类型作为列表元素
+    registerTypeCompatibility(PY_TYPE_LIST, i, true);
+    registerTypeCompatibility(PY_TYPE_LIST_BASE, i, true);
+}
+
+// 7. 索引操作特殊函数
+registerTypeConversion(PY_TYPE_INT, PY_TYPE_INT, "py_ensure_valid_index", 1);
 }
 
 void TypeOperationRegistry::registerBinaryOp(
@@ -529,7 +573,7 @@ std::string OperatorMapper::getRuntimeFunctionName(const std::string& base, cons
 //===----------------------------------------------------------------------===//
 // filepath: [TypeOperations.cpp](http://_vscodecontentref_/1)
 llvm::Value* OperationCodeGenerator::handleBinaryOp(
-    PyCodeGen& gen,
+    CodeGenBase& gen,
     char op,
     llvm::Value* left,
     llvm::Value* right,
@@ -543,92 +587,44 @@ llvm::Value* OperationCodeGenerator::handleBinaryOp(
     // 获取操作描述符
     BinaryOpDescriptor* descriptor = registry.getBinaryOpDescriptor(op, leftTypeId, rightTypeId);
 
-    // 如果找不到直接的操作描述符，尝试找到类型转换路径
-    if (!descriptor)
-    {
-        std::pair<int, int> opPath = registry.findOperablePath(op, leftTypeId, rightTypeId);
-
-        // 如果需要转换左操作数
-        if (opPath.first != leftTypeId)
-        {
-            TypeConversionDescriptor* convDesc = registry.getTypeConversionDescriptor(leftTypeId, opPath.first);
-            if (convDesc)
-            {
-                left = handleTypeConversion(gen, left, leftTypeId, opPath.first);
-                leftTypeId = opPath.first;
-            }
-        }
-
-        // 如果需要转换右操作数
-        if (opPath.second != rightTypeId)
-        {
-            TypeConversionDescriptor* convDesc = registry.getTypeConversionDescriptor(rightTypeId, opPath.second);
-            if (convDesc)
-            {
-                right = handleTypeConversion(gen, right, rightTypeId, opPath.second);
-                rightTypeId = opPath.second;
-            }
-        }
-
-        // 再次尝试获取操作描述符
-        descriptor = registry.getBinaryOpDescriptor(op, leftTypeId, rightTypeId);
-    }
-
-    // 如果仍然找不到操作描述符，处理错误
-    if (!descriptor)
-    {
-        std::cerr << "No binary operation " << op << " defined for types "
+    if (!descriptor) {
+        std::cerr << "No binary operation " << op << " defined for types " 
                   << leftTypeId << " and " << rightTypeId << std::endl;
         return nullptr;
     }
 
-    // 确定结果类型ID - 关键修改点
-    int resultTypeId = descriptor->resultTypeId;
-    if (resultTypeId == 0) {
-        // 如果描述符未指定结果类型，从registry推断
-        resultTypeId = registry.getResultTypeId(leftTypeId, rightTypeId, op);
-    }
-
     // 如果有自定义实现，使用它
-    if (descriptor->customImpl)
-    {
-        llvm::Value* result = descriptor->customImpl(gen, left, right);
-        // 附加类型元数据
-        ObjectLifecycleManager::attachTypeMetadata(result, resultTypeId);
-        return result;
+    if (descriptor->customImpl) {
+        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
+        return descriptor->customImpl(*pyCodeGen, left, right);
     }
 
-    // 否则使用运行时函数
-    llvm::FunctionType* funcType = llvm::FunctionType::get(
+    // 直接使用运行时函数，不尝试提取整数
+    llvm::Function* func = gen.getOrCreateExternalFunction(
+        descriptor->runtimeFunction,
         llvm::PointerType::get(context, 0),
         {llvm::PointerType::get(context, 0),
          llvm::PointerType::get(context, 0)},
         false);
 
-    llvm::Function* func = llvm::Function::Create(
-        funcType,
-        llvm::Function::ExternalLinkage,
-        descriptor->runtimeFunction,
-        gen.getModule());
-
-    // 如果操作数不是指针类型，需要包装为对象
-    if (!left->getType()->isPointerTy())
-    {
-        left = createObject(gen, left, leftTypeId);
+    // 确保操作数是指针类型
+    if (!left->getType()->isPointerTy()) {
+        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
+        left = createObject(*pyCodeGen, left, leftTypeId);
     }
 
-    if (!right->getType()->isPointerTy())
-    {
-        right = createObject(gen, right, rightTypeId);
+    if (!right->getType()->isPointerTy()) {
+        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
+        right = createObject(*pyCodeGen, right, rightTypeId);
     }
 
-    // 调用运行时函数并获取结果
+    // 调用运行时函数
     llvm::Value* result = builder.CreateCall(func, {left, right}, "binop_result");
     
-    // 关键修改：附加类型元数据到结果值
-    ObjectLifecycleManager::attachTypeMetadata(result, resultTypeId);
+    // 附加类型元数据
+    int resultTypeId = descriptor->resultTypeId;
+    gen.getRuntimeGen()->attachTypeMetadata(result, resultTypeId);
     
-    // 记录调试信息
     std::cerr << "DEBUG: 二元操作 '" << op << "' 结果类型ID: " << resultTypeId
               << " (左: " << leftTypeId << ", 右: " << rightTypeId << ")" << std::endl;
     
@@ -636,7 +632,7 @@ llvm::Value* OperationCodeGenerator::handleBinaryOp(
 }
 
 llvm::Value* OperationCodeGenerator::handleUnaryOp(
-    PyCodeGen& gen,
+    CodeGenBase& gen,
     char op,
     llvm::Value* operand,
     int operandTypeId)
@@ -657,25 +653,23 @@ llvm::Value* OperationCodeGenerator::handleUnaryOp(
     // 如果有自定义实现，使用它
     if (descriptor->customImpl)
     {
-        return descriptor->customImpl(gen, operand);
+        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
+        return descriptor->customImpl(*pyCodeGen, operand);
     }
 
     // 否则使用运行时函数
-    llvm::FunctionType* funcType = llvm::FunctionType::get(
-        llvm::PointerType::get(context, 0),
-        {llvm::PointerType::get(context, 0)},
-        false);
-
-    llvm::Function* func = llvm::Function::Create(
-        funcType,
-        llvm::Function::ExternalLinkage,
+    // 注意：这里修正了函数声明，确保只接受一个参数
+    llvm::Function* func = gen.getOrCreateExternalFunction(
         descriptor->runtimeFunction,
-        gen.getModule());
+        llvm::PointerType::get(context, 0),
+        {llvm::PointerType::get(context, 0)},  // 只有一个参数
+        false);
 
     // 如果操作数不是指针类型，需要包装为对象
     if (!operand->getType()->isPointerTy())
     {
-        operand = createObject(gen, operand, operandTypeId);
+        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
+        operand = createObject(*pyCodeGen, operand, operandTypeId);
     }
 
     // 调用运行时函数
@@ -683,7 +677,7 @@ llvm::Value* OperationCodeGenerator::handleUnaryOp(
 }
 
 llvm::Value* OperationCodeGenerator::handleTypeConversion(
-    PyCodeGen& gen,
+    CodeGenBase& gen,
     llvm::Value* value,
     int fromTypeId,
     int toTypeId)
@@ -710,7 +704,8 @@ llvm::Value* OperationCodeGenerator::handleTypeConversion(
     // 如果有自定义实现，使用它
     if (descriptor->customImpl)
     {
-        return descriptor->customImpl(gen, value);
+        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
+        return descriptor->customImpl(*pyCodeGen, value);
     }
 
     // 对于基本数值类型之间的转换，使用LLVM指令
@@ -730,21 +725,18 @@ llvm::Value* OperationCodeGenerator::handleTypeConversion(
     }
 
     // 否则使用运行时函数
-    llvm::FunctionType* funcType = llvm::FunctionType::get(
-        llvm::PointerType::get(context, 0),
-        {llvm::PointerType::get(context, 0)},
-        false);
-
-    llvm::Function* func = llvm::Function::Create(
-        funcType,
-        llvm::Function::ExternalLinkage,
+    // 注意：这里修正了函数声明，确保只接受一个参数
+    llvm::Function* func = gen.getOrCreateExternalFunction(
         descriptor->runtimeFunction,
-        gen.getModule());
+        llvm::PointerType::get(context, 0),
+        {llvm::PointerType::get(context, 0)},  // 只有一个参数
+        false);
 
     // 如果值不是指针类型，需要包装为对象
     if (!value->getType()->isPointerTy())
     {
-        value = createObject(gen, value, fromTypeId);
+        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
+        value = createObject(*pyCodeGen, value, fromTypeId);
     }
 
     // 调用运行时函数
@@ -807,11 +799,26 @@ llvm::Value* OperationCodeGenerator::createObject(PyCodeGen& gen, llvm::Value* v
             return value;
     }
 
-    createFunc = llvm::Function::Create(
-        funcType,
-        llvm::Function::ExternalLinkage,
-        funcName,
-        gen.getModule());
+    createFunc = gen.getOrCreateExternalFunction(
+    funcName,
+    llvm::PointerType::get(context, 0),
+    // 根据不同类型使用适当的参数类型
+    [&]() -> std::vector<llvm::Type*> {
+        switch (typeId) {
+            case PY_TYPE_INT:
+                return {llvm::Type::getInt32Ty(context)};
+            case PY_TYPE_DOUBLE:
+                return {llvm::Type::getDoubleTy(context)};
+            case PY_TYPE_BOOL:
+                return {llvm::Type::getInt1Ty(context)};
+            case PY_TYPE_STRING:
+                return {llvm::PointerType::get(context, 0)};
+            default:
+                return {llvm::Type::getInt32Ty(context)};
+        }
+    }(),
+    false
+);
 
     // 类型转换，如果需要的话
     if (typeId == PY_TYPE_INT && !value->getType()->isIntegerTy(32))
@@ -846,7 +853,7 @@ llvm::Value* OperationCodeGenerator::createObject(PyCodeGen& gen, llvm::Value* v
 //===----------------------------------------------------------------------===//
 
 llvm::Value* OperationResultHandler::adjustResult(
-    PyCodeGen& gen,
+    CodeGenBase& gen,
     llvm::Value* result,
     int resultTypeId,
     int expectedTypeId)
@@ -877,18 +884,20 @@ llvm::Value* OperationResultHandler::adjustResult(
             {llvm::PointerType::get(gen.getContext(), 0)},
             false);
 
-        llvm::Function* extractFunc = llvm::Function::Create(
-            extractFuncType,
-            llvm::Function::ExternalLinkage,
-            "py_extract_int",
-            gen.getModule());
+            llvm::Function* extractFunc = gen.getOrCreateExternalFunction(
+                "py_extract_int",
+                llvm::Type::getInt32Ty(gen.getContext()),
+                {llvm::PointerType::get(gen.getContext(), 0)},
+                false
+            );
 
         return builder.CreateCall(extractFunc, {result}, "extract_int");
     }
     else if (!result->getType()->isPointerTy() && (expectedTypeId == PY_TYPE_NONE || expectedTypeId >= PY_TYPE_LIST_BASE))
     {
         // 将基本类型值包装为对象
-        return OperationCodeGenerator::createObject(gen, result, resultTypeId);
+        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
+        return OperationCodeGenerator::createObject(*pyCodeGen, result, resultTypeId);
     }
 
     // 如果都不适用，返回原值
@@ -922,11 +931,12 @@ llvm::Value* OperationResultHandler::handleFunctionReturn(
              llvm::Type::getInt32Ty(context)},
             false);
 
-        llvm::Function* copyFunc = llvm::Function::Create(
-            copyFuncType,
-            llvm::Function::ExternalLinkage,
-            "py_object_copy",
-            gen.getModule());
+            llvm::Function* copyFunc = gen.getOrCreateExternalFunction(
+                "py_object_copy",
+                llvm::PointerType::get(context, 0),
+                {llvm::PointerType::get(context, 0), llvm::Type::getInt32Ty(context)},
+                false
+            );
 
         // 使用正确的类型ID - 这是修复"TypeError: Expected type 5, got 1"错误的关键部分
         llvm::Value* typeIdValue = llvm::ConstantInt::get(

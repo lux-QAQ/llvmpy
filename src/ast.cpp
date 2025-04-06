@@ -1,5 +1,5 @@
 #include "ast.h"
-#include "codegen.h"  // 添加这一行，引入CodeGen完整定义
+#include "CodeGen/codegen.h"  // 添加这一行，引入CodeGen完整定义
 #include "ObjectType.h"
 #include "TypeIDs.h"
 #include <algorithm>
@@ -177,6 +177,47 @@ std::shared_ptr<PyType> PyType::fromString(const std::string& typeName)
         return getAny();  // 默认返回Any类型
     }
     return std::make_shared<PyType>(objType);
+}
+
+
+std::shared_ptr<PyType> PyType::fromObjectType(ObjectType* objType)
+{
+    if (!objType) return nullptr;
+    return std::make_shared<PyType>(objType);
+}
+
+// 获取列表元素类型的静态方法
+std::shared_ptr<PyType> PyType::getListElementType(const std::shared_ptr<PyType>& listType)
+{
+    if (!listType || !listType->isList()) return nullptr;
+
+    const ListType* lt = dynamic_cast<const ListType*>(listType->getObjectType());
+    if (lt)
+    {
+        return std::make_shared<PyType>(const_cast<ObjectType*>(lt->getElementType()));
+    }
+    return nullptr;
+}
+
+std::shared_ptr<PyType> PyType::getDictKeyType(const std::shared_ptr<PyType>& dictType) {
+    if (!dictType || !dictType->isDict()) return nullptr;
+    
+    const DictType* dt = dynamic_cast<const DictType*>(dictType->getObjectType());
+    if (dt) {
+        return std::make_shared<PyType>(const_cast<ObjectType*>(dt->getKeyType()));
+    }
+    return nullptr;
+}
+
+// 获取字典值类型
+std::shared_ptr<PyType> PyType::getDictValueType(const std::shared_ptr<PyType>& dictType) {
+    if (!dictType || !dictType->isDict()) return nullptr;
+    
+    const DictType* dt = dynamic_cast<const DictType*>(dictType->getObjectType());
+    if (dt) {
+        return std::make_shared<PyType>(const_cast<ObjectType*>(dt->getValueType()));
+    }
+    return nullptr;
 }
 
 //========== 类型推断函数实现 ==========
@@ -398,7 +439,8 @@ std::shared_ptr<PyType> NumberExprAST::getType() const
 
 void NumberExprAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 // 变量引用表达式
@@ -421,7 +463,8 @@ std::shared_ptr<PyType> VariableExprAST::getType() const
 
 void VariableExprAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 
     // 缓存从代码生成器获取的类型
     cachedType = codegen.getLastExprType();
@@ -478,7 +521,8 @@ std::shared_ptr<PyType> BinaryExprAST::getType() const
 
 void BinaryExprAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 // 一元操作表达式
@@ -502,7 +546,8 @@ void StringExprAST::registerWithFactory()
 
 void StringExprAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 std::shared_ptr<PyType> StringExprAST::getType() const
@@ -522,7 +567,8 @@ void BoolExprAST::registerWithFactory()
 
 void BoolExprAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 std::shared_ptr<PyType> BoolExprAST::getType() const
@@ -540,7 +586,8 @@ void NoneExprAST::registerWithFactory()
 
 void NoneExprAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 std::shared_ptr<PyType> NoneExprAST::getType() const
@@ -575,7 +622,8 @@ std::shared_ptr<PyType> UnaryExprAST::getType() const
 
 void UnaryExprAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 // CallExprAST 实现工厂函数
@@ -602,7 +650,8 @@ std::shared_ptr<PyType> CallExprAST::getType() const
 
 void CallExprAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 
     // 缓存从代码生成器获取的类型
     cachedType = codegen.getLastExprType();
@@ -635,7 +684,8 @@ std::shared_ptr<PyType> ListExprAST::getType() const
 
 void ListExprAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 // 索引表达式
@@ -730,7 +780,8 @@ std::shared_ptr<PyType> IndexExprAST::getType() const
 
 void IndexExprAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 //========== 语句节点方法实现 ==========
@@ -747,7 +798,8 @@ void ExprStmtAST::registerWithFactory()
 
 void ExprStmtAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 // 索引赋值语句
@@ -766,7 +818,8 @@ void IndexAssignStmtAST::registerWithFactory()
 
 void IndexAssignStmtAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 // 返回语句
@@ -782,7 +835,8 @@ void ReturnStmtAST::registerWithFactory()
 
 void ReturnStmtAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 void ReturnStmtAST::cleanup(PyCodeGen& codegen)
@@ -807,7 +861,8 @@ void IfStmtAST::registerWithFactory()
 
 void IfStmtAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 void IfStmtAST::beginScope(PyCodeGen& codegen)
@@ -835,7 +890,8 @@ void WhileStmtAST::registerWithFactory()
 
 void WhileStmtAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 void WhileStmtAST::beginScope(PyCodeGen& codegen)
@@ -860,7 +916,8 @@ void PrintStmtAST::registerWithFactory()
 
 void PrintStmtAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 // 赋值语句
@@ -871,7 +928,8 @@ void AssignStmtAST::registerWithFactory()
 
 void AssignStmtAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 // pass语句
@@ -884,7 +942,8 @@ void PassStmtAST::registerWithFactory()
 
 void PassStmtAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 // import语句
@@ -899,7 +958,8 @@ void ImportStmtAST::registerWithFactory()
 
 void ImportStmtAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 //========== 类和模块方法实现 ==========
@@ -921,7 +981,8 @@ void ClassStmtAST::registerWithFactory()
 
 void ClassStmtAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 // 函数定义
@@ -1123,7 +1184,8 @@ void FunctionAST::resolveParamTypes()
 
 void FunctionAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 // 模块
@@ -1139,9 +1201,8 @@ void ModuleAST::addFunction(std::unique_ptr<FunctionAST> func)
 
 void ModuleAST::addStatement(std::unique_ptr<StmtAST> stmt)
 {
-    if (stmt)
-    {
-        topLevelStmts.push_back(std::move(stmt));
+    if (stmt) {
+        statements.push_back(std::move(stmt));
     }
 }
 
@@ -1160,7 +1221,8 @@ void ModuleAST::registerWithFactory()
 
 void ModuleAST::accept(PyCodeGen& codegen)
 {
-    codegen.visit(this);
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
 }
 
 //========== 模板方法实现 ==========
@@ -1204,5 +1266,10 @@ bool ExprASTBase<Derived, K>::isReference() const
     auto type = static_cast<const Derived*>(this)->getType();
     return type && type->isReference();
 }
+
+
+
+
+
 
 }  // namespace llvmpy

@@ -1,4 +1,5 @@
 #include "lexer.h"
+#include "parser.h"
 #include <cctype>
 #include <iostream>
 #include <fstream>
@@ -396,9 +397,22 @@ int PyLexer::calculateIndent() {
     return indent;
 }
 
+// 修改processIndentation()函数，大约在第318行左右
+
 void PyLexer::processIndentation() {
     int indent = calculateIndent();
     
+    // 检查这行是否只有注释或空白
+    size_t pos = position + indent;
+    while (pos < sourceCode.length() && (sourceCode[pos] == ' ' || sourceCode[pos] == '\t')) pos++;
+    if (pos >= sourceCode.length() || sourceCode[pos] == '#' || sourceCode[pos] == '\n') {
+        // 这是一个空行或者只有注释的行，跳过缩进处理
+        position += indent;
+        currentColumn += indent;
+        return;
+    }
+    
+    // 正常的缩进逻辑
     if (indent > indentStack.back()) {
         // 增加缩进级别
         indentStack.push_back(indent);
@@ -593,19 +607,61 @@ PyToken PyLexer::scanToken() {
     return handleOperator();
 }
 
+// 修改tokenizeSource()函数，大约在第638行左右
+
+// 改进tokenizeSource()函数的整体缩进处理
 void PyLexer::tokenizeSource() {
     bool atLineStart = true;
+    bool lastLineWasEmpty = false;
+    bool inFunctionBody = false;  // 新增：跟踪是否在函数体内
+    int emptyLineCount = 0;      // 新增：连续空行计数
     
     while (!isAtEnd()) {
         // 处理行首的缩进
         if (atLineStart && peek() != '\n') {
-            processIndentation();
+            // 判断这是否是一个有内容的行（不只是注释）
+            bool isCommentLine = false;
+            size_t tempPos = position;
+            int indent = calculateIndent();
+            tempPos += indent;
+            while (tempPos < sourceCode.length() && (sourceCode[tempPos] == ' ' || sourceCode[tempPos] == '\t')) 
+                tempPos++;
+            if (tempPos < sourceCode.length() && sourceCode[tempPos] == '#')
+                isCommentLine = true;
+            
+            // 只在非注释行处理缩进
+            if (!isCommentLine) {
+                processIndentation();
+                emptyLineCount = 0;  // 重置空行计数
+            } else {
+                // 对于注释行，只跳过空白，不产生缩进标记
+                position += indent;
+                currentColumn += indent;
+            }
+            
             atLineStart = false;
+            lastLineWasEmpty = false;
+        } else if (atLineStart && peek() == '\n') {
+            // 处理空行
+            lastLineWasEmpty = true;
+            emptyLineCount++;
+            advance();  // 移动到下一个字符
+            tokens.push_back(PyToken(TOK_NEWLINE, "\n", currentLine-1, currentColumn));
+            atLineStart = true;
+            continue;
         }
         
         // 扫描token
         PyToken token = scanToken();
         tokens.push_back(token);
+        
+        // 检查函数定义上下文
+        if (token.type == TOK_DEF) {
+            inFunctionBody = true;  // 即将进入函数体
+        } else if (token.type == TOK_DEDENT && inFunctionBody) {
+            // 可能离开函数体
+            inFunctionBody = false;
+        }
         
         // 检查是否需要在行尾添加NEWLINE
         if (token.type == TOK_NEWLINE) {
@@ -623,6 +679,13 @@ void PyLexer::tokenizeSource() {
     // 确保最后一个token是EOF
     if (tokens.empty() || tokens.back().type != TOK_EOF) {
         tokens.emplace_back(TOK_EOF, "", currentLine, currentColumn);
+    }
+    
+    // 后处理：移除文件末尾错误的缩进标记
+    size_t i = tokens.size() - 2;  // 跳过EOF
+    while (i > 0 && tokens[i].type == TOK_INDENT) {
+        tokens.erase(tokens.begin() + i);
+        i--;
     }
 }
 
