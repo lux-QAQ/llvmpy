@@ -218,7 +218,7 @@ ObjectType* PyCodeGen::getCurrentReturnType()
 // 表达式结果方法
 //===----------------------------------------------------------------------===//
 // 在适当位置添加方法实现
-llvm::Value* PyCodeGen::prepareAssignmentTarget(llvm::Value* value, ObjectType* targetType, ExprAST* expr)
+llvm::Value* PyCodeGen::prepareAssignmentTarget(llvm::Value* value, ObjectType* targetType,const ExprAST* expr)
 {
     if (!value || !targetType || !expr) return value;
 

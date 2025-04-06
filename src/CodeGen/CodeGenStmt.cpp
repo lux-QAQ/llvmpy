@@ -4,6 +4,7 @@
 #include "CodeGen/CodeGenType.h"
 #include "CodeGen/CodeGenRuntime.h"
 #include "CodeGen/CodeGenModule.h"  // 添加这一行
+#include "CodeGen/PyCodeGen.h"  // 添加这一行，确保 PyCodeGen 完整定义
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
 #include <llvm/IR/Constants.h>
@@ -147,16 +148,14 @@ llvm::Value* CodeGenStmt::handleCondition(const ExprAST* condition)
     // 获取条件表达式的类型
     std::shared_ptr<PyType> condType = condition->getType();
 
+    // 错误部分：不应该根据类型做特殊处理
     // 对于布尔类型，直接提取布尔值
-    if (condType->isBool())
-    {
-        return condValue;
-    }
+    // if (condType->isBool())
+    // {
+    //     return condValue;  // 这里有问题！即使是布尔对象，也需要提取其值
+    // }
 
-    // 对于非布尔类型，需要调用转换函数获取其布尔值
-    // 先获取类型ID
-    int typeId = OperationCodeGenerator::getTypeId(condType->getObjectType());
-
+    // 对于所有类型（包括布尔类型），都需要转换为i1类型
     // 获取对象到布尔值的转换函数
     llvm::Function* objectToBoolFunc = codeGen.getOrCreateExternalFunction(
             "py_object_to_bool",
@@ -286,6 +285,7 @@ void CodeGenStmt::handleIfStmt(IfStmtAST* stmt)
 void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 {
     auto& builder = codeGen.getBuilder();
+    auto* runtime = codeGen.getRuntimeGen();
 
     // 创建必要的基本块
     llvm::Function* func = codeGen.getCurrentFunction();
@@ -313,7 +313,12 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 
     // 生成循环体代码
     builder.SetInsertPoint(bodyBB);
+
+    // 处理循环体语句
     handleBlock(stmt->getBody());
+    
+    // 清理每次迭代的临时对象
+    runtime->cleanupTemporaryObjects();
 
     // 如果循环体没有终止（例如，没有return或break），添加跳转回条件块
     if (!builder.GetInsertBlock()->getTerminator())
@@ -437,69 +442,107 @@ void CodeGenStmt::handleAssignStmt(AssignStmtAST* stmt)
     auto* typeGen = codeGen.getTypeGen();
     auto* runtime = codeGen.getRuntimeGen();
 
-    // 获取变量名
+    // 获取变量名和值表达式
     const std::string& varName = stmt->getName();
+    const ExprAST* valueExpr = stmt->getValue();
 
-    // 生成赋值表达式的代码
-    llvm::Value* valueExpr = exprGen->handleExpr(stmt->getValue());
-    if (!valueExpr) return;
+    // 验证类型兼容性
+    if (!typeGen->validateAssignment(varName, valueExpr))
+    {
+        codeGen.logError("Type error in assignment to '" + varName + "'");
+        return;
+    }
 
-    // 获取赋值表达式的类型
-    std::shared_ptr<PyType> valueType = stmt->getValue()->getType();
+    // 生成值表达式的代码
+    llvm::Value* value = exprGen->handleExpr(valueExpr);
+    if (!value) return;
 
-    // 检查变量是否已经存在
+    // 准备用于赋值的值 (如果需要类型转换)
+    ObjectType* targetType = codeGen.getSymbolTable().getVariableType(varName);
+    std::shared_ptr<PyType> valueType = valueExpr->getType();
+    
+    // 检查变量是否已存在于符号表中
     if (codeGen.getSymbolTable().hasVariable(varName))
     {
-        // 变量已存在，获取变量的类型
-        ObjectType* varType = codeGen.getSymbolTable().getVariableType(varName);
-        std::shared_ptr<PyType> targetType = PyType::fromObjectType(varType);
-
-        // 验证类型兼容性
-        if (!typeGen->validateAssignment(varName, stmt->getValue()))
+        // 变量已存在，更新它的值
+        PyCodeGen* pyCodeGen = codeGen.asPyCodeGen();
+        if (pyCodeGen)
         {
-            // 类型不兼容，尝试类型转换
-            if (valueType && targetType)
-            {
-                // 使用运行时准备赋值目标
-                valueExpr = runtime->prepareAssignmentTarget(
-                        valueExpr, valueType, targetType);
-            }
+            // 准备赋值目标值
+            value = pyCodeGen->prepareAssignmentTarget(value, targetType, valueExpr);
+            if (!value) return;
         }
 
         // 获取现有变量的值
         llvm::Value* oldValue = codeGen.getSymbolTable().getVariable(varName);
 
-        // 如果旧值是引用类型对象，减少其引用计数
-        if (oldValue && varType && varType->isReference())
+        // 保存操作状态，记录此次赋值操作的位置和目标
+        auto savedLocation = builder.saveIP();
+        auto savedBlock = builder.GetInsertBlock();
+
+        // *************关键修复点1：增加对PHI节点的处理*************
+        // 对于在循环中的变量赋值，需要保证值在当前块中被直接更新
+        if (codeGen.getCurrentLoop() && !codeGen.getBuilder().GetInsertBlock()->getTerminator())
         {
-            runtime->decRef(oldValue);
+            // 确保对引用类型有正确的引用计数管理
+            if (oldValue && targetType && targetType->isReference())
+            {
+                runtime->decRef(oldValue);
+            }
+
+            // 对新值增加引用计数
+            if (value && valueType && valueType->isReference())
+            {
+                runtime->incRef(value);
+            }
         }
 
-        // 更新变量值
-        codeGen.getSymbolTable().setVariable(
-                varName,
-                valueExpr,
-                targetType ? targetType->getObjectType() : nullptr);
+        // 在符号表中更新变量的值
+        codeGen.getSymbolTable().setVariable(varName, value, targetType);
+
+        // *************关键修复点2：确保在循环体内更新参数*************
+        // 如果当前是循环体，且变量是函数参数，则需要特殊处理
+        llvm::Function* currentFunc = codeGen.getCurrentFunction();
+        if (currentFunc)
+        {
+            bool isParameter = false;
+            for (auto& arg : currentFunc->args())
+            {
+                if (arg.getName() == varName)
+                {
+                    isParameter = true;
+                    break;
+                }
+            }
+
+            // 对于函数参数的更新，需要确保新值对象的引用计数正确
+            if (isParameter && valueType && valueType->isReference())
+            {
+                // 确保函数参数的赋值在作用域链中可见
+                runtime->incRef(value); // 增加额外引用计数确保参数值存活
+            }
+        }
     }
     else
     {
-        // 新变量，直接使用值类型
-        codeGen.getSymbolTable().setVariable(
-                varName,
-                valueExpr,
-                valueType ? valueType->getObjectType() : nullptr);
-
+        // 变量不存在，创建新变量
+        codeGen.getSymbolTable().setVariable(varName, value, valueType->getObjectType());
+        
         // 对于引用类型的新变量，需要增加引用计数
         if (valueType && valueType->isReference())
         {
-            runtime->incRef(valueExpr);
+            runtime->incRef(value);
         }
     }
 
-    // 清理临时对象
+    // 标记最后计算的表达式的值和类型
+    codeGen.setLastExprValue(value);
+    codeGen.setLastExprType(valueType);
+    
+    // *************关键修复点3：强制清理临时对象*************
+    // 在每次赋值操作后清理临时对象，防止内存泄漏
     runtime->cleanupTemporaryObjects();
 }
-
 void CodeGenStmt::handleIndexAssignStmt(IndexAssignStmtAST* stmt)
 {
     auto* exprGen = codeGen.getExprGen();

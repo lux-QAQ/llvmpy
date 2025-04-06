@@ -19,4 +19,3 @@ RUNTIME_SRC=$(find src/RunTime -name "*.cpp")
 clang++ -O0 output.o $RUNTIME_SRC -Iinclude/ -o program -Wl,--no-demangle
 
 echo "编译完成，生成可执行文件 'program'"
-./program

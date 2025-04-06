@@ -48,7 +48,7 @@ public:
         getSymbolTable().popScope();
     }
 
-    llvm::Value* prepareAssignmentTarget(llvm::Value* value, ObjectType* targetType, ExprAST* expr);
+    llvm::Value* prepareAssignmentTarget(llvm::Value* value, ObjectType* targetType,const ExprAST* expr);
     // 生成AST节点代码
     llvm::Value* codegen(ASTNode* node);
 

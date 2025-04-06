@@ -8,7 +8,8 @@ def returntest4(a):
     return a+3   
 def whiletest(a):
     while a < 5:
-        a += 1
+        a = a+1
+        print(a)
     return a
 def main():
     b=[1,2]

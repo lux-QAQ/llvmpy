@@ -429,6 +429,28 @@ public:
         int containerTypeId,
         int indexTypeId
     );
+
+
+    /**
+ * 处理涉及 ANY 类型的二元操作 - 专门处理 ANY 类型与其他类型的交互
+ * @param gen 代码生成器
+ * @param op 操作符
+ * @param left 左操作数
+ * @param right 右操作数
+ * @param anyTypeIsLeft 标识是左操作数为 ANY 类型
+ * @param otherTypeId 另一个操作数的类型ID
+ * @return 操作结果值
+ */
+static llvm::Value* handleAnyTypeOperation(
+    CodeGenBase& gen,
+    char op,
+    llvm::Value* left,
+    llvm::Value* right,
+    bool anyTypeIsLeft,
+    int otherTypeId
+);
+
+
     
     /**
      * 处理类型转换
