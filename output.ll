@@ -64,15 +64,15 @@ entry:
   br label %while.cond
 
 while.cond:                                       ; preds = %while.body, %entry
+  %a.phi = phi ptr [ %a, %entry ], [ %any_op_result, %while.body ]
   %int_obj = call ptr @py_create_int(i32 5)
-  %any_cmp_result = call ptr @py_object_compare(ptr %a, ptr %int_obj, i32 2), !py.type !1
+  %any_cmp_result = call ptr @py_object_compare(ptr %a.phi, ptr %int_obj, i32 2), !py.type !1
   %condval = call i1 @py_object_to_bool(ptr %any_cmp_result)
   br i1 %condval, label %while.body, label %while.end
 
 while.body:                                       ; preds = %while.cond
   %int_obj1 = call ptr @py_create_int(i32 1)
-  %any_op_result = call ptr @py_object_add(ptr %a, ptr %int_obj1), !py.type !0
-  call void @py_incref(ptr %any_op_result)
+  %any_op_result = call ptr @py_object_add(ptr %a.phi, ptr %int_obj1), !py.type !0
   call void @py_incref(ptr %any_op_result)
   %str_obj = call ptr @py_convert_to_string(ptr %any_op_result)
   %str_ptr = call ptr @py_extract_string(ptr %str_obj)
@@ -81,7 +81,7 @@ while.body:                                       ; preds = %while.cond
   br label %while.cond
 
 while.end:                                        ; preds = %while.cond
-  ret ptr %a
+  ret ptr %a.phi
 }
 
 declare ptr @py_object_compare(ptr, ptr, i32)

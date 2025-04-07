@@ -533,6 +533,7 @@ void CodeGenModule::cleanupFunction()
 {
     // 释放函数中的临时对象
     codeGen.releaseTempObjects();
+    codeGen.getVariableUpdateContext().clearLoopVariables();
 }
 
 // 添加函数引用

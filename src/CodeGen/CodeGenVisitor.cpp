@@ -249,6 +249,7 @@ void CodeGenVisitor::visit(IfStmtAST* node) {
 
 void CodeGenVisitor::visit(WhileStmtAST* node) {
     auto* stmtGen = codeGen.getStmtGen();
+    auto& updateContext = codeGen.getVariableUpdateContext();
     
     // 获取当前函数
     llvm::Function* func = codeGen.getCurrentFunction();
@@ -265,8 +266,14 @@ void CodeGenVisitor::visit(WhileStmtAST* node) {
     // 注册循环块，处理break和continue
     codeGen.pushLoopBlocks(condBlock, afterBlock);
     
+    // 设置变量更新上下文 - 添加这一行
+    updateContext.setLoopContext(condBlock, afterBlock);
+    
     // 跳转到条件块
     builder.CreateBr(condBlock);
+    
+    // 为参数和外层循环变量创建PHI节点
+    updateContext.createPhiNodesForCurrentLoop(codeGen);
     
     // 生成条件块代码
     builder.SetInsertPoint(condBlock);
@@ -274,6 +281,8 @@ void CodeGenVisitor::visit(WhileStmtAST* node) {
     llvm::Value* condValue = exprGen->handleExpr(node->getCondition());
     
     if (!condValue) {
+        // 错误处理时清理所有上下文
+        updateContext.clearLoopContext();
         codeGen.popLoopBlocks();
         return;
     }
@@ -289,13 +298,24 @@ void CodeGenVisitor::visit(WhileStmtAST* node) {
     }
     stmtGen->endScope();
     
+    // 应用任何未处理的变量更新
+    updateContext.applyPendingUpdates();
+    
     // 如果循环体没有终结器，跳回条件块
     if (!builder.GetInsertBlock()->getTerminator()) {
         builder.CreateBr(condBlock);
     }
     
+    // 如果有嵌套循环，合并变量更新
+    if (updateContext.inLoopContext()) {
+        updateContext.mergeNestedLoopUpdates();
+    }
+    
     // 设置插入点到循环后块
     builder.SetInsertPoint(afterBlock);
+    
+    // 清理变量更新上下文 - 添加这一行
+    updateContext.clearLoopContext();
     
     // 清理循环块注册
     codeGen.popLoopBlocks();

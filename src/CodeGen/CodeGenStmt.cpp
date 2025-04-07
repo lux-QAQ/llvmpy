@@ -282,55 +282,87 @@ void CodeGenStmt::handleIfStmt(IfStmtAST* stmt)
     builder.SetInsertPoint(mergeBB);
 }
 
+
+// 修改现有方法
+
 void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 {
     auto& builder = codeGen.getBuilder();
     auto* runtime = codeGen.getRuntimeGen();
+    auto& updateContext = codeGen.getVariableUpdateContext();
 
     // 创建必要的基本块
     llvm::Function* func = codeGen.getCurrentFunction();
+    llvm::BasicBlock* entryBB = builder.GetInsertBlock();
     llvm::BasicBlock* condBB = codeGen.createBasicBlock("while.cond", func);
     llvm::BasicBlock* bodyBB = codeGen.createBasicBlock("while.body", func);
     llvm::BasicBlock* endBB = codeGen.createBasicBlock("while.end", func);
 
+    // 设置变量更新上下文
+    updateContext.setLoopContext(condBB, endBB);
+    
+    // 保存之前的循环信息
+    auto* oldLoop = codeGen.getCurrentLoop();
+    llvm::BasicBlock* oldLoopBlock = oldLoop ? oldLoop->condBlock : nullptr;
+    codeGen.setCurrentLoop(condBB);
+    
     // 跳转到条件块
     builder.CreateBr(condBB);
-
-    // 设置循环块信息，用于处理break和continue
-    codeGen.pushLoopBlocks(condBB, endBB);
-
-    // 生成条件判断代码
+    
+    // 为函数参数创建PHI节点
+    builder.SetInsertPoint(condBB, condBB->begin());
+    for (auto& arg : func->args()) {
+        std::string argName = arg.getName().str();
+        if (!argName.empty()) {
+            // 创建PHI节点
+            llvm::PHINode* phi = builder.CreatePHI(arg.getType(), 2, argName + ".phi");
+            phi->addIncoming(&arg, entryBB);
+            
+            // 在符号表中更新参数值为PHI节点
+            codeGen.getSymbolTable().setVariable(argName, phi, 
+                codeGen.getSymbolTable().getVariableType(argName));
+            
+            // 注册为循环变量
+            updateContext.registerLoopVariable(argName, phi);
+        }
+    }
+    
+    // 生成条件代码
     builder.SetInsertPoint(condBB);
     llvm::Value* condValue = handleCondition(stmt->getCondition());
-    if (!condValue)
-    {
-        codeGen.popLoopBlocks();
+    if (!condValue) {
+        updateContext.clearLoopContext();
+        codeGen.setCurrentLoop(oldLoopBlock);
         return;
     }
-
+    
     // 创建条件分支
     builder.CreateCondBr(condValue, bodyBB, endBB);
-
+    
     // 生成循环体代码
     builder.SetInsertPoint(bodyBB);
-
-    // 处理循环体语句
-    handleBlock(stmt->getBody());
+    beginScope();
     
-    // 清理每次迭代的临时对象
-    runtime->cleanupTemporaryObjects();
-
-    // 如果循环体没有终止（例如，没有return或break），添加跳转回条件块
-    if (!builder.GetInsertBlock()->getTerminator())
-    {
+    // 处理循环体语句
+    for (auto& bodyStmt : stmt->getBody()) {
+        handleStmt(bodyStmt.get());
+        if (builder.GetInsertBlock()->getTerminator()) break;
+    }
+    
+    // 如果循环体没有终止，创建到条件块的分支
+    llvm::BasicBlock* lastBlock = builder.GetInsertBlock();
+    if (!lastBlock->getTerminator()) {
         builder.CreateBr(condBB);
     }
-
-    // 继续处理循环结束后的代码
+    
+    endScope();
+    
+    // 恢复设置
+    codeGen.setCurrentLoop(oldLoopBlock);
+    updateContext.clearLoopContext();
+    
+    // 设置插入点到循环后块
     builder.SetInsertPoint(endBB);
-
-    // 清理循环信息
-    codeGen.popLoopBlocks();
 }
 
 void CodeGenStmt::handlePrintStmt(PrintStmtAST* stmt)
@@ -435,6 +467,8 @@ void CodeGenStmt::handlePrintStmt(PrintStmtAST* stmt)
     runtime->cleanupTemporaryObjects();
 }
 
+// 修改现有方法
+
 void CodeGenStmt::handleAssignStmt(AssignStmtAST* stmt)
 {
     auto& builder = codeGen.getBuilder();
@@ -447,8 +481,7 @@ void CodeGenStmt::handleAssignStmt(AssignStmtAST* stmt)
     const ExprAST* valueExpr = stmt->getValue();
 
     // 验证类型兼容性
-    if (!typeGen->validateAssignment(varName, valueExpr))
-    {
+    if (!typeGen->validateAssignment(varName, valueExpr)) {
         codeGen.logError("Type error in assignment to '" + varName + "'");
         return;
     }
@@ -457,90 +490,32 @@ void CodeGenStmt::handleAssignStmt(AssignStmtAST* stmt)
     llvm::Value* value = exprGen->handleExpr(valueExpr);
     if (!value) return;
 
-    // 准备用于赋值的值 (如果需要类型转换)
+    // 获取类型信息
     ObjectType* targetType = codeGen.getSymbolTable().getVariableType(varName);
     std::shared_ptr<PyType> valueType = valueExpr->getType();
     
-    // 检查变量是否已存在于符号表中
-    if (codeGen.getSymbolTable().hasVariable(varName))
-    {
-        // 变量已存在，更新它的值
-        PyCodeGen* pyCodeGen = codeGen.asPyCodeGen();
-        if (pyCodeGen)
-        {
-            // 准备赋值目标值
-            value = pyCodeGen->prepareAssignmentTarget(value, targetType, valueExpr);
-            if (!value) return;
-        }
-
-        // 获取现有变量的值
-        llvm::Value* oldValue = codeGen.getSymbolTable().getVariable(varName);
-
-        // 保存操作状态，记录此次赋值操作的位置和目标
-        auto savedLocation = builder.saveIP();
-        auto savedBlock = builder.GetInsertBlock();
-
-        // *************关键修复点1：增加对PHI节点的处理*************
-        // 对于在循环中的变量赋值，需要保证值在当前块中被直接更新
-        if (codeGen.getCurrentLoop() && !codeGen.getBuilder().GetInsertBlock()->getTerminator())
-        {
-            // 确保对引用类型有正确的引用计数管理
-            if (oldValue && targetType && targetType->isReference())
-            {
-                runtime->decRef(oldValue);
-            }
-
-            // 对新值增加引用计数
-            if (value && valueType && valueType->isReference())
-            {
-                runtime->incRef(value);
-            }
-        }
-
-        // 在符号表中更新变量的值
-        codeGen.getSymbolTable().setVariable(varName, value, targetType);
-
-        // *************关键修复点2：确保在循环体内更新参数*************
-        // 如果当前是循环体，且变量是函数参数，则需要特殊处理
-        llvm::Function* currentFunc = codeGen.getCurrentFunction();
-        if (currentFunc)
-        {
-            bool isParameter = false;
-            for (auto& arg : currentFunc->args())
-            {
-                if (arg.getName() == varName)
-                {
-                    isParameter = true;
-                    break;
-                }
-            }
-
-            // 对于函数参数的更新，需要确保新值对象的引用计数正确
-            if (isParameter && valueType && valueType->isReference())
-            {
-                // 确保函数参数的赋值在作用域链中可见
-                runtime->incRef(value); // 增加额外引用计数确保参数值存活
-            }
-        }
+    // 准备用于赋值的值
+    PyCodeGen* pyCodeGen = codeGen.asPyCodeGen();
+    if (pyCodeGen && codeGen.getSymbolTable().hasVariable(varName)) {
+        value = pyCodeGen->prepareAssignmentTarget(value, targetType, valueExpr);
+        if (!value) return;
     }
-    else
-    {
-        // 变量不存在，创建新变量
+    
+    // 使用符号表的更新方法处理变量更新
+    if (codeGen.getSymbolTable().hasVariable(varName)) {
+        codeGen.getSymbolTable().updateVariable(codeGen, varName, value, targetType, valueType);
+    } else {
         codeGen.getSymbolTable().setVariable(varName, value, valueType->getObjectType());
-        
-        // 对于引用类型的新变量，需要增加引用计数
-        if (valueType && valueType->isReference())
-        {
+        if (valueType && valueType->isReference()) {
             runtime->incRef(value);
         }
     }
 
-    // 标记最后计算的表达式的值和类型
+    // 标记最后计算的表达式
     codeGen.setLastExprValue(value);
     codeGen.setLastExprType(valueType);
     
-    // *************关键修复点3：强制清理临时对象*************
-    // 在每次赋值操作后清理临时对象，防止内存泄漏
+    // 清理临时对象
     runtime->cleanupTemporaryObjects();
 }
 void CodeGenStmt::handleIndexAssignStmt(IndexAssignStmtAST* stmt)
