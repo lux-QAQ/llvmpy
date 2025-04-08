@@ -8,7 +8,7 @@
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
 #include <llvm/IR/Constants.h>
-#include <iostream>
+
 
 namespace llvmpy
 {
@@ -659,7 +659,7 @@ void CodeGenStmt::handleImportStmt(ImportStmtAST* stmt)
             {llvm::PointerType::get(codeGen.getContext(), 0)});
 
     // 创建模块名字符串
-    llvm::Value* moduleNameValue = builder.CreateGlobalStringPtr(moduleName, "module_name");
+    llvm::Value* moduleNameValue = builder.CreateGlobalString(moduleName, "module_name");
 
     // 导入模块
     llvm::Value* moduleObj = builder.CreateCall(importModuleFunc, {moduleNameValue}, "module_obj");
@@ -701,7 +701,7 @@ void CodeGenStmt::handleClassStmt(ClassStmtAST* stmt)
             });
 
     // 创建类名字符串
-    llvm::Value* classNameValue = builder.CreateGlobalStringPtr(className, "class_name");
+    llvm::Value* classNameValue = builder.CreateGlobalString(className, "class_name");
 
     // 创建基类列表
     llvm::Value* baseClassesList = nullptr;
@@ -807,7 +807,7 @@ void CodeGenStmt::handleMethod(FunctionAST* method, llvm::Value* classObj)
             });
 
     // 创建方法名字符串
-    llvm::Value* methodNameValue = builder.CreateGlobalStringPtr(method->name, "method_name");
+    llvm::Value* methodNameValue = builder.CreateGlobalString(method->name, "method_name");
 
     // 将方法包装为Python可调用对象
     llvm::Function* wrapMethodFunc = codeGen.getOrCreateExternalFunction(

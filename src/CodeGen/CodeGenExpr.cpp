@@ -1,4 +1,4 @@
-#include <iostream>
+
 #include <cmath>
 
 #include "CodeGen/CodeGenExpr.h"
@@ -702,7 +702,7 @@ llvm::Value* CodeGenExpr::createStringLiteral(const std::string& value)
     auto* runtime = codeGen.getRuntimeGen();
 
     // 创建字符串常量
-    llvm::Value* strPtr = builder.CreateGlobalStringPtr(value, "str_const");
+    llvm::Value* strPtr = builder.CreateGlobalString(value, "str_const");
 
     // 使用运行时创建字符串对象
     return runtime->createStringObject(strPtr);

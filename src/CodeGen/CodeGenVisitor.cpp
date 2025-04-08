@@ -197,7 +197,7 @@ void CodeGenVisitor::visit(ImportStmtAST* node) {
     const std::string& alias = node->getAlias();
     
     // 创建全局字符串常量用于模块名
-    llvm::Value* moduleNameValue = builder.CreateGlobalStringPtr(moduleName, "module_name");
+    llvm::Value* moduleNameValue = builder.CreateGlobalString(moduleName, "module_name");
     
     // 获取导入模块函数
     llvm::Function* importModuleFunc = codeGen.getOrCreateExternalFunction(
@@ -244,7 +244,7 @@ void CodeGenVisitor::visit(ClassStmtAST* node) {
     const std::vector<std::string>& baseClasses = node->getBaseClasses();
     
     // 创建类名字符串
-    llvm::Value* classNameValue = builder.CreateGlobalStringPtr(className, "class_name");
+    llvm::Value* classNameValue = builder.CreateGlobalString(className, "class_name");
     
     // 创建基类列表
     llvm::Value* baseClassesArray = nullptr;
@@ -275,7 +275,7 @@ void CodeGenVisitor::visit(ClassStmtAST* node) {
         );
         
         for (size_t i = 0; i < baseClasses.size(); ++i) {
-            llvm::Value* baseClassName = builder.CreateGlobalStringPtr(baseClasses[i], "base_class");
+            llvm::Value* baseClassName = builder.CreateGlobalString(baseClasses[i], "base_class");
             builder.CreateCall(
                 setListStringItemFunc,
                 {
@@ -1189,7 +1189,7 @@ llvm::Value* CodeGenVisitor::generateDefaultValue(CodeGenBase& codeGen, std::sha
                 "py_create_string",
                 llvm::PointerType::get(context, 0),
                 {llvm::PointerType::get(context, 0)});
-        return builder.CreateCall(createStringFunc, {builder.CreateGlobalStringPtr("")});
+        return builder.CreateCall(createStringFunc, {builder.CreateGlobalString("")});
     }
     else if (type->isList())
     {
