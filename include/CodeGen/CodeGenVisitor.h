@@ -2,10 +2,12 @@
 #define CODEGEN_VISITOR_H
 
 #include "ast.h"
+#include "CodeGen/VariableUpdateContext.h"
 #include <llvm/IR/Value.h>
 #include <memory>
 
-namespace llvmpy {
+namespace llvmpy
+{
 
 // 前向声明
 class CodeGenBase;
@@ -29,7 +31,8 @@ class ClassStmtAST;
  * 该类将AST节点的处理委托给适当的代码生成组件，通过CodeGenBase访问
  * 各种代码生成器（如表达式、语句、模块等）。
  */
-class CodeGenVisitor {
+class CodeGenVisitor
+{
 private:
     CodeGenBase& codeGen;  // 代码生成基础设施引用
 
@@ -40,6 +43,15 @@ public:
      */
     CodeGenVisitor(CodeGenBase& cg);
 
+    // 辅助函数：检查基本块是否有终结器指令
+    bool builder_has_terminator(llvm::BasicBlock* block);
+    // 辅助函数：为给定类型生成默认值
+    llvm::Value* generateDefaultValue(CodeGenBase& codeGen, std::shared_ptr<PyType> type);
+    void analyzeExpressionForLoopVars(
+        const ExprAST* expr, 
+        VariableUpdateContext& updateContext,
+        llvm::BasicBlock* loopHeader,
+        llvm::BasicBlock* entryBlock);
     //===----------------------------------------------------------------------===//
     // 核心访问方法 - 处理各种AST节点类型
     //===----------------------------------------------------------------------===//
@@ -129,6 +141,6 @@ public:
     void visit(ASTNode* node);
 };
 
-} // namespace llvmpy
+}  // namespace llvmpy
 
-#endif // CODEGEN_VISITOR_H
+#endif  // CODEGEN_VISITOR_H

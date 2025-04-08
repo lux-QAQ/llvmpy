@@ -1,7 +1,7 @@
 def returntest1(a):
     return a+1      
 def returntest2(a,b):
-    return a[b]     
+    return a[b] + 999    
 def returntest3(a):
     return a+2   
 def returntest4(a):
@@ -12,7 +12,7 @@ def whiletest(a):
         print(a)
     return a
 def main():
-    b=[1,2]
+    b=[1,2.5]
     a= 0.5
     print(returntest3(a))
     print(returntest4(a))

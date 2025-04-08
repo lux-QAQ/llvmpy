@@ -199,7 +199,7 @@ public:
     {
         return K;
     }
-    virtual std::shared_ptr<PyType> getType() const = 0;
+     virtual std::shared_ptr<PyType> getType() const override = 0;
 
     // 类型推断相关的辅助方法
     bool isNumeric() const;
@@ -239,7 +239,7 @@ public:
     {
     }
 
-    double getValue() const
+    double getValue() const 
     {
         return value;
     }
@@ -414,10 +414,11 @@ public:
     }
     std::shared_ptr<PyType> getType() const override;
     void accept(PyCodeGen& codegen) override;
-        // 添加缺失的setType方法
-        void setType(const std::shared_ptr<PyType>& type) {
-            cachedType = type;
-        }
+    // 添加缺失的setType方法
+    void setType(const std::shared_ptr<PyType>& type)
+    {
+        cachedType = type;
+    }
     bool needsCopy() const override
     {
         return true;
@@ -445,10 +446,11 @@ public:
     }
     std::shared_ptr<PyType> getType() const override;
     void accept(PyCodeGen& codegen) override;
-        // 添加 setType 方法
-        void setType(std::shared_ptr<PyType> type) {
-            cachedType = type;
-        }
+    // 添加 setType 方法
+    void setType(std::shared_ptr<PyType> type)
+    {
+        cachedType = type;
+    }
     bool needsCopy() const override
     {
         return false;
@@ -479,7 +481,8 @@ public:
         return index.get();
     }
     // 添加 setType 方法
-    void setType(std::shared_ptr<PyType> type) {
+    void setType(std::shared_ptr<PyType> type)
+    {
         cachedType = type;
     }
     std::shared_ptr<PyType> getType() const override;
@@ -504,7 +507,6 @@ public:
     {
     }
 
-    
     const ExprAST* getExpr() const
     {
         return expr.get();
@@ -911,8 +913,8 @@ class ModuleAST : public ASTNodeBase<ModuleAST, ASTKind::Module>
 {
     std::string moduleName;
     std::vector<std::unique_ptr<FunctionAST>> functions;
-    std::vector<std::unique_ptr<StmtAST>> statements; // 保留一个变量
-    
+    std::vector<std::unique_ptr<StmtAST>> statements;  // 保留一个变量
+
 public:
     ModuleAST(const std::string& name,
               std::vector<std::unique_ptr<StmtAST>> stmts,
@@ -928,12 +930,21 @@ public:
     void addFunction(std::unique_ptr<FunctionAST> func);
     void addStatement(std::unique_ptr<StmtAST> stmt);
 
-    const std::string& getModuleName() const { return moduleName; }
-    const std::vector<std::unique_ptr<FunctionAST>>& getFunctions() const { return functions; }
-    
+    const std::string& getModuleName() const
+    {
+        return moduleName;
+    }
+    const std::vector<std::unique_ptr<FunctionAST>>& getFunctions() const
+    {
+        return functions;
+    }
+
     // 统一使用 statements 接口
-    const std::vector<std::unique_ptr<StmtAST>>& getStatements() const { return statements; }
-    
+    const std::vector<std::unique_ptr<StmtAST>>& getStatements() const
+    {
+        return statements;
+    }
+
     void accept(PyCodeGen& codegen) override;
     static void registerWithFactory();
 };
@@ -1022,6 +1033,12 @@ public:
     // 构造函数
     PyType(ObjectType* objType = nullptr);
 
+    std::string toString() const
+    {
+        if (!objectType) return "unknown";
+        return objectType->getName();
+    }
+
     // 获取底层ObjectType对象
     ObjectType* getObjectType()
     {
@@ -1062,10 +1079,10 @@ public:
     // 获取列表元素类型的静态方法
     static std::shared_ptr<PyType> getListElementType(const std::shared_ptr<PyType>& listType);
 
-    static std::shared_ptr<PyType> getDictKeyType(const std::shared_ptr<PyType>& dictType) ;
-    
+    static std::shared_ptr<PyType> getDictKeyType(const std::shared_ptr<PyType>& dictType);
+
     // 获取字典值类型
-    static std::shared_ptr<PyType> getDictValueType(const std::shared_ptr<PyType>& dictType) ;
+    static std::shared_ptr<PyType> getDictValueType(const std::shared_ptr<PyType>& dictType);
 
     // 类型解析 - 从字符串解析类型
     static std::shared_ptr<PyType> fromString(const std::string& typeName);

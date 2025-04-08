@@ -877,6 +877,75 @@ llvm::Value* OperationCodeGenerator::handleUnaryOp(
     return builder.CreateCall(func, {operand}, "unaryop_result");
 }
 
+
+
+// prepareIndexValue处理索引值，确保其为整数？
+llvm::Value* OperationCodeGenerator::prepareIndexValue(
+    CodeGenBase& gen,
+    llvm::Value* index,
+    int indexTypeId) {
+    
+    auto& builder = gen.getBuilder();
+    
+    // 如果索引已经是整数类型，直接返回
+    if (indexTypeId == PY_TYPE_INT) {
+        // 从Python整数对象提取C整数
+        llvm::Function* extractIntFunc = gen.getOrCreateExternalFunction(
+            "py_extract_int",
+            llvm::Type::getInt32Ty(gen.getContext()),
+            {llvm::PointerType::get(gen.getContext(), 0)}
+        );
+        
+        return builder.CreateCall(extractIntFunc, {index}, "idx");
+    }
+    
+    // 如果索引是布尔类型，先转换为整数
+    if (indexTypeId == PY_TYPE_BOOL) {
+        // 从Python布尔对象提取C布尔值
+        llvm::Function* extractBoolFunc = gen.getOrCreateExternalFunction(
+            "py_extract_bool",
+            llvm::Type::getInt1Ty(gen.getContext()),
+            {llvm::PointerType::get(gen.getContext(), 0)}
+        );
+        
+        llvm::Value* boolVal = builder.CreateCall(extractBoolFunc, {index}, "bool_val");
+        
+        // 将布尔值转换为整数
+        llvm::Value* intVal = builder.CreateZExt(boolVal, llvm::Type::getInt32Ty(gen.getContext()), "int_from_bool");
+        
+        return intVal;
+    }
+    
+    // 对于其他类型，尝试从任意对象提取整数
+    llvm::Function* extractIntFromAnyFunc = gen.getOrCreateExternalFunction(
+        "py_extract_int_from_any",
+        llvm::PointerType::get(gen.getContext(), 0),
+        {llvm::PointerType::get(gen.getContext(), 0)}
+    );
+    
+    llvm::Value* intObj = builder.CreateCall(extractIntFromAnyFunc, {index}, "int_obj");
+    
+    // 从整数对象提取C整数
+    llvm::Function* extractIntFunc = gen.getOrCreateExternalFunction(
+        "py_extract_int",
+        llvm::Type::getInt32Ty(gen.getContext()),
+        {llvm::PointerType::get(gen.getContext(), 0)}
+    );
+    
+    llvm::Value* intVal = builder.CreateCall(extractIntFunc, {intObj}, "idx");
+    
+    // 释放临时对象
+    llvm::Function* decRefFunc = gen.getOrCreateExternalFunction(
+        "py_decref",
+        llvm::Type::getVoidTy(gen.getContext()),
+        {llvm::PointerType::get(gen.getContext(), 0)}
+    );
+    
+    builder.CreateCall(decRefFunc, {intObj});
+    
+    return intVal;
+}
+
 llvm::Value* OperationCodeGenerator::handleTypeConversion(
         CodeGenBase& gen,
         llvm::Value* value,
