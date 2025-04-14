@@ -5,6 +5,9 @@
 // 定义RECOVER_SOURCE_FROM_TOKENS宏来启用从Token恢复源代码
 #define RECOVER_SOURCE_FROM_TOKENS
 #define DEBUG
+
+//#define DEBUG_WhileSTmt
+
 #define DEBUG_LOG(msg) \
     std::cerr << "DEBUG: " << msg << std::endl;
 

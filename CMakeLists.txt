@@ -5,15 +5,20 @@ project(llvmpy VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_SKIP_BUILD_RPATH FALSE)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib:/usr/lib/x86_64-linux-gnu")
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)  # 改为FALSE防止自动添加其他路径
+
+# 明确设置查找库的路径优先级
+list(REMOVE_ITEM CMAKE_SYSTEM_PREFIX_PATH "/home/ljs/miniconda3")
+list(INSERT CMAKE_SYSTEM_LIBRARY_PATH 0 "/usr/lib/x86_64-linux-gnu")
 
 # 静态链接标准库
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
-# 查找依赖库
+# 查找依赖库，明确指定系统库路径
+set(ZLIB_ROOT "/usr")  # 优先查找系统zlib
+set(CMAKE_PREFIX_PATH "/usr" ${CMAKE_PREFIX_PATH})
 find_package(ZLIB REQUIRED)
-find_package(zstd QUIET)  # QUIET参数使其找不到时不会报错
-
+find_package(zstd QUIET)
 # 查找LLVM包
 find_package(LLVM REQUIRED CONFIG)
 

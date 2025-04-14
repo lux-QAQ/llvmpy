@@ -195,6 +195,9 @@ public:
     llvm::Value* logTypeError(const std::string& message, int line = 0, int column = 0);
     bool logValidationError(const std::string& message, int line = 0, int column = 0);
 
+    // 警告处理
+    void logWarning(const std::string& message, int line, int column);
+
     // 循环控制
     void pushLoopBlocks(llvm::BasicBlock* condBlock, llvm::BasicBlock* afterBlock);
     void popLoopBlocks();

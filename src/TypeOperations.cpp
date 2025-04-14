@@ -754,82 +754,83 @@ llvm::Value* OperationCodeGenerator::handleAnyTypeOperation(
 }
 
 llvm::Value* OperationCodeGenerator::handleBinaryOp(
-    CodeGenBase& gen,
-    char op,
-    llvm::Value* left,
-    llvm::Value* right,
-    int leftTypeId,
-    int rightTypeId)
+        CodeGenBase& gen,
+        char op,
+        llvm::Value* left,
+        llvm::Value* right,
+        int leftTypeId,
+        int rightTypeId)
 {
-auto& builder = gen.getBuilder();
-llvm::LLVMContext& context = gen.getContext();
-auto& registry = TypeOperationRegistry::getInstance();
+    auto& builder = gen.getBuilder();
+    llvm::LLVMContext& context = gen.getContext();
+    auto& registry = TypeOperationRegistry::getInstance();
 
-// ANY 类型特殊处理
-if (leftTypeId == PY_TYPE_ANY || rightTypeId == PY_TYPE_ANY) {
-    // 确定哪一个是ANY类型
-    bool anyTypeIsLeft = (leftTypeId == PY_TYPE_ANY);
-    int otherTypeId = anyTypeIsLeft ? rightTypeId : leftTypeId;
-    
-    // 使用专门的ANY类型处理函数
-    return handleAnyTypeOperation(gen, op, left, right, anyTypeIsLeft, otherTypeId);
-}
-
-// 获取操作描述符
-BinaryOpDescriptor* descriptor = registry.getBinaryOpDescriptor(op, leftTypeId, rightTypeId);
-
-if (!descriptor)
-{
-    std::cerr << "No binary operation " << op << " defined for types "
-              << leftTypeId << " and " << rightTypeId << std::endl;
-    return nullptr;
-}
-
-// 如果有自定义实现，使用它
-if (descriptor->customImpl)
-{
-    PyCodeGen* pyCodeGen = gen.asPyCodeGen();
-    if (pyCodeGen)
+    // ANY 类型特殊处理
+    if (leftTypeId == PY_TYPE_ANY || rightTypeId == PY_TYPE_ANY)
     {
-        return descriptor->customImpl(*pyCodeGen, left, right);
+        // 确定哪一个是ANY类型
+        bool anyTypeIsLeft = (leftTypeId == PY_TYPE_ANY);
+        int otherTypeId = anyTypeIsLeft ? rightTypeId : leftTypeId;
+
+        // 使用专门的ANY类型处理函数
+        return handleAnyTypeOperation(gen, op, left, right, anyTypeIsLeft, otherTypeId);
     }
-}
 
-// 直接使用运行时函数，不尝试提取整数
-llvm::Function* func = gen.getOrCreateExternalFunction(
-        descriptor->runtimeFunction,
-        llvm::PointerType::get(context, 0),
-        {llvm::PointerType::get(context, 0),
-         llvm::PointerType::get(context, 0)},
-        false);
+    // 获取操作描述符
+    BinaryOpDescriptor* descriptor = registry.getBinaryOpDescriptor(op, leftTypeId, rightTypeId);
 
-// 确保操作数是指针类型
-if (!left->getType()->isPointerTy())
-{
-    PyCodeGen* pyCodeGen = gen.asPyCodeGen();
-    if (pyCodeGen)
+    if (!descriptor)
     {
-        left = createObject(*pyCodeGen, left, leftTypeId);
+        std::cerr << "No binary operation " << op << " defined for types "
+                  << leftTypeId << " and " << rightTypeId << std::endl;
+        return nullptr;
     }
-}
 
-if (!right->getType()->isPointerTy())
-{
-    PyCodeGen* pyCodeGen = gen.asPyCodeGen();
-    if (pyCodeGen)
+    // 如果有自定义实现，使用它
+    if (descriptor->customImpl)
     {
-        right = createObject(*pyCodeGen, right, rightTypeId);
+        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
+        if (pyCodeGen)
+        {
+            return descriptor->customImpl(*pyCodeGen, left, right);
+        }
     }
-}
 
-// 调用运行时函数
-llvm::Value* result = builder.CreateCall(func, {left, right}, "binop_result");
+    // 直接使用运行时函数，不尝试提取整数
+    llvm::Function* func = gen.getOrCreateExternalFunction(
+            descriptor->runtimeFunction,
+            llvm::PointerType::get(context, 0),
+            {llvm::PointerType::get(context, 0),
+             llvm::PointerType::get(context, 0)},
+            false);
 
-// 附加类型元数据
-int resultTypeId = descriptor->resultTypeId;
-gen.getRuntimeGen()->attachTypeMetadata(result, resultTypeId);
+    // 确保操作数是指针类型
+    if (!left->getType()->isPointerTy())
+    {
+        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
+        if (pyCodeGen)
+        {
+            left = createObject(*pyCodeGen, left, leftTypeId);
+        }
+    }
 
-return result;
+    if (!right->getType()->isPointerTy())
+    {
+        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
+        if (pyCodeGen)
+        {
+            right = createObject(*pyCodeGen, right, rightTypeId);
+        }
+    }
+
+    // 调用运行时函数
+    llvm::Value* result = builder.CreateCall(func, {left, right}, "binop_result");
+
+    // 附加类型元数据
+    int resultTypeId = descriptor->resultTypeId;
+    gen.getRuntimeGen()->attachTypeMetadata(result, resultTypeId);
+
+    return result;
 }
 
 llvm::Value* OperationCodeGenerator::handleUnaryOp(
@@ -877,72 +878,67 @@ llvm::Value* OperationCodeGenerator::handleUnaryOp(
     return builder.CreateCall(func, {operand}, "unaryop_result");
 }
 
-
-
 // prepareIndexValue处理索引值，确保其为整数？
 llvm::Value* OperationCodeGenerator::prepareIndexValue(
-    CodeGenBase& gen,
-    llvm::Value* index,
-    int indexTypeId) {
-    
+        CodeGenBase& gen,
+        llvm::Value* index,
+        int indexTypeId)
+{
     auto& builder = gen.getBuilder();
-    
+
     // 如果索引已经是整数类型，直接返回
-    if (indexTypeId == PY_TYPE_INT) {
+    if (indexTypeId == PY_TYPE_INT)
+    {
         // 从Python整数对象提取C整数
         llvm::Function* extractIntFunc = gen.getOrCreateExternalFunction(
-            "py_extract_int",
-            llvm::Type::getInt32Ty(gen.getContext()),
-            {llvm::PointerType::get(gen.getContext(), 0)}
-        );
-        
+                "py_extract_int",
+                llvm::Type::getInt32Ty(gen.getContext()),
+                {llvm::PointerType::get(gen.getContext(), 0)});
+
         return builder.CreateCall(extractIntFunc, {index}, "idx");
     }
-    
+
     // 如果索引是布尔类型，先转换为整数
-    if (indexTypeId == PY_TYPE_BOOL) {
+    if (indexTypeId == PY_TYPE_BOOL)
+    {
         // 从Python布尔对象提取C布尔值
         llvm::Function* extractBoolFunc = gen.getOrCreateExternalFunction(
-            "py_extract_bool",
-            llvm::Type::getInt1Ty(gen.getContext()),
-            {llvm::PointerType::get(gen.getContext(), 0)}
-        );
-        
+                "py_extract_bool",
+                llvm::Type::getInt1Ty(gen.getContext()),
+                {llvm::PointerType::get(gen.getContext(), 0)});
+
         llvm::Value* boolVal = builder.CreateCall(extractBoolFunc, {index}, "bool_val");
-        
+
         // 将布尔值转换为整数
         llvm::Value* intVal = builder.CreateZExt(boolVal, llvm::Type::getInt32Ty(gen.getContext()), "int_from_bool");
-        
+
         return intVal;
     }
-    
+
     // 对于其他类型，尝试从任意对象提取整数
     llvm::Function* extractIntFromAnyFunc = gen.getOrCreateExternalFunction(
-        "py_extract_int_from_any",
-        llvm::PointerType::get(gen.getContext(), 0),
-        {llvm::PointerType::get(gen.getContext(), 0)}
-    );
-    
+            "py_extract_int_from_any",
+            llvm::PointerType::get(gen.getContext(), 0),
+            {llvm::PointerType::get(gen.getContext(), 0)});
+
     llvm::Value* intObj = builder.CreateCall(extractIntFromAnyFunc, {index}, "int_obj");
-    
+
     // 从整数对象提取C整数
     llvm::Function* extractIntFunc = gen.getOrCreateExternalFunction(
-        "py_extract_int",
-        llvm::Type::getInt32Ty(gen.getContext()),
-        {llvm::PointerType::get(gen.getContext(), 0)}
-    );
-    
+            "py_extract_int",
+            llvm::Type::getInt32Ty(gen.getContext()),
+            {llvm::PointerType::get(gen.getContext(), 0)});
+
     llvm::Value* intVal = builder.CreateCall(extractIntFunc, {intObj}, "idx");
-    
+
     // 释放临时对象
     llvm::Function* decRefFunc = gen.getOrCreateExternalFunction(
-        "py_decref",
-        llvm::Type::getVoidTy(gen.getContext()),
-        {llvm::PointerType::get(gen.getContext(), 0)}
-    );
-    
+            "py_decref",
+            llvm::Type::getVoidTy(gen.getContext()),
+            {llvm::PointerType::get(gen.getContext(), 0)});
+
     builder.CreateCall(decRefFunc, {intObj});
-    
+
     return intVal;
 }
 

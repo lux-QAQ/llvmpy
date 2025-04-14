@@ -11,7 +11,7 @@
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 
-#include <vector>     // 用于 std::vector
+#include <vector>  // 用于 std::vector
 
 #include <set>
 
@@ -25,15 +25,14 @@ CodeGenVisitor::CodeGenVisitor(CodeGenBase& cg)
     TypeFeatureChecker::registerBuiltinFeatureChecks();
 }
 
-
-
-
 // 通用ASTNode 访问方法
 
-void CodeGenVisitor::visit(ASTNode* node) {
+void CodeGenVisitor::visit(ASTNode* node)
+{
     if (!node) return;
-    
-    switch (node->kind()) {
+
+    switch (node->kind())
+    {
         case ASTKind::NumberExpr:
             visit(static_cast<NumberExprAST*>(node));
             break;
@@ -101,18 +100,20 @@ void CodeGenVisitor::visit(ASTNode* node) {
             visit(static_cast<ModuleAST*>(node));
             break;
         default:
-            codeGen.logError("不支持的 AST 节点类型", 
-                         node->line ? *node->line : 0, 
-                         node->column ? *node->column : 0);
+            codeGen.logError("不支持的 AST 节点类型",
+                             node->line ? *node->line : 0,
+                             node->column ? *node->column : 0);
             break;
     }
 }
 // 通用语句访问方法
-void CodeGenVisitor::visit(StmtAST* stmt) {
+void CodeGenVisitor::visit(StmtAST* stmt)
+{
     if (!stmt) return;
-    
+
     // 根据语句类型分派到对应的特定访问方法
-    switch (stmt->kind()) {
+    switch (stmt->kind())
+    {
         case ASTKind::ExprStmt:
             visit(static_cast<ExprStmtAST*>(stmt));
             break;
@@ -144,311 +145,299 @@ void CodeGenVisitor::visit(StmtAST* stmt) {
             visit(static_cast<ClassStmtAST*>(stmt));
             break;
         default:
-            codeGen.logError("不支持的语句类型", 
-                         stmt->line ? *stmt->line : 0, 
-                         stmt->column ? *stmt->column : 0);
+            codeGen.logError("不支持的语句类型",
+                             stmt->line ? *stmt->line : 0,
+                             stmt->column ? *stmt->column : 0);
             break;
     }
 }
 
 // 处理表达式语句
-void CodeGenVisitor::visit(ExprStmtAST* node) {
+void CodeGenVisitor::visit(ExprStmtAST* node)
+{
     auto* exprGen = codeGen.getExprGen();
     auto* runtime = codeGen.getRuntimeGen();
-    
+
     // 如果存在表达式，生成表达式代码
-    if (node->getExpr()) {
+    if (node->getExpr())
+    {
         llvm::Value* exprValue = exprGen->handleExpr(node->getExpr());
-        
+
         // 表达式语句的值通常不使用，但可能有副作用
-        if (exprValue) {
+        if (exprValue)
+        {
             codeGen.setLastExprValue(exprValue);
-            
+
             // 设置表达式类型（用于后续可能的类型检查或推导）
             auto* typeGen = codeGen.getTypeGen();
             std::shared_ptr<PyType> exprType = typeGen->inferExprType(node->getExpr());
             codeGen.setLastExprType(exprType);
         }
     }
-    
+
     // 清理可能产生的临时对象，确保正确管理引用计数
     runtime->cleanupTemporaryObjects();
 }
 
 // 处理 pass 语句
-void CodeGenVisitor::visit(PassStmtAST* node) {
+void CodeGenVisitor::visit(PassStmtAST* node)
+{
     // pass 语句不生成任何代码，相当于 NOP
     // 但在某些情况下可能需要更新变量上下文
     auto& updateContext = codeGen.getVariableUpdateContext();
-    if (updateContext.inLoopContext()) {
+    if (updateContext.inLoopContext())
+    {
         // 如果在循环中，确保应用任何挂起的变量更新
         updateContext.applyPendingUpdates();
     }
 }
 // 处理导入语句
-void CodeGenVisitor::visit(ImportStmtAST* node) {
+void CodeGenVisitor::visit(ImportStmtAST* node)
+{
     auto& builder = codeGen.getBuilder();
     auto* runtime = codeGen.getRuntimeGen();
     auto* typeGen = codeGen.getTypeGen();
     auto& updateContext = codeGen.getVariableUpdateContext();
-    
+
     // 获取模块名和别名
     const std::string& moduleName = node->getModuleName();
     const std::string& alias = node->getAlias();
-    
+
     // 创建全局字符串常量用于模块名
     llvm::Value* moduleNameValue = builder.CreateGlobalString(moduleName, "module_name");
-    
+
     // 获取导入模块函数
     llvm::Function* importModuleFunc = codeGen.getOrCreateExternalFunction(
-        "py_import_module", 
-        llvm::PointerType::get(codeGen.getContext(), 0),
-        {llvm::PointerType::get(codeGen.getContext(), 0)}
-    );
-    
+            "py_import_module",
+            llvm::PointerType::get(codeGen.getContext(), 0),
+            {llvm::PointerType::get(codeGen.getContext(), 0)});
+
     // 调用函数导入模块
     llvm::Value* moduleObj = builder.CreateCall(importModuleFunc, {moduleNameValue}, "module_obj");
-    
+
     // 确定模块在当前作用域中的名称
     std::string moduleVarName = alias.empty() ? moduleName : alias;
-    
+
     // 获取模块类型
     std::shared_ptr<PyType> moduleType = typeGen->getModuleType(moduleName);
-    
+
     // 将模块对象添加到符号表
     codeGen.getSymbolTable().setVariable(
-        moduleVarName, 
-        moduleObj, 
-        moduleType->getObjectType()
-    );
-    
+            moduleVarName,
+            moduleObj,
+            moduleType->getObjectType());
+
     // 更新变量类型上下文
     updateContext.setVariableType(moduleVarName, moduleType);
-    
+
     // 清理临时对象
     runtime->cleanupTemporaryObjects();
 }
 
-
-
 // 处理类定义语句
-void CodeGenVisitor::visit(ClassStmtAST* node) {
+void CodeGenVisitor::visit(ClassStmtAST* node)
+{
     auto& builder = codeGen.getBuilder();
     auto* runtime = codeGen.getRuntimeGen();
     auto* stmtGen = codeGen.getStmtGen();
     auto* typeGen = codeGen.getTypeGen();
     auto& updateContext = codeGen.getVariableUpdateContext();
-    
+
     // 获取类名和基类
     const std::string& className = node->getClassName();
     const std::vector<std::string>& baseClasses = node->getBaseClasses();
-    
+
     // 创建类名字符串
     llvm::Value* classNameValue = builder.CreateGlobalString(className, "class_name");
-    
+
     // 创建基类列表
     llvm::Value* baseClassesArray = nullptr;
-    if (!baseClasses.empty()) {
+    if (!baseClasses.empty())
+    {
         // 获取创建字符串列表函数
         llvm::Function* createStringListFunc = codeGen.getOrCreateExternalFunction(
-            "py_create_string_list", 
-            llvm::PointerType::get(codeGen.getContext(), 0),
-            {llvm::Type::getInt32Ty(codeGen.getContext())}
-        );
-        
+                "py_create_string_list",
+                llvm::PointerType::get(codeGen.getContext(), 0),
+                {llvm::Type::getInt32Ty(codeGen.getContext())});
+
         // 创建基类名称列表
         baseClassesArray = builder.CreateCall(
-            createStringListFunc, 
-            {llvm::ConstantInt::get(llvm::Type::getInt32Ty(codeGen.getContext()), baseClasses.size())},
-            "base_classes"
-        );
-        
+                createStringListFunc,
+                {llvm::ConstantInt::get(llvm::Type::getInt32Ty(codeGen.getContext()), baseClasses.size())},
+                "base_classes");
+
         // 填充基类名称
         llvm::Function* setListStringItemFunc = codeGen.getOrCreateExternalFunction(
-            "py_list_set_string_item",
-            llvm::Type::getVoidTy(codeGen.getContext()),
-            {
-                llvm::PointerType::get(codeGen.getContext(), 0),
-                llvm::Type::getInt32Ty(codeGen.getContext()),
-                llvm::PointerType::get(codeGen.getContext(), 0)
-            }
-        );
-        
-        for (size_t i = 0; i < baseClasses.size(); ++i) {
+                "py_list_set_string_item",
+                llvm::Type::getVoidTy(codeGen.getContext()),
+                {llvm::PointerType::get(codeGen.getContext(), 0),
+                 llvm::Type::getInt32Ty(codeGen.getContext()),
+                 llvm::PointerType::get(codeGen.getContext(), 0)});
+
+        for (size_t i = 0; i < baseClasses.size(); ++i)
+        {
             llvm::Value* baseClassName = builder.CreateGlobalString(baseClasses[i], "base_class");
             builder.CreateCall(
-                setListStringItemFunc,
-                {
-                    baseClassesArray,
-                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(codeGen.getContext()), i),
-                    baseClassName
-                }
-            );
+                    setListStringItemFunc,
+                    {baseClassesArray,
+                     llvm::ConstantInt::get(llvm::Type::getInt32Ty(codeGen.getContext()), i),
+                     baseClassName});
         }
     }
-    
+
     // 获取创建类的函数
     llvm::Function* createClassFunc = codeGen.getOrCreateExternalFunction(
-        "py_create_class", 
-        llvm::PointerType::get(codeGen.getContext(), 0),
-        {
+            "py_create_class",
             llvm::PointerType::get(codeGen.getContext(), 0),
-            llvm::PointerType::get(codeGen.getContext(), 0)
-        }
-    );
-    
+            {llvm::PointerType::get(codeGen.getContext(), 0),
+             llvm::PointerType::get(codeGen.getContext(), 0)});
+
     // 调用函数创建类
     llvm::Value* classObj = builder.CreateCall(
-        createClassFunc, 
-        {
-            classNameValue, 
-            baseClassesArray ? baseClassesArray : llvm::ConstantPointerNull::get(
-                llvm::PointerType::get(codeGen.getContext(), 0))
-        }, 
-        "class_obj"
-    );
-    
+            createClassFunc,
+            {classNameValue,
+             baseClassesArray ? baseClassesArray : llvm::ConstantPointerNull::get(llvm::PointerType::get(codeGen.getContext(), 0))},
+            "class_obj");
+
     // 创建新作用域来处理类体
     stmtGen->beginScope();
-    
+
     // 为self添加一个占位符
     llvm::Function* getSelfFunc = codeGen.getOrCreateExternalFunction(
-        "py_get_self_default",
-        llvm::PointerType::get(codeGen.getContext(), 0),
-        {}
-    );
-    
+            "py_get_self_default",
+            llvm::PointerType::get(codeGen.getContext(), 0),
+            {});
+
     llvm::Value* self = builder.CreateCall(getSelfFunc, {}, "self");
-    
+
     // 添加self到当前作用域
     codeGen.getSymbolTable().setVariable(
-        "self",
-        self,
-        typeGen->getClassInstanceType(className)->getObjectType()
-    );
-    
+            "self",
+            self,
+            typeGen->getClassInstanceType(className)->getObjectType());
+
     // 更新变量类型上下文
     updateContext.setVariableType(
-        "self",
-        typeGen->getClassInstanceType(className)
-    );
-    
+            "self",
+            typeGen->getClassInstanceType(className));
+
     // 处理类方法
-    for (auto& method : node->getMethods()) {
-        if (method) {
+    for (auto& method : node->getMethods())
+    {
+        if (method)
+        {
             // 处理方法定义
             stmtGen->handleMethod(method.get(), classObj);
         }
     }
-    
+
     // 处理类体中的语句
-    for (auto& stmt : node->getBody()) {
-        if (stmt) {
+    for (auto& stmt : node->getBody())
+    {
+        if (stmt)
+        {
             visit(stmt.get());
         }
     }
-    
+
     // 结束类作用域
     stmtGen->endScope();
-    
+
     // 将类对象添加到当前作用域
     codeGen.getSymbolTable().setVariable(
-        className,
-        classObj,
-        typeGen->getClassType(className)->getObjectType()
-    );
-    
+            className,
+            classObj,
+            typeGen->getClassType(className)->getObjectType());
+
     // 更新变量类型上下文
     updateContext.setVariableType(
-        className,
-        typeGen->getClassType(className)
-    );
-    
+            className,
+            typeGen->getClassType(className));
+
     // 清理临时对象
     runtime->cleanupTemporaryObjects();
 }
 
 // 处理模块
-void CodeGenVisitor::visit(ModuleAST* node) {
+void CodeGenVisitor::visit(ModuleAST* node)
+{
     auto* moduleGen = codeGen.getModuleGen();
     auto& updateContext = codeGen.getVariableUpdateContext();
-    
+
     // 设置当前模块
     moduleGen->setCurrentModule(node);
-    
+
     // 创建或获取main函数（如果已存在）
     llvm::Function* mainFunc = codeGen.getModule()->getFunction("main");
-    if (!mainFunc) {
+    if (!mainFunc)
+    {
         // 创建main函数类型：返回PyObject*，不带参数
         llvm::FunctionType* mainFuncType = llvm::FunctionType::get(
-            llvm::PointerType::get(codeGen.getContext(), 0),
-            false
-        );
-        
+                llvm::PointerType::get(codeGen.getContext(), 0),
+                false);
+
         // 创建main函数
         mainFunc = llvm::Function::Create(
-            mainFuncType,
-            llvm::Function::ExternalLinkage,
-            "main",
-            codeGen.getModule()
-        );
+                mainFuncType,
+                llvm::Function::ExternalLinkage,
+                "main",
+                codeGen.getModule());
     }
-    
+
     // 设置当前函数为main
     llvm::Function* savedFunction = codeGen.getCurrentFunction();
     codeGen.setCurrentFunction(mainFunc);
-    
+
     // 创建函数入口基本块
     llvm::BasicBlock* entryBlock = llvm::BasicBlock::Create(
-        codeGen.getContext(),
-        "entry",
-        mainFunc
-    );
-    
+            codeGen.getContext(),
+            "entry",
+            mainFunc);
+
     // 设置插入点到入口块
     codeGen.getBuilder().SetInsertPoint(entryBlock);
-    
+
     // 清理可能存在的循环变量上下文
     updateContext.clearLoopVariables();
-    
+
     // 处理模块中的函数定义
-    for (auto& func : node->getFunctions()) {
-        if (func) {
+    for (auto& func : node->getFunctions())
+    {
+        if (func)
+        {
             visit(func.get());
         }
     }
-    
+
     // 处理模块级语句
-    for (auto& stmt : node->getStatements()) {
-        if (stmt) {
+    for (auto& stmt : node->getStatements())
+    {
+        if (stmt)
+        {
             visit(stmt.get());
         }
     }
-    
+
     // 如果main函数没有返回语句，添加默认返回值0
-    if (!codeGen.getBuilder().GetInsertBlock()->getTerminator()) {
+    if (!codeGen.getBuilder().GetInsertBlock()->getTerminator())
+    {
         // 创建整数对象并返回
         llvm::Function* createIntFunc = codeGen.getOrCreateExternalFunction(
-            "py_create_int",
-            llvm::PointerType::get(codeGen.getContext(), 0),
-            {llvm::Type::getInt32Ty(codeGen.getContext())}
-        );
-        
+                "py_create_int",
+                llvm::PointerType::get(codeGen.getContext(), 0),
+                {llvm::Type::getInt32Ty(codeGen.getContext())});
+
         llvm::Value* intObj = codeGen.getBuilder().CreateCall(
-            createIntFunc, 
-            {llvm::ConstantInt::get(llvm::Type::getInt32Ty(codeGen.getContext()), 0)},
-            "int_obj"
-        );
-        
+                createIntFunc,
+                {llvm::ConstantInt::get(llvm::Type::getInt32Ty(codeGen.getContext()), 0)},
+                "int_obj");
+
         codeGen.getBuilder().CreateRet(intObj);
     }
-    
+
     // 恢复之前的函数上下文
     codeGen.setCurrentFunction(savedFunction);
 }
-
-
-
 
 // 优化 FunctionAST 处理
 void CodeGenVisitor::visit(FunctionAST* node)
@@ -586,98 +575,179 @@ void CodeGenVisitor::visit(AssignStmtAST* node)
     runtime->cleanupTemporaryObjects();
 }
 
+// 辅助函数：递归查找在给定语句列表（或单个语句）中被赋值的变量名
+void CodeGenVisitor::findAssignedVariables(StmtAST* stmt, std::set<std::string>& assignedVars)
+{
+    if (!stmt) return;
+
+    if (auto* assignStmt = dynamic_cast<AssignStmtAST*>(stmt))
+    {
+        assignedVars.insert(assignStmt->getName());
+    }
+    else if (auto* indexAssignStmt = dynamic_cast<IndexAssignStmtAST*>(stmt))
+    {
+        // 如果需要处理类似 a[i] = ... 的情况，可能需要更复杂的分析
+        // 这里暂时只考虑简单变量赋值
+    }
+    else if (auto* ifStmt = dynamic_cast<IfStmtAST*>(stmt))
+    {
+        for (const auto& s : ifStmt->getThenBody())
+        {
+            findAssignedVariables(s.get(), assignedVars);
+        }
+        for (const auto& s : ifStmt->getElseBody())
+        {
+            findAssignedVariables(s.get(), assignedVars);
+        }
+    }
+    else if (auto* whileStmt = dynamic_cast<WhileStmtAST*>(stmt))
+    {
+        // 注意：这里简化了处理，没有处理嵌套循环对外部变量的影响
+        for (const auto& s : whileStmt->getBody())
+        {
+            findAssignedVariables(s.get(), assignedVars);
+        }
+    }
+    // 可以为其他包含语句块的 AST 节点添加处理逻辑
+}
+
 // 优化 WhileStmt 处理 - 已经有很好的优化，进一步增强
 void CodeGenVisitor::visit(WhileStmtAST* node)
 {
-    auto* stmtGen = codeGen.getStmtGen();
-    auto& updateContext = codeGen.getVariableUpdateContext();
-    auto* typeGen = codeGen.getTypeGen();
+    auto* stmtGen = codeGen.getStmtGen();  // 用于 handleCondition, beginScope, endScope
     auto& builder = codeGen.getBuilder();
+    auto& context = codeGen.getContext();
+    auto& symTable = codeGen.getSymbolTable();
 
-    // 获取当前函数
     llvm::Function* func = codeGen.getCurrentFunction();
-    if (!func) return;
-
-    // 创建必要的基本块
-    llvm::BasicBlock* entryBlock = builder.GetInsertBlock();  // 保存入口块
-    llvm::BasicBlock* condBlock = llvm::BasicBlock::Create(codeGen.getContext(), "while.cond", func);
-    llvm::BasicBlock* bodyBlock = llvm::BasicBlock::Create(codeGen.getContext(), "while.body", func);
-    llvm::BasicBlock* afterBlock = llvm::BasicBlock::Create(codeGen.getContext(), "while.end", func);
-
-    // 注册循环块，处理break和continue
-    codeGen.pushLoopBlocks(condBlock, afterBlock);
-
-    // 设置变量更新上下文
-    updateContext.setLoopContext(condBlock, afterBlock);
-
-    // 保存初始状态的所有变量
-    auto initialState = codeGen.getSymbolTable().captureState();
-
-    // 跳转到条件块
-    builder.CreateBr(condBlock);
-
-    // 生成条件块代码
-    builder.SetInsertPoint(condBlock);
-
-    // 为使用的变量创建PHI节点
-    updateContext.createPhiNodesForCurrentLoop(codeGen);
-
-    // 分析条件表达式中使用的变量，确保它们有PHI节点
-    analyzeExpressionForLoopVars(node->getCondition(), updateContext, condBlock, entryBlock);
-
-    // 生成条件表达式的代码
-    auto* exprGen = codeGen.getExprGen();
-    llvm::Value* condValue = stmtGen->handleCondition(node->getCondition());
-
-    if (!condValue)
+    if (!func)
     {
-        // 错误处理时清理上下文
-        updateContext.clearLoopContext();
-        codeGen.popLoopBlocks();
+        codeGen.logError("Cannot generate while loop outside a function.", node->line ? *node->line : 0, node->column ? *node->column : 0);
         return;
     }
 
-    // 创建条件分支
-    builder.CreateCondBr(condValue, bodyBlock, afterBlock);
+    // --- 1. 创建基本块 ---
+    llvm::BasicBlock* preheaderBB = builder.GetInsertBlock();
+    llvm::BasicBlock* condBB = llvm::BasicBlock::Create(context, "while.cond", func);
+    llvm::BasicBlock* bodyBB = llvm::BasicBlock::Create(context, "while.body", func);
+    llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(context, "while.end", func);
 
-    // 生成循环体代码
-    builder.SetInsertPoint(bodyBlock);
-    stmtGen->beginScope();
+    // --- 2. 从 Preheader 跳转到 Condition ---
+    builder.CreateBr(condBB);
 
-    // 处理循环体中的每个语句
+    // --- 3. Condition Block ---
+    builder.SetInsertPoint(condBB);
+
+    // --- 4. 创建 PHI 节点 (只为循环体内修改的变量) ---
+    std::map<std::string, llvm::PHINode*> phiNodes;
+    std::map<std::string, llvm::Value*> valueBeforeLoop;
+    std::map<std::string, ObjectType*> typeBeforeLoop;
+
+    std::set<std::string> assignedInBody;
+    for (const auto& stmt : node->getBody())
+    {
+        findAssignedVariables(stmt.get(), assignedInBody);
+    }
+
+    for (const std::string& varName : assignedInBody)
+    {
+        llvm::Value* initialVal = symTable.getVariable(varName);
+        ObjectType* varType = symTable.getVariableType(varName);
+        if (initialVal && varType)
+        {  // 变量在循环前已定义
+            valueBeforeLoop[varName] = initialVal;
+            typeBeforeLoop[varName] = varType;
+            llvm::PHINode* phi = builder.CreatePHI(initialVal->getType(), 2, varName + ".phi");
+            phi->addIncoming(initialVal, preheaderBB);  // 边1: 来自 preheader
+            phiNodes[varName] = phi;
+            // 更新符号表，循环内使用PHI节点
+            // --- 修正这里：使用 varName 而不是 name ---
+            symTable.setVariable(varName, phi, typeBeforeLoop[varName]);
+        }
+        // 如果变量在循环内首次定义，则不需要PHI
+    }
+    // 注意：未在循环内修改的变量（如参数'a'）不会创建PHI节点
+
+    // --- 5. 生成条件判断代码 ---
+    llvm::Value* condValue = stmtGen->handleCondition(node->getCondition());
+    if (!condValue)
+    {
+        // 错误处理：恢复符号表（对于那些被PHI覆盖的变量）并跳转到循环后
+        for (auto const& [name, val] : valueBeforeLoop)
+        {
+            if (phiNodes.count(name))
+            {  // 只恢复被PHI覆盖的
+                symTable.setVariable(name, val, typeBeforeLoop[name]);
+            }
+        }
+        builder.CreateBr(afterBB);
+        builder.SetInsertPoint(afterBB);
+        codeGen.logError("Failed to generate condition for while loop.", node->line ? *node->line : 0, node->column ? *node->column : 0);
+        return;
+    }
+
+    // --- 6. 创建条件分支 ---
+    builder.CreateCondBr(condValue, bodyBB, afterBB);
+
+    // --- 7. Loop Body Block ---
+    builder.SetInsertPoint(bodyBB);
+    stmtGen->beginScope();  // 为循环体创建新作用域
+
+    codeGen.pushLoopBlocks(condBB, afterBB);  // 设置 break/continue 目标
+
+    // 递归访问循环体语句
     for (auto& stmt : node->getBody())
     {
-        visit(stmt.get());
-
-        // 如果当前块已有终结器，跳出处理
-        if (builder.GetInsertBlock()->getTerminator()) break;
+        visit(stmt.get());                                     // 使用 Visitor 递归处理
+        if (builder.GetInsertBlock()->getTerminator()) break;  // 处理 break/continue/return
     }
 
-    // 结束作用域
+    // --- 8. Latch Block ---
+    llvm::BasicBlock* latchBB = builder.GetInsertBlock();
+    std::map<std::string, llvm::Value*> valueFromLatch;  // 存储来自latch的值
+
+    if (!latchBB->getTerminator())
+    {  // 只有在循环体正常结束时才添加回边
+        // 获取循环体结束时变量的最终值
+        for (const auto& [name, phi] : phiNodes)
+        {
+            llvm::Value* finalVal = symTable.getVariable(name);  // 获取当前作用域的值
+            if (!finalVal)
+            {
+                finalVal = valueBeforeLoop[name];  // 安全回退
+                codeGen.logWarning("Variable '" + name + "' not found at end of loop body, using value from before loop for PHI backedge.", node->line ? *node->line : 0, node->column ? *node->column : 0);
+            }
+            valueFromLatch[name] = finalVal;
+        }
+
+        // 从 Latch 跳转回 Condition
+        builder.CreateBr(condBB);
+    }
+    // 如果 latchBB 有终结符, 则不需要 CreateBr(condBB)
+
+    // 结束循环体作用域
     stmtGen->endScope();
+    codeGen.popLoopBlocks();  // 恢复 break/continue 目标
 
-    // 应用所有挂起的变量更新 - 确保PHI节点正确更新
-    updateContext.applyPendingUpdates();
-
-    // 如果循环体没有终结器，添加到条件块的跳转
-    if (!builder.GetInsertBlock()->getTerminator())
-    {
-        builder.CreateBr(condBlock);
+    // --- 9. 添加 PHI 节点的第二个传入边 (来自 latch) ---
+    // 需要在所有可能的回边路径之后添加
+    // 注意：如果循环体可以通过 break 或 return 退出，PHI节点可能不会收到来自 latchBB 的值
+    // LLVM 的 mem2reg pass 通常能处理更复杂的控制流，但显式添加更健壮
+    // 这里简化处理：只添加来自正常结束路径 (latchBB) 的边
+    if (!latchBB->getTerminator())
+    {  // 只有正常结束才有回边到 condBB
+        for (const auto& [name, phi] : phiNodes)
+        {
+            phi->addIncoming(valueFromLatch[name], latchBB);  // 边2: 来自 latch
+        }
     }
+    // 对于从 break 跳出的路径，它们直接跳到 afterBB，不影响 condBB 的 PHI
 
-    // 处理嵌套循环变量更新
-    updateContext.mergeNestedLoopUpdates();
+    // --- 10. After Loop Block ---
+    builder.SetInsertPoint(afterBB);
 
-    // 设置插入点到循环后块
-    builder.SetInsertPoint(afterBlock);
-
-    // 计算循环可能修改的变量
-    auto finalState = codeGen.getSymbolTable().captureState();
-    auto modifiedVars = codeGen.getSymbolTable().getModifiedVars(initialState);
-
-    // 清理循环上下文
-    updateContext.clearLoopContext();
-    codeGen.popLoopBlocks();
+    // 循环结束后，符号表中被修改的变量仍然指向对应的PHI节点。
+    // 后续代码使用这些变量时，将自动使用PHI节点合并后的正确值。
 }
 
 // 优化返回语句处理

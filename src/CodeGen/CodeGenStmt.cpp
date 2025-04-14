@@ -4,14 +4,51 @@
 #include "CodeGen/CodeGenType.h"
 #include "CodeGen/CodeGenRuntime.h"
 #include "CodeGen/CodeGenModule.h"  // 添加这一行
-#include "CodeGen/PyCodeGen.h"  // 添加这一行，确保 PyCodeGen 完整定义
+#include "CodeGen/PyCodeGen.h"      // 添加这一行，确保 PyCodeGen 完整定义
+#include "CodeGen/CodeGenVisitor.h"
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
-#include <llvm/IR/Constants.h>
+#include "Debugdefine.h"
 
+#include <llvm/IR/Constants.h>
+#include <llvm/Transforms/Utils/BasicBlockUtils.h>  // 可能需要包含这个
+#include <llvm/Transforms/Utils/BasicBlockUtils.h>
+#include <llvm/Support/raw_ostream.h>  // 用于打印 LLVM 对象
+
+#include <set>
+#include <iostream>  // 用于 std::cerr
 
 namespace llvmpy
 {
+
+#ifdef DEBUG_WhileSTmt
+// 辅助函数，用于将 LLVM 对象转换为字符串以便打印
+std::string llvmObjToString(const llvm::Value* V)
+{
+    if (!V) return "<null Value>";
+    std::string S;
+    llvm::raw_string_ostream OS(S);
+    V->print(OS);
+    return OS.str();
+}
+std::string llvmObjToString(const llvm::Type* T)
+{
+    if (!T) return "<null Type>";
+    std::string S;
+    llvm::raw_string_ostream OS(S);
+    T->print(OS);
+    return OS.str();
+}
+std::string llvmObjToString(const llvm::BasicBlock* BB)
+{
+    if (!BB) return "<null BasicBlock>";
+    if (BB->hasName()) return BB->getName().str();
+    std::string S;
+    llvm::raw_string_ostream OS(S);
+    BB->printAsOperand(OS, false);  // 打印块的标签
+    return OS.str();
+}
+#endif
 
 // 静态成员初始化
 std::unordered_map<ASTKind, StmtHandlerFunc> CodeGenStmt::stmtHandlers;
@@ -282,87 +319,310 @@ void CodeGenStmt::handleIfStmt(IfStmtAST* stmt)
     builder.SetInsertPoint(mergeBB);
 }
 
-
 // 修改现有方法
 
 void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 {
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("Entering handleWhileStmt");
+    if (stmt->line) DEBUG_LOG("  Source Line: " + std::to_string(*stmt->line));
+#endif
+
     auto& builder = codeGen.getBuilder();
     auto* runtime = codeGen.getRuntimeGen();
-    auto& updateContext = codeGen.getVariableUpdateContext();
+    auto& context = codeGen.getContext();
+    auto& symTable = codeGen.getSymbolTable();
 
-    // 创建必要的基本块
     llvm::Function* func = codeGen.getCurrentFunction();
-    llvm::BasicBlock* entryBB = builder.GetInsertBlock();
+    if (!func)
+    {
+        codeGen.logError("Cannot generate while loop outside a function.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("  ERROR: Not inside a function. Aborting.");
+#endif
+        return;
+    }
+
+    // --- 1. 创建基本块 ---
+    llvm::BasicBlock* preheaderBB = builder.GetInsertBlock();
     llvm::BasicBlock* condBB = codeGen.createBasicBlock("while.cond", func);
     llvm::BasicBlock* bodyBB = codeGen.createBasicBlock("while.body", func);
     llvm::BasicBlock* endBB = codeGen.createBasicBlock("while.end", func);
 
-    // 设置变量更新上下文
-    updateContext.setLoopContext(condBB, endBB);
-    
-    // 保存之前的循环信息
-    auto* oldLoop = codeGen.getCurrentLoop();
-    llvm::BasicBlock* oldLoopBlock = oldLoop ? oldLoop->condBlock : nullptr;
-    codeGen.setCurrentLoop(condBB);
-    
-    // 跳转到条件块
-    builder.CreateBr(condBB);
-    
-    // 为函数参数创建PHI节点
-    builder.SetInsertPoint(condBB, condBB->begin());
-    for (auto& arg : func->args()) {
-        std::string argName = arg.getName().str();
-        if (!argName.empty()) {
-            // 创建PHI节点
-            llvm::PHINode* phi = builder.CreatePHI(arg.getType(), 2, argName + ".phi");
-            phi->addIncoming(&arg, entryBB);
-            
-            // 在符号表中更新参数值为PHI节点
-            codeGen.getSymbolTable().setVariable(argName, phi, 
-                codeGen.getSymbolTable().getVariableType(argName));
-            
-            // 注册为循环变量
-            updateContext.registerLoopVariable(argName, phi);
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [1] Created Basic Blocks:");
+    DEBUG_LOG("      Preheader: " + llvmObjToString(preheaderBB));
+    DEBUG_LOG("      Condition: " + llvmObjToString(condBB));
+    DEBUG_LOG("      Body:      " + llvmObjToString(bodyBB));
+    DEBUG_LOG("      End:       " + llvmObjToString(endBB));
+#endif
+
+    // --- 2. 识别循环中修改的变量 ---
+    std::set<std::string> assignedInBody;
+    CodeGenVisitor visitor(codeGen);
+    for (const auto& bodyStmt : stmt->getBody())
+    {
+        visitor.findAssignedVariables(bodyStmt.get(), assignedInBody);
+    }
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [2] Variables assigned in body:");
+    if (assignedInBody.empty())
+    {
+        DEBUG_LOG("      None");
+    }
+    else
+    {
+        for (const auto& name : assignedInBody)
+        {
+            DEBUG_LOG("      - " + name);
         }
     }
-    
-    // 生成条件代码
+#endif
+
+    std::map<std::string, llvm::Value*> valueBeforeLoop;
+    std::map<std::string, ObjectType*> typeBeforeLoop;
+    std::map<std::string, llvm::PHINode*> phiNodes;
+
+    // --- 3. 从 Preheader 跳转到 Condition ---
+    builder.CreateBr(condBB);
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [3] Created branch from Preheader (" + llvmObjToString(preheaderBB) + ") to Condition (" + llvmObjToString(condBB) + ")");
+#endif
+
+    // --- 4. Condition Block ---
     builder.SetInsertPoint(condBB);
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [4] Set insert point to Condition block (" + llvmObjToString(condBB) + ")");
+#endif
+
+    // --- 5. 创建 PHI 节点 ---
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [5] Creating PHI nodes:");
+#endif
+    for (const std::string& varName : assignedInBody)
+    {
+        llvm::Value* initialVal = symTable.getVariable(varName);
+        ObjectType* varType = symTable.getVariableType(varName);
+        if (initialVal && varType)
+        {
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("      Processing variable: '" + varName + "'");
+            DEBUG_LOG("        Initial Value: " + llvmObjToString(initialVal));
+            DEBUG_LOG("        Initial Type: " + (varType ? varType->getName() : "<null ObjectType>"));
+            DEBUG_LOG("        LLVM Type: " + llvmObjToString(initialVal->getType()));
+#endif
+            llvm::PHINode* phi = builder.CreatePHI(initialVal->getType(), 2, varName + ".phi");  // 预期 2 个入口
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("        Created PHI node: " + llvmObjToString(phi));
+#endif
+            phi->addIncoming(initialVal, preheaderBB);
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("        Added incoming edge to PHI: [" + llvmObjToString(initialVal) + ", from " + llvmObjToString(preheaderBB) + "]");
+#endif
+            phiNodes[varName] = phi;
+            symTable.setVariable(varName, phi, varType);
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("        Updated symbol table for '" + varName + "' to use PHI node.");
+#endif
+        }
+        else
+        {
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("      Skipping PHI for variable '" + varName + "' (not defined before loop or type missing).");
+#endif
+        }
+    }
+
+    // --- 6. 生成条件判断代码 ---
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [6] Generating condition code...");
+#endif
     llvm::Value* condValue = handleCondition(stmt->getCondition());
-    if (!condValue) {
-        updateContext.clearLoopContext();
-        codeGen.setCurrentLoop(oldLoopBlock);
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("      Generated condition value: " + llvmObjToString(condValue));
+#endif
+    if (!condValue)
+    {
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      ERROR: Condition generation failed.");
+#endif
+        // 错误处理：恢复符号表并清理
+        for (auto const& [name, val] : valueBeforeLoop)
+        {
+            if (phiNodes.count(name))
+            {
+                symTable.setVariable(name, val, typeBeforeLoop[name]);
+            }
+        }
+        // 从 condBB 直接跳到 endBB
+        if (condBB->getTerminator())
+        {
+            llvm::ReplaceInstWithInst(condBB->getTerminator(), llvm::BranchInst::Create(endBB));
+        }
+        else
+        {
+            builder.SetInsertPoint(condBB);  // 确保 builder 在 condBB
+            builder.CreateBr(endBB);
+        }
+        builder.SetInsertPoint(endBB);
+        codeGen.logError("Failed to generate condition for while loop.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Cleaned up and jumped to end block (" + llvmObjToString(endBB) + "). Aborting loop generation.");
+#endif
         return;
     }
-    
-    // 创建条件分支
+
+    // --- 7. 创建条件分支 ---
     builder.CreateCondBr(condValue, bodyBB, endBB);
-    
-    // 生成循环体代码
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [7] Created conditional branch based on " + llvmObjToString(condValue) + ":");
+    DEBUG_LOG("      True -> Body (" + llvmObjToString(bodyBB) + ")");
+    DEBUG_LOG("      False -> End (" + llvmObjToString(endBB) + ")");
+#endif
+
+    // --- 8. Loop Body Block ---
     builder.SetInsertPoint(bodyBB);
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [8] Set insert point to Body block (" + llvmObjToString(bodyBB) + ")");
+#endif
     beginScope();
-    
-    // 处理循环体语句
-    for (auto& bodyStmt : stmt->getBody()) {
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("      Started new scope for loop body.");
+    DEBUG_LOG("      Processing loop body statements...");
+#endif
+    for (auto& bodyStmt : stmt->getBody())
+    {
+#ifdef DEBUG_WhileSTmt
+        // 可选：更详细地记录每个语句的处理
+        // DEBUG_LOG("        Handling statement of kind: " + std::to_string(static_cast<int>(bodyStmt->kind())));
+#endif
         handleStmt(bodyStmt.get());
-        if (builder.GetInsertBlock()->getTerminator()) break;
+        if (builder.GetInsertBlock()->getTerminator())
+        {
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("      Loop body terminated early (return/break/continue detected in block " + llvmObjToString(builder.GetInsertBlock()) + ").");
+#endif
+            break;
+        }
     }
-    
-    // 如果循环体没有终止，创建到条件块的分支
-    llvm::BasicBlock* lastBlock = builder.GetInsertBlock();
-    if (!lastBlock->getTerminator()) {
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("      Finished processing loop body statements.");
+#endif
+
+    // --- 9. Latch Logic ---
+    llvm::BasicBlock* latchBB = builder.GetInsertBlock();
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [9] Latch Logic:");
+    DEBUG_LOG("      Determined Latch block (current insert block after body): " + llvmObjToString(latchBB));
+#endif
+    std::map<std::string, llvm::Value*> valueFromLatch;
+
+    bool loopTerminatedEarly = latchBB->getTerminator() != nullptr;
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("      Checking if Latch block (" + llvmObjToString(latchBB) + ") has terminator: " + (loopTerminatedEarly ? "Yes" : "No"));
+#endif
+
+    if (!loopTerminatedEarly)
+    {
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Latch block has no terminator. Processing back edge:");
+#endif
+        // 获取循环体结束时变量的最终值 (来自循环体作用域)
+        for (const auto& [name, phi] : phiNodes)
+        {
+            // --- 从符号表获取循环体结束时的值 ---
+            llvm::Value* finalVal = symTable.getVariable(name);  // 获取当前作用域的值
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("        Getting final value for PHI '" + name + "' from latch scope: " + llvmObjToString(finalVal));
+#endif
+            if (!finalVal)
+            {
+                // 如果在当前作用域找不到（理论上不应发生，因为 assignedInBody 保证了赋值），
+                // 作为健壮性回退，使用循环前的值。
+                finalVal = valueBeforeLoop[name];
+#ifdef DEBUG_WhileSTmt
+                DEBUG_LOG("          WARNING: Final value not found in scope for '" + name + "', using value from before loop: " + llvmObjToString(finalVal));
+#endif
+                codeGen.logWarning("Variable '" + name + "' not found at end of loop body scope, using value from before loop for PHI backedge.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
+            }
+            // --- 修正结束 ---
+            valueFromLatch[name] = finalVal;  // 现在 finalVal 已声明并赋值
+        }
+
+        // --- 新增：清理当前迭代的临时对象 ---
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Cleaning up temporary objects for this iteration...");
+#endif
+        runtime->cleanupTemporaryObjects();  // 在跳转前回溯并 decref 临时对象
+        // --- 新增结束 ---
+
+        // 创建回边: Latch -> Cond
         builder.CreateBr(condBB);
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Created back edge branch from Latch (" + llvmObjToString(latchBB) + ") to Condition (" + llvmObjToString(condBB) + ")");
+#endif
     }
-    
+    // else: latchBB 已经有终结符 (return/break)，不需要回边
+    // 注意：如果是因为 return 或 break 退出，临时对象的清理可能需要由 handleReturnStmt 或 handleBreakStmt 触发
+
     endScope();
-    
-    // 恢复设置
-    codeGen.setCurrentLoop(oldLoopBlock);
-    updateContext.clearLoopContext();
-    
-    // 设置插入点到循环后块
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("      Ended loop body scope.");
+#endif
+    // (可选) 恢复 break/continue 目标
+    // codeGen.popLoopBlocks();
+
+    // --- 10. 添加 PHI 节点的第二个传入边 (来自 latch) ---
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [10] Adding second incoming edges to PHI nodes (in block " + llvmObjToString(condBB) + "):");
+#endif
+    if (!loopTerminatedEarly)
+    {
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Loop did not terminate early. Adding edges from Latch (" + llvmObjToString(latchBB) + ")");
+#endif
+        for (const auto& [name, phi] : phiNodes)
+        {
+            // 使用在 latchBB 确定分支前获取的值
+            if (valueFromLatch.count(name))
+            {
+                llvm::Value* latchValue = valueFromLatch[name];
+#ifdef DEBUG_WhileSTmt
+                DEBUG_LOG("        Adding incoming edge to PHI '" + name + "' (" + llvmObjToString(phi) + "): [" + llvmObjToString(latchValue) + ", from " + llvmObjToString(latchBB) + "]");
+#endif
+                phi->addIncoming(latchValue, latchBB);  // 边2: 来自 latchBB
+            }
+            else
+            {
+                // 理论上不应发生，因为 valueFromLatch 是基于 phiNodes 构建的
+#ifdef DEBUG_WhileSTmt
+                DEBUG_LOG("        ERROR: Latch value missing for PHI node '" + name + "'. Adding UndefValue.");
+#endif
+                codeGen.logError("Internal error: Latch value missing for PHI node '" + name + "'.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
+                phi->addIncoming(llvm::UndefValue::get(phi->getType()), latchBB);  // 避免崩溃
+            }
+        }
+    }
+    else
+    {
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Loop terminated early. No second incoming edges added from latch block " + llvmObjToString(latchBB) + ".");
+        // 注意：如果支持 'continue'，它也应该为 PHI 添加来自 continue 块的边。
+        // 这个简化逻辑假设只有 'break' 或 'return' 会导致提前终止而不产生回边。
+#endif
+    }
+    // 对于从 break 跳出的路径，它们直接跳到 endBB，不影响 condBB 的 PHI
+
+    // --- 11. 循环结束块 (endBB) ---
     builder.SetInsertPoint(endBB);
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [11] Set insert point to End block (" + llvmObjToString(endBB) + ")");
+    DEBUG_LOG("Exiting handleWhileStmt");
+#endif
+
+    // 循环结束后，符号表中被PHI覆盖的变量的值需要处理吗？
+    // 不需要。后续代码如果访问这些变量，应该通过符号表获取到PHI节点本身。
+    // PHI节点的值就是循环结束后的正确值。
 }
 
 void CodeGenStmt::handlePrintStmt(PrintStmtAST* stmt)
@@ -481,7 +741,8 @@ void CodeGenStmt::handleAssignStmt(AssignStmtAST* stmt)
     const ExprAST* valueExpr = stmt->getValue();
 
     // 验证类型兼容性
-    if (!typeGen->validateAssignment(varName, valueExpr)) {
+    if (!typeGen->validateAssignment(varName, valueExpr))
+    {
         codeGen.logError("Type error in assignment to '" + varName + "'");
         return;
     }
@@ -493,20 +754,25 @@ void CodeGenStmt::handleAssignStmt(AssignStmtAST* stmt)
     // 获取类型信息
     ObjectType* targetType = codeGen.getSymbolTable().getVariableType(varName);
     std::shared_ptr<PyType> valueType = valueExpr->getType();
-    
+
     // 准备用于赋值的值
     PyCodeGen* pyCodeGen = codeGen.asPyCodeGen();
-    if (pyCodeGen && codeGen.getSymbolTable().hasVariable(varName)) {
+    if (pyCodeGen && codeGen.getSymbolTable().hasVariable(varName))
+    {
         value = pyCodeGen->prepareAssignmentTarget(value, targetType, valueExpr);
         if (!value) return;
     }
-    
+
     // 使用符号表的更新方法处理变量更新
-    if (codeGen.getSymbolTable().hasVariable(varName)) {
+    if (codeGen.getSymbolTable().hasVariable(varName))
+    {
         codeGen.getSymbolTable().updateVariable(codeGen, varName, value, targetType, valueType);
-    } else {
+    }
+    else
+    {
         codeGen.getSymbolTable().setVariable(varName, value, valueType->getObjectType());
-        if (valueType && valueType->isReference()) {
+        if (valueType && valueType->isReference())
+        {
             runtime->incRef(value);
         }
     }
@@ -514,7 +780,7 @@ void CodeGenStmt::handleAssignStmt(AssignStmtAST* stmt)
     // 标记最后计算的表达式
     codeGen.setLastExprValue(value);
     codeGen.setLastExprType(valueType);
-    
+
     // 清理临时对象
     runtime->cleanupTemporaryObjects();
 }

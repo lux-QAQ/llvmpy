@@ -5,6 +5,7 @@
 #include "CodeGen/VariableUpdateContext.h"
 #include <llvm/IR/Value.h>
 #include <memory>
+#include <set>
 
 namespace llvmpy
 {
@@ -48,10 +49,13 @@ public:
     // 辅助函数：为给定类型生成默认值
     llvm::Value* generateDefaultValue(CodeGenBase& codeGen, std::shared_ptr<PyType> type);
     void analyzeExpressionForLoopVars(
-        const ExprAST* expr, 
-        VariableUpdateContext& updateContext,
-        llvm::BasicBlock* loopHeader,
-        llvm::BasicBlock* entryBlock);
+            const ExprAST* expr,
+            VariableUpdateContext& updateContext,
+            llvm::BasicBlock* loopHeader,
+            llvm::BasicBlock* entryBlock);
+
+    void findAssignedVariables(StmtAST* stmt, std::set<std::string>& assignedVars);
+
     //===----------------------------------------------------------------------===//
     // 核心访问方法 - 处理各种AST节点类型
     //===----------------------------------------------------------------------===//

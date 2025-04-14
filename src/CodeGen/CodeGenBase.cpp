@@ -274,6 +274,24 @@ void CodeGenBase::initializeComponents()
     if (!runtimeGen) runtimeGen = std::make_unique<CodeGenRuntime>(*this, nullptr);
 }
 
+
+// 新增：logWarning 实现
+void CodeGenBase::logWarning(const std::string& message, int line, int column)
+{
+    // 格式化警告信息并输出到 cerr
+    std::stringstream ss;
+    ss << "Warning";
+    if (line > 0) {
+        ss << " at line " << line;
+        if (column > 0) {
+            ss << ", column " << column;
+        }
+    }
+    ss << ": " << message;
+    std::cerr << ss.str() << std::endl;
+}
+
+
 llvm::Value* CodeGenBase::logError(const std::string& message, int line, int column)
 {
     // 记录普通错误
