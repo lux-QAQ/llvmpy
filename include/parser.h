@@ -311,6 +311,7 @@ private:
     std::unique_ptr<ExprAST> parseUnaryExpr();
     std::unique_ptr<ExprAST> parseListExpr();
     std::unique_ptr<ExprAST> parseIndexExpr(std::unique_ptr<ExprAST> target);
+    std::unique_ptr<ExprAST> parseDictExpr(); 
 
     // 新增：类型检查辅助方法
     bool validateBinaryOp(char op, const std::shared_ptr<PyType>& leftType, 

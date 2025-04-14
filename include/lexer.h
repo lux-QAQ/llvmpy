@@ -242,13 +242,14 @@ public:
 
 // 词法分析器状态 - 用于保存和恢复状态
 struct PyLexerState {
-    size_t position;
-    int line;
-    int column;
+   // size_t position;
+   // int line;
+   // int column;
     size_t tokenIndex;
     
-    PyLexerState(size_t pos = 0, int l = 1, int c = 1, size_t idx = 0)
-        : position(pos), line(l), column(c), tokenIndex(idx) {}
+    /* PyLexerState(size_t pos = 0, int l = 1, int c = 1, size_t idx = 0)
+        : position(pos), line(l), column(c), tokenIndex(idx) {} */
+        PyLexerState(size_t idx = 0) : tokenIndex(idx) {}
 };
 
 // 词法分析器类

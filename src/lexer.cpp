@@ -711,13 +711,14 @@ PyToken PyLexer::peekTokenAt(size_t offset) const {
 }
 
 PyLexerState PyLexer::saveState() const {
-    return PyLexerState(position, currentLine, currentColumn, tokenIndex);
+/*     return PyLexerState(position, currentLine, currentColumn, tokenIndex); */
+return PyLexerState(tokenIndex); 
 }
 
 void PyLexer::restoreState(const PyLexerState& state) {
-    position = state.position;
+/*     position = state.position;
     currentLine = state.line;
-    currentColumn = state.column;
+    currentColumn = state.column; */
     tokenIndex = state.tokenIndex;
 }
 

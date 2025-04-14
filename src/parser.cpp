@@ -4,7 +4,7 @@
 #include <sstream>
 #include "Debugdefine.h"
 #include "ast.h"
-
+#include <stdexcept>  // 添加头文件以使用 std::runtime_error 或其他异常
 namespace llvmpy
 {
 
@@ -57,104 +57,139 @@ void PyParser::initializeRegistries()
                        { return p.parseNoneExpr(); });
     registerExprParser(TOK_LBRACK, [](PyParser& p)
                        { return p.parseListExpr(); });
+  /*   registerExprParser(TOK_LBRACE, [](PyParser& p)
+                       { return p.parseDictExpr(); });  // Add this line */
 
     // 语句解析器注册 - 标识符特殊处理
     // filepath: [parser.cpp](http://_vscodecontentref_/0)
     registerStmtParser(TOK_IDENTIFIER, [](PyParser& p) -> std::unique_ptr<StmtAST>
                        {
-    // 保存当前状态用于回溯
-    auto state = p.saveState();
-    std::string idName = p.getCurrentToken().value;
-    int line = p.getCurrentToken().line;
-    int column = p.getCurrentToken().column;
-    
-    // 消费标识符
-    p.nextToken();
-    
-    // 索引赋值: a[index] = value
-    if (p.getCurrentToken().type == TOK_LBRACK) {
-        // 创建变量表达式
-        auto varExpr = std::make_unique<VariableExprAST>(idName);
-        
-        // 解析索引
-        p.nextToken(); // 消费'['
-        auto index = p.parseExpression();
-        if (!index)
-            return nullptr;
-            
-        if (!p.expectToken(TOK_RBRACK, "Expected ']' after index"))
-            return nullptr;
-            
-        // 如果后面是赋值符号，创建索引赋值语句
-        if (p.getCurrentToken().type == TOK_ASSIGN) {
-            p.nextToken(); // 消费'='
-            
-            // 解析右侧值表达式
-            auto value = p.parseExpression();
-            if (!value)
-                return nullptr;
-                
-            // 使用第一个构造函数，明确提供target、index和value
-            return std::make_unique<IndexAssignStmtAST>(std::move(varExpr), std::move(index), std::move(value));
-        }
-    }
-    // 处理复合赋值操作符 (+=, -=, *=, /=)
-    else if (p.getCurrentToken().type == TOK_PLUS_ASSIGN ||
-             p.getCurrentToken().type == TOK_MINUS_ASSIGN ||
-             p.getCurrentToken().type == TOK_MUL_ASSIGN ||
-             p.getCurrentToken().type == TOK_DIV_ASSIGN) {
-        
-        PyTokenType opType = p.getCurrentToken().type;
-        char op = '?';
-        
-        // 根据token类型确定操作符
-        switch (opType) {
-            case TOK_PLUS_ASSIGN: op = '+'; break;
-            case TOK_MINUS_ASSIGN: op = '-'; break;
-            case TOK_MUL_ASSIGN: op = '*'; break;
-            case TOK_DIV_ASSIGN: op = '/'; break;
-            default: break;
-        }
-        
-        p.nextToken(); // 消费操作符
-        
-        // 解析右侧表达式
-        auto rightExpr = p.parseExpression();
-        if (!rightExpr)
-            return nullptr;
-        
-        // 创建变量表达式作为左操作数
-        auto varExpr = std::make_unique<VariableExprAST>(idName);
-        varExpr->setLocation(line, column);
-        
-        // 创建二元表达式: a + 1
-        auto binExpr = std::make_unique<BinaryExprAST>(op, std::move(varExpr), std::move(rightExpr));
-        binExpr->setLocation(line, column);
-        
-        // 创建赋值语句: a = (a + 1)
-        auto stmt = std::make_unique<AssignStmtAST>(idName, std::move(binExpr));
-        stmt->setLocation(line, column);
-        
-        // 确保语句正确结束
-        if (p.getCurrentToken().type == TOK_NEWLINE) {
-            p.nextToken(); // 消费换行符
-        }
-        
-        return stmt;
-    }
-    // 普通赋值: a = value
-    else if (p.getCurrentToken().type == TOK_ASSIGN) {
-        return p.parseAssignStmt(idName);
-    }
-    // 表达式语句
-    else {
-        p.restoreState(state);
-        return p.parseExpressionStmt();
-    }
+        auto state = p.saveState(); // State before identifier (e.g., token='id', index=k)
+        std::string idName = p.getCurrentToken().value;
+        int line = p.getCurrentToken().line;
+        int column = p.getCurrentToken().column;
 
-    // 如果没有匹配的情况，返回null
-    p.restoreState(state);
-    return nullptr; });
+        p.nextToken(); // Consume identifier (e.g., token points to char after 'id', index=k+1)
+
+        // Case 1: Indexing involved? id[...]
+        if (p.getCurrentToken().type == TOK_LBRACK) {
+            // Need to look ahead past [...] to see if there is an '='
+            // Save state *after* 'id' but before '['
+            auto stateBeforeLBracket = p.saveState(); // (e.g., token='[', index=k+1)
+
+            p.nextToken(); // Consume '['
+            auto indexExpr = p.parseExpression(); // Consumes index tokens
+            if (!indexExpr) {
+                 // Error parsing index. Assume it was meant to be an expression statement starting with 'id'.
+                 p.restoreState(state); // Restore to before 'id'
+                 return p.parseExpressionStmt();
+            }
+            // Check for ']'
+            if (p.getCurrentToken().type != TOK_RBRACK) {
+                 p.logParseError<StmtAST>("Expected ']' after index");
+                 // Assume it was meant to be an expression statement starting with 'id'.
+                 p.restoreState(state); // Restore to before 'id'
+                 return p.parseExpressionStmt();
+            }
+            p.nextToken(); // Consume ']'
+
+            // Now check if the token AFTER ']' is '='
+            if (p.getCurrentToken().type == TOK_ASSIGN) {
+                // It's an index assignment statement: id[index] = value
+                p.nextToken(); // Consume '='
+                auto valueExpr = p.parseExpression();
+                if (!valueExpr) {
+                     // Error parsing value. Assume it was meant to be an expression statement starting with 'id'.
+                     p.restoreState(state); // Restore to before 'id'
+                     return p.parseExpressionStmt();
+                }
+                // Successfully parsed assignment
+                auto varExpr = std::make_unique<VariableExprAST>(idName);
+                varExpr->setLocation(line, column); // Set location based on original id
+
+                // Ensure statement ends correctly (newline/eof/dedent)
+                if (p.getCurrentToken().type == TOK_NEWLINE) {
+                    p.nextToken();
+                } else if (p.getCurrentToken().type != TOK_EOF && p.getCurrentToken().type != TOK_DEDENT) {
+                    return p.logParseError<StmtAST>("Expected newline or end of block/file after index assignment statement, got " + p.lexer.getTokenName(p.getCurrentToken().type));
+                }
+                // Return the IndexAssignStmtAST
+                return std::make_unique<IndexAssignStmtAST>(std::move(varExpr), std::move(indexExpr), std::move(valueExpr));
+            } else {
+                // It's an index expression statement: id[index]
+                // We consumed tokens up to AFTER ']', need to restore to BEFORE identifier
+                p.restoreState(state); // Restore to before 'id'
+                return p.parseExpressionStmt(); // Let parseExpressionStmt handle id[index]
+            }
+        }
+        // Case 2: Compound assignment? id += value
+        else if (p.getCurrentToken().type == TOK_PLUS_ASSIGN ||
+                 p.getCurrentToken().type == TOK_MINUS_ASSIGN ||
+                 p.getCurrentToken().type == TOK_MUL_ASSIGN ||
+                 p.getCurrentToken().type == TOK_DIV_ASSIGN) {
+
+            PyTokenType opType = p.getCurrentToken().type;
+            int opLine = p.getCurrentToken().line; // Location of operator
+            int opCol = p.getCurrentToken().column;
+            char op = '?';
+            switch (opType) {
+                case TOK_PLUS_ASSIGN: op = '+'; break;
+                case TOK_MINUS_ASSIGN: op = '-'; break;
+                case TOK_MUL_ASSIGN: op = '*'; break;
+                case TOK_DIV_ASSIGN: op = '/'; break;
+                default: break; // Should not happen
+            }
+            p.nextToken(); // Consume compound assignment operator
+
+            auto rightExpr = p.parseExpression();
+            if (!rightExpr) {
+                // Error parsing RHS. Assume it was meant to be an expression statement starting with 'id'.
+                p.restoreState(state); // Restore to before 'id'
+                return p.parseExpressionStmt();
+            }
+
+            // Create nodes for equivalent simple assignment: id = id op rightExpr
+            auto varExprLeft = std::make_unique<VariableExprAST>(idName); // Used only for AssignStmtAST target name
+            varExprLeft->setLocation(line, column); // Location of original id
+
+            auto varExprRight = std::make_unique<VariableExprAST>(idName); // Instance for RHS of binary op
+            varExprRight->setLocation(line, column); // Location of original id
+
+            auto binExpr = std::make_unique<BinaryExprAST>(op, std::move(varExprRight), std::move(rightExpr));
+            binExpr->setLocation(opLine, opCol); // Location of the operator
+
+            auto assignStmt = std::make_unique<AssignStmtAST>(idName, std::move(binExpr));
+            assignStmt->setLocation(line, column); // Location of original id
+
+            // Ensure statement ends correctly
+            if (p.getCurrentToken().type == TOK_NEWLINE) {
+                p.nextToken(); // Consume newline
+            } else if (p.getCurrentToken().type != TOK_EOF && p.getCurrentToken().type != TOK_DEDENT) {
+                 return p.logParseError<StmtAST>("Expected newline or end of block/file after compound assignment statement, got " + p.lexer.getTokenName(p.getCurrentToken().type));
+            }
+            return assignStmt;
+        }
+        // Case 3: Simple assignment? id = value
+        else if (p.getCurrentToken().type == TOK_ASSIGN) {
+            // Simple assignment - delegate to parseAssignStmt
+            // parseAssignStmt expects current token to be '=' and needs idName
+            // It handles consuming '=', parsing the value, and checking the trailing newline.
+            // We need to pass the original location of idName to parseAssignStmt or handle location setting afterwards.
+            auto assignStmt = p.parseAssignStmt(idName);
+            if (assignStmt) {
+                 // Attempt to set location here if parseAssignStmt doesn't
+                 if (auto concreteAssign = dynamic_cast<AssignStmtAST*>(assignStmt.get())) {
+                     concreteAssign->setLocation(line, column); // Set location to original id
+                 }
+            }
+            return assignStmt;
+        }
+        // Case 4: Must be an expression statement (function call, variable)
+        else {
+            // Restore state so parseExpressionStmt starts from the identifier
+            p.restoreState(state); // Restore to before 'id'
+            return p.parseExpressionStmt();
+        } });
 
     // 其他语句解析器注册
     registerStmtParser(TOK_RETURN, [](PyParser& p)
@@ -189,7 +224,8 @@ void PyParser::initializeRegistries()
                        { return p.parseExpressionStmt(); });
 
     // 为INDENT和DEDENT注册解析器，以防处理意外的缩进token
-registerStmtParser(TOK_INDENT, [](PyParser& p) ->std::unique_ptr<StmtAST>{
+    registerStmtParser(TOK_INDENT, [](PyParser& p) -> std::unique_ptr<StmtAST>
+                       {
     p.nextToken();  // 消费INDENT token
     
     // 如果遇到DEDENT或EOF，直接返回一个空语句
@@ -198,15 +234,14 @@ registerStmtParser(TOK_INDENT, [](PyParser& p) ->std::unique_ptr<StmtAST>{
     }
     
     // 否则尝试解析下一个语句
-    return p.parseStatement();
-});
+    return p.parseStatement(); });
 
-registerStmtParser(TOK_DEDENT, [](PyParser& p) {
+    registerStmtParser(TOK_DEDENT, [](PyParser& p)
+                       {
     p.nextToken();  // 消费DEDENT token
     
     // 尝试解析下一个语句
-    return p.parseStatement();
-});
+    return p.parseStatement(); });
     // 操作符信息注册
     registerOperator(TOK_PLUS, '+', 20);
     registerOperator(TOK_MINUS, '-', 20);
@@ -254,10 +289,17 @@ PyParser::PyParser(PyLexer& l) : lexer(l), currentToken(TOK_EOF, "", 1, 1)
 
 void PyParser::nextToken()
 {
+#ifdef DEBUG_PARSER_NextToken_detailed
+    std::cerr << "Debug: Entering nextToken. Current token before getNextToken: '" << currentToken.value
+              << "' type: " << lexer.getTokenName(currentToken.type) << std::endl;  // Log before
+#endif
     currentToken = lexer.getNextToken();
-
-#ifdef DEBUG
-    // 添加调试输出
+#ifdef DEBUG_PARSER_NextToken_detailed
+    std::cerr << "Debug: Exiting nextToken. Current token after getNextToken: '" << currentToken.value
+              << "' type: " << lexer.getTokenName(currentToken.type) << std::endl;  // Log after
+#endif
+#ifdef DEBUG_PARSER_NextToken
+    // 原始调试输出保持不变
     std::cerr << "Debug: Next token: '" << currentToken.value
               << "' type: " << lexer.getTokenName(currentToken.type)
               << " at line " << currentToken.line
@@ -296,13 +338,15 @@ void PyParser::skipNewlines()
 
 PyParser::PyParserState PyParser::saveState() const
 {
-    return PyParserState(currentToken, lexer.peekPosition());
+    // return PyParserState(currentToken, lexer.peekPosition());
+    return PyParserState(currentToken, lexer.saveState().tokenIndex);  // 保存 tokenIndex
 }
 
 void PyParser::restoreState(const PyParserState& state)
 {
     currentToken = state.token;
-    lexer.resetPosition(state.lexerPosition);
+    //lexer.resetPosition(state.lexerPosition);
+    lexer.restoreState(PyLexerState(state.lexerPosition));  // 使用 lexer 的 restoreState
 }
 
 void PyParser::dumpCurrentToken() const
@@ -321,7 +365,16 @@ std::unique_ptr<ExprAST> PyParser::parseNumberExpr()
 {
     double value = std::stod(currentToken.value);
     auto result = makeExpr<NumberExprAST>(value);
-    nextToken();  // 消费数字
+    PyToken consumedToken = currentToken;  // 保存 token 信息用于日志
+    nextToken();                           // 消费数字 token
+#ifdef DEBUG_PARSER_Expr                   // 在 DEBUG_PARSER_Expr 宏下添加日志
+    std::cerr << "Debug [parseNumberExpr]: Consumed '" << consumedToken.value
+              << "' (type: " << lexer.getTokenName(consumedToken.type)
+              << ") at L" << consumedToken.line << " C" << consumedToken.column
+              << ". Next token is now: '" << currentToken.value
+              << "' (type: " << lexer.getTokenName(currentToken.type)
+              << ") at L" << currentToken.line << " C" << currentToken.column << std::endl;
+#endif
     return result;
 }
 
@@ -348,37 +401,96 @@ std::unique_ptr<ExprAST> PyParser::parseIdentifierExpr()
     std::string idName = currentToken.value;
     int line = currentToken.line;
     int column = currentToken.column;
+    PyToken idToken = currentToken;  // 保存标识符 token 信息
 
     nextToken();  // 消费标识符
 
     // 函数调用
     if (currentToken.type == TOK_LPAREN)
     {
-        nextToken();  // 消费'('
+#ifdef DEBUG_PARSER_Expr
+        std::cerr << "Debug [parseIdentifierExpr]: Detected function call for '" << idName << "' at L" << line << " C" << column << ". Current token: LPAREN" << std::endl;
+#endif
+        nextToken();  // 消费 '('
         std::vector<std::unique_ptr<ExprAST>> args;
 
-        // 处理空参数列表
-        if (currentToken.type != TOK_RPAREN)
+        // 处理参数列表
+        if (currentToken.type != TOK_RPAREN)  // 检查是否是空参数列表 '()'
         {
             while (true)
             {
-                auto arg = parseExpression();
-                if (!arg) return nullptr;
+#ifdef DEBUG_PARSER_Expr
+                std::cerr << "Debug [parseIdentifierExpr]: Before parsing argument. Current token: " << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "') at L" << currentToken.line << " C" << currentToken.column << std::endl;
+#endif
+                auto arg = parseExpression();  // 解析一个参数表达式
+                if (!arg)
+                {
+#ifdef DEBUG_PARSER_Expr
+                    std::cerr << "Debug [parseIdentifierExpr]: Argument parsing failed. Current token: " << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "')" << std::endl;
+#endif
+                    return nullptr;  // 参数解析失败
+                }
+#ifdef DEBUG_PARSER_Expr
+                // 在参数解析后添加更详细的日志
+                std::cerr << "Debug [parseIdentifierExpr]: After parsing argument. Current token: " << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "') at L" << currentToken.line << " C" << currentToken.column << std::endl;
+#endif
                 args.push_back(std::move(arg));
 
+                // 查看下一个 token
                 if (currentToken.type == TOK_RPAREN)
+                {  // 如果是右括号，参数列表结束
+#ifdef DEBUG_PARSER_Expr
+                    std::cerr << "Debug [parseIdentifierExpr]: Found RPAREN, ending argument list." << std::endl;
+#endif
                     break;
+                }
 
-                if (!expectToken(TOK_COMMA, "Expected ',' or ')' in argument list"))
-                    return nullptr;
+                if (currentToken.type == TOK_COMMA)
+                {  // 如果是逗号
+#ifdef DEBUG_PARSER_Expr
+                    std::cerr << "Debug [parseIdentifierExpr]: Found COMMA, consuming and expecting next argument or RPAREN." << std::endl;
+#endif
+                    nextToken();  // 消费逗号
+                    // 处理可能的尾随逗号，例如 func(a, b, )
+                    if (currentToken.type == TOK_RPAREN)
+                    {
+                        std::cerr << "Warning: Trailing comma detected in argument list at line "
+                                  << currentToken.line << ", col " << currentToken.column << std::endl;
+#ifdef DEBUG_PARSER_Expr
+                        std::cerr << "Debug [parseIdentifierExpr]: Found RPAREN after trailing comma, ending argument list." << std::endl;
+#endif
+                        break;  // 参数列表结束
+                    }
+                    // 逗号后面应该继续解析下一个参数，循环会继续
+                }
+                else
+                {
+                    // 既不是逗号也不是右括号，说明语法错误
+                    return logParseError<ExprAST>("Expected ',' or ')' in argument list, got " + lexer.getTokenName(currentToken.type));
+                }
             }
+        }
+        else
+        {
+#ifdef DEBUG_PARSER_Expr
+            std::cerr << "Debug [parseIdentifierExpr]: Empty argument list detected (RPAREN found immediately)." << std::endl;
+#endif
         }
 
         // 消费右括号
         if (!expectToken(TOK_RPAREN, "Expected ')' after arguments"))
+        {
+#ifdef DEBUG_PARSER_Expr
+            std::cerr << "Debug [parseIdentifierExpr]: Failed to find expected RPAREN after arguments." << std::endl;
+#endif
             return nullptr;
+        }
+#ifdef DEBUG_PARSER_Expr
+        std::cerr << "Debug [parseIdentifierExpr]: Successfully parsed function call '" << idName << "'." << std::endl;
+#endif
 
         auto callExpr = makeExpr<CallExprAST>(idName, std::move(args));
+        callExpr->setLocation(line, column);  // 设置位置信息
         return callExpr;
     }
 
@@ -386,11 +498,17 @@ std::unique_ptr<ExprAST> PyParser::parseIdentifierExpr()
     if (currentToken.type == TOK_LBRACK)
     {
         auto varExpr = makeExpr<VariableExprAST>(idName);
+        varExpr->setLocation(line, column);  // 设置位置信息
         return parseIndexExpr(std::move(varExpr));
     }
 
     // 简单变量引用
-    return makeExpr<VariableExprAST>(idName);
+#ifdef DEBUG_PARSER_Expr
+    std::cerr << "Debug [parseIdentifierExpr]: Parsed simple variable '" << idName << "'." << std::endl;
+#endif
+    auto varExpr = makeExpr<VariableExprAST>(idName);
+    varExpr->setLocation(line, column);  // 设置位置信息
+    return varExpr;
 }
 
 std::unique_ptr<ExprAST> PyParser::parseStringExpr()
@@ -524,6 +642,102 @@ std::unique_ptr<ExprAST> PyParser::parseExpression()
     return result;
 }
 
+
+/* // 解析字典字面量
+std::unique_ptr<ExprAST> PyParser::parseDictExpr() {
+    int line = currentToken.line;
+    int column = currentToken.column;
+#ifdef DEBUG_PARSER_Expr
+    std::cerr << "Debug [parseDictExpr]: Starting dictionary literal parsing at L" << line << " C" << column << std::endl;
+#endif
+
+    nextToken(); // Consume '{'
+
+    std::vector<std::pair<std::unique_ptr<ExprAST>, std::unique_ptr<ExprAST>>> pairs;
+
+    // Handle empty dictionary {}
+    if (currentToken.type == TOK_RBRACE) {
+#ifdef DEBUG_PARSER_Expr
+        std::cerr << "Debug [parseDictExpr]: Parsed empty dictionary." << std::endl;
+#endif
+        nextToken(); // Consume '}'
+        auto dictExpr = makeExpr<DictExprAST>(std::move(pairs));
+        dictExpr->setLocation(line, column);
+        return dictExpr;
+    }
+
+    // Parse key-value pairs
+    while (true) {
+        // Parse Key
+#ifdef DEBUG_PARSER_Expr
+        std::cerr << "Debug [parseDictExpr]: Parsing dictionary key. Current token: " << lexer.getTokenName(currentToken.type) << std::endl;
+#endif
+        auto key = parseExpression();
+        if (!key) {
+#ifdef DEBUG_PARSER_Expr
+            std::cerr << "Debug [parseDictExpr]: Failed to parse dictionary key." << std::endl;
+#endif
+            return nullptr; // Error already logged by parseExpression
+        }
+
+        // Expect ':'
+        if (!expectToken(TOK_COLON, "Expected ':' after dictionary key")) {
+            return nullptr;
+        }
+
+        // Parse Value
+#ifdef DEBUG_PARSER_Expr
+        std::cerr << "Debug [parseDictExpr]: Parsing dictionary value. Current token: " << lexer.getTokenName(currentToken.type) << std::endl;
+#endif
+        auto value = parseExpression();
+        if (!value) {
+#ifdef DEBUG_PARSER_Expr
+            std::cerr << "Debug [parseDictExpr]: Failed to parse dictionary value." << std::endl;
+#endif
+            return nullptr; // Error already logged by parseExpression
+        }
+
+        pairs.emplace_back(std::move(key), std::move(value));
+
+        // Check for '}' or ','
+        if (currentToken.type == TOK_RBRACE) {
+#ifdef DEBUG_PARSER_Expr
+            std::cerr << "Debug [parseDictExpr]: Found '}', ending dictionary literal." << std::endl;
+#endif
+            break; // End of dictionary
+        }
+
+        if (currentToken.type == TOK_COMMA) {
+            nextToken(); // Consume ','
+            // Handle trailing comma: {key: value, }
+            if (currentToken.type == TOK_RBRACE) {
+#ifdef DEBUG_PARSER_Expr
+                std::cerr << "Debug [parseDictExpr]: Found trailing comma before '}'." << std::endl;
+#endif
+                break; // End of dictionary
+            }
+            // Continue to next key-value pair
+#ifdef DEBUG_PARSER_Expr
+            std::cerr << "Debug [parseDictExpr]: Found ',', expecting next key-value pair." << std::endl;
+#endif
+        } else {
+            return logParseError<ExprAST>("Expected ',' or '}' in dictionary literal, got " + lexer.getTokenName(currentToken.type));
+        }
+    }
+
+    // Expect closing '}'
+    if (!expectToken(TOK_RBRACE, "Expected '}' at end of dictionary literal")) {
+        return nullptr;
+    }
+
+#ifdef DEBUG_PARSER_Expr
+    std::cerr << "Debug [parseDictExpr]: Successfully parsed dictionary literal with " << pairs.size() << " pairs." << std::endl;
+#endif
+    auto dictExpr = makeExpr<DictExprAST>(std::move(pairs));
+    dictExpr->setLocation(line, column);
+    return dictExpr;
+} */
+
 // 解析列表字面量
 std::unique_ptr<ExprAST> PyParser::parseListExpr()
 {
@@ -606,7 +820,7 @@ std::unique_ptr<StmtAST> PyParser::parseStatement()
     return logParseError<StmtAST>("Unknown statement type: " + lexer.getTokenName(currentToken.type));
 }
 
-std::unique_ptr<StmtAST> PyParser::parseExpressionStmt()
+/* std::unique_ptr<StmtAST> PyParser::parseExpressionStmt()
 {
     auto expr = parseExpression();
     if (!expr)
@@ -617,8 +831,62 @@ std::unique_ptr<StmtAST> PyParser::parseExpressionStmt()
         nextToken();  // 消费换行
 
     return makeStmt<ExprStmtAST>(std::move(expr));
-}
+} */
+std::unique_ptr<StmtAST> PyParser::parseExpressionStmt()
+{
+#ifdef DEBUG_PARSER_Stmt  // 在 DEBUG_PARSER_Stmt 宏下添加日志
+    std::cerr << "Debug [parseExpressionStmt]: Starting to parse expression statement. Current token: "
+              << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "') at L"
+              << currentToken.line << " C" << currentToken.column << std::endl;
+#endif
+    auto expr = parseExpression();  // 尝试解析整个表达式语句
+    if (!expr)
+    {
+#ifdef DEBUG_PARSER_Stmt
+        std::cerr << "Debug [parseExpressionStmt]: parseExpression returned nullptr." << std::endl;
+#endif
+        return nullptr;
+    }
+#ifdef DEBUG_PARSER_Stmt
+    std::cerr << "Debug [parseExpressionStmt]: Successfully parsed expression. Checking token after expression. Current token: "
+              << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "') at L"
+              << currentToken.line << " C" << currentToken.column << std::endl;
+#endif
 
+    // 检查表达式语句结束后是否是预期的 token (换行符、文件结束或块结束)
+    if (currentToken.type == TOK_NEWLINE)
+    {
+#ifdef DEBUG_PARSER_Stmt
+        std::cerr << "Debug [parseExpressionStmt]: Found NEWLINE, consuming it." << std::endl;
+#endif
+        nextToken();  // 消费换行符
+    }
+    else if (currentToken.type != TOK_EOF && currentToken.type != TOK_DEDENT)
+    {
+        // 如果表达式后面跟着非预期的 token，报告错误
+#ifdef DEBUG_PARSER_Stmt
+        std::cerr << "Debug [parseExpressionStmt]: Unexpected token after expression: "
+                  << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "'). Reporting error." << std::endl;
+#endif
+        // 特别检查是否是逗号，这可能指示函数调用解析不完整
+        if (currentToken.type == TOK_COMMA)
+        {
+            return logParseError<StmtAST>("Unexpected comma after expression. Function call argument parsing might be incomplete.");
+        }
+        // 其他非预期 token
+        return logParseError<StmtAST>("Expected newline or end of block/file after expression statement, got " + lexer.getTokenName(currentToken.type));
+    }
+    // 如果是 TOK_EOF 或 TOK_DEDENT，则表示语句或块正常结束，无需消费
+#ifdef DEBUG_PARSER_Stmt
+    else
+    {
+        std::cerr << "Debug [parseExpressionStmt]: Found " << lexer.getTokenName(currentToken.type) << ", statement ends correctly." << std::endl;
+    }
+    std::cerr << "Debug [parseExpressionStmt]: Returning ExprStmtAST." << std::endl;
+#endif
+
+    return makeStmt<ExprStmtAST>(std::move(expr));
+}
 std::unique_ptr<StmtAST> PyParser::parseReturnStmt()
 {
     int line = currentToken.line;
@@ -1138,9 +1406,28 @@ std::vector<std::unique_ptr<StmtAST>> PyParser::parseBlock()
             continue;
         }
 
+        // 保存当前token信息，用于错误报告
+        PyToken failedToken = currentToken;
         auto stmt = parseStatement();
+
         if (!stmt)
+        {
+            std::cerr << "Error: parseStatement returned nullptr. Current token before skipping: '"
+                      << currentToken.value << "' type: " << lexer.getTokenName(currentToken.type) << std::endl;  // Log current token
+
+            // 记录更详细的错误信息...
+            std::cerr << "Error: Failed to parse statement starting near token '"
+                      << failedToken.value << "' (" << lexer.getTokenName(failedToken.type)
+                      << ") at line " << failedToken.line << ", col " << failedToken.column
+                      << ". Skipping token '" << currentToken.value << "'." << std::endl;
+
+            nextToken();  // Consume the problematic token
+
+            std::cerr << "Error: Current token after skipping: '"
+                      << currentToken.value << "' type: " << lexer.getTokenName(currentToken.type) << std::endl;  // Log token after skipping
+
             continue;
+        }
 
         // 如果是赋值语句，记录变量类型信息
         if (auto assignStmt = dynamic_cast<AssignStmtAST*>(stmt.get()))
@@ -1150,7 +1437,17 @@ std::vector<std::unique_ptr<StmtAST>> PyParser::parseBlock()
 
             if (valueExpr)
             {
-                localVars[varName] = valueExpr->getType();
+                // 确保类型信息存在
+                auto valueType = valueExpr->getType();
+                if (valueType)
+                {
+                    localVars[varName] = valueType;
+                }
+                else
+                {
+                    std::cerr << "Warning: Type information missing for variable '" << varName
+                              << "' assignment at line " << failedToken.line << std::endl;
+                }
             }
         }
 

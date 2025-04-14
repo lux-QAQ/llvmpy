@@ -1,6 +1,8 @@
 ; ModuleID = 'llvmpy_module'
 source_filename = "llvmpy_module"
 
+@str_const = private unnamed_addr constant [11 x i8] c"teststring\00", align 1
+
 declare void @py_print_int(i32)
 
 declare void @py_print_double(double)
@@ -191,6 +193,12 @@ while.end:                                        ; preds = %while.cond
   ret ptr %int_obj1
 }
 
+define ptr @teststring() {
+entry:
+  %str_obj = call ptr @py_create_string(ptr @str_const)
+  ret ptr %str_obj
+}
+
 define ptr @main() {
 entry:
   %int_obj = call ptr @py_create_int(i32 1)
@@ -233,22 +241,21 @@ entry:
   %str_ptr14 = call ptr @py_extract_string(ptr %str_obj13)
   call void @py_print_string(ptr %str_ptr14)
   call void @py_decref(ptr %str_obj13)
-  %int_obj15 = call ptr @py_create_int(i32 5)
-  %int_obj16 = call ptr @py_create_int(i32 10)
+  %int_obj15 = call ptr @py_create_int(i32 1)
+  %int_obj16 = call ptr @py_create_int(i32 999)
   call void @py_incref(ptr %int_obj15)
   call void @py_incref(ptr %int_obj16)
   %calltmp17 = call ptr @testrecursion(ptr %int_obj15, ptr %int_obj16)
-  %int_value = call i32 @py_extract_int(ptr %calltmp17)
-  call void @py_print_int(i32 %int_value)
-  %int_obj18 = call ptr @py_create_int(i32 0)
-  ret ptr %int_obj18
+  %calltmp18 = call ptr @teststring()
+  %str_ptr19 = call ptr @py_extract_string(ptr %calltmp18)
+  call void @py_print_string(ptr %str_ptr19)
+  %int_obj20 = call ptr @py_create_int(i32 0)
+  ret ptr %int_obj20
 }
 
 declare ptr @py_create_list(i32, i32)
 
 declare void @py_list_set_item(ptr, i32, ptr)
-
-declare i32 @py_extract_int(ptr)
 
 !0 = !{i32 7}
 !1 = !{i32 3}

@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <functional>
 #include <typeindex>
+#include <utility> // For std::pair
+
 
 #include <llvm/IR/Value.h>
 #include <llvm/IR/LLVMContext.h>
@@ -45,6 +47,7 @@ enum class ASTKind
     IndexAssignStmt,
     BoolExpr,  // 添加布尔表达式
     NoneExpr,  // 添加None表达式
+    DictExpr,      // 添加字典表达式 
     Unknown
 };
 
@@ -458,6 +461,37 @@ public:
 
     static void registerWithFactory();
 };
+
+
+
+
+// 字典字面量表达式
+/* class DictExprAST : public ExprASTBase<DictExprAST, ASTKind::DictExpr>
+{
+    std::vector<std::pair<std::unique_ptr<ExprAST>, std::unique_ptr<ExprAST>>> pairs;
+    mutable std::shared_ptr<PyType> cachedType;
+
+public:
+    // Default constructor for factory
+    DictExprAST() = default;
+
+    // Constructor used by parser
+    DictExprAST(std::vector<std::pair<std::unique_ptr<ExprAST>, std::unique_ptr<ExprAST>>> p)
+        : pairs(std::move(p)) {}
+
+    const std::vector<std::pair<std::unique_ptr<ExprAST>, std::unique_ptr<ExprAST>>>& getPairs() const
+    {
+        return pairs;
+    }
+
+    std::shared_ptr<PyType> getType() const override; // Declaration only
+    void accept(PyCodeGen& codegen) override; // Declaration only
+    bool needsCopy() const override { return false; } // New dicts don't need copying initially
+
+    static void registerWithFactory(); // Declaration only
+}; */
+
+
 
 // 索引表达式
 class IndexExprAST : public ExprASTBase<IndexExprAST, ASTKind::IndexExpr>

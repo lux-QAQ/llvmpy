@@ -2,6 +2,9 @@
 #include "CodeGen/codegen.h"  // 添加这一行，引入CodeGen完整定义
 #include "ObjectType.h"
 #include "TypeIDs.h"
+#include "TypeOperations.h"  // Include for TypeInferencer
+#include "ObjectLifecycle.h" // Include for ObjectLifecycleManager
+#include "ObjectRuntime.h"   // Include for ObjectRuntime
 #include <algorithm>
 #include <stdexcept>
 #include <iostream>
@@ -687,6 +690,8 @@ void ListExprAST::accept(PyCodeGen& codegen)
     CodeGenVisitor visitor(codegen);
     visitor.visit(this);
 }
+
+
 
 // 索引表达式
 // IndexExprAST 实现工厂函数

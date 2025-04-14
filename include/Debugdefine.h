@@ -8,6 +8,10 @@
 
 //#define DEBUG_WhileSTmt
 
+#define DEBUG_PARSER_Expr
+#define DEBUG_PARSER_Stmt
+#define DEBUG_PARSER_NextToken_detailed
+#define DEBUG_PARSER_NextToken
 #define DEBUG_LOG(msg) \
     std::cerr << "DEBUG: " << msg << std::endl;
 
