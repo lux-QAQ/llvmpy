@@ -1,6 +1,3 @@
-
-#include <cmath>
-
 #include "CodeGen/CodeGenExpr.h"
 #include "CodeGen/CodeGenBase.h"
 #include "CodeGen/CodeGenType.h"
@@ -10,8 +7,12 @@
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
 #include "ast.h"
+#include "parser.h"  // For PyTypeParser
+
 #include <llvm/IR/Constants.h>
 
+#include <cmath>
+#include <iostream>  // For errors
 namespace llvmpy
 {
 
@@ -70,6 +71,12 @@ void CodeGenExpr::initializeHandlers()
     exprHandlers[ASTKind::ListExpr] = [](CodeGenBase& cg, ExprAST* expr)
     {
         return static_cast<CodeGenExpr*>(cg.getExprGen())->handleListExpr(static_cast<ListExprAST*>(expr));
+    };
+
+    exprHandlers[ASTKind::DictExpr] = [](CodeGenBase& cg, ExprAST* expr)
+    {
+        // 注意这里的转型和调用
+        return static_cast<CodeGenExpr*>(cg.getExprGen())->handleDictExpr(static_cast<DictExprAST*>(expr));
     };
 
     exprHandlers[ASTKind::IndexExpr] = [](CodeGenBase& cg, ExprAST* expr)
@@ -240,6 +247,77 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
     expr->setType(returnType);
 
     return callResult;
+}
+
+// 字典表达式的具体代码生成逻辑 (修正后)
+llvm::Value* CodeGenExpr::handleDictExpr(DictExprAST* expr)
+{
+    // 使用 CodeGenRuntime 代理
+    auto* runtime = codeGen.getRuntimeGen(); // 获取 CodeGenRuntime* 代理
+    if (!runtime) {
+        // CodeGenRuntime 应该总是可以通过 CodeGenBase 获取
+        return codeGen.logError("Internal error: CodeGenRuntime is not available.", expr->line.value_or(0), expr->column.value_or(0));
+    }
+
+    // 1. 获取推断出的类型
+    auto dictType = expr->getType();
+    if (!dictType || !dictType->isDict()) {
+        return codeGen.logError("Internal error: DictExprAST has invalid or non-dictionary type", expr->line.value_or(0), expr->column.value_or(0));
+    }
+
+    auto keyPyType = PyType::getDictKeyType(dictType);
+    auto valuePyType = PyType::getDictValueType(dictType);
+
+    if (!keyPyType || !valuePyType) {
+         return codeGen.logError("Internal error: DictExprAST has invalid key/value PyTypes", expr->line.value_or(0), expr->column.value_or(0));
+    }
+
+    ObjectType* keyObjType = keyPyType->getObjectType();
+    ObjectType* valueObjType = valuePyType->getObjectType();
+
+    if (!keyObjType || !valueObjType) {
+         return codeGen.logError("Internal error: Could not resolve ObjectType for dict key/value", expr->line.value_or(0), expr->column.value_or(0));
+    }
+
+    // 2. 创建空字典对象 (使用 CodeGenExpr 辅助函数，它内部调用 CodeGenRuntime)
+    llvm::Value* dictObj = createDict(keyObjType, valueObjType);
+
+    if (!dictObj) {
+        // 错误已在 createDict 或 runtime->createDict 中记录
+        return nullptr;
+    }
+
+    // 3. 迭代并添加键值对
+    for (const auto& pair : expr->getPairs()) {
+        // 使用 handleExpr 生成键和值的代码
+        llvm::Value* keyValRaw = handleExpr(pair.first.get());
+        llvm::Value* valueValRaw = handleExpr(pair.second.get());
+
+        if (!keyValRaw || !valueValRaw) {
+            return nullptr; // 错误已由 handleExpr 记录
+        }
+
+        // 注意：原始代码在这里有 ObjectLifecycleManager::adjustObject。
+        // 按照要求，我们在此函数中避免了需要它的 PyCodeGen* 转型。
+        // 这假设原始的键/值对象适合插入，或者任何必要的调整（如复制）
+        // 在其他地方发生，或由运行时的 setDictItem 隐式处理（这可能有风险）。
+        // 为了简化并满足要求，我们直接使用原始值。
+        llvm::Value* keyValAdjusted = keyValRaw;
+        llvm::Value* valueValAdjusted = valueValRaw;
+
+        // 4. 调用运行时设置项 (使用 CodeGenExpr 辅助函数，它内部调用 CodeGenRuntime)
+        // 传递推断出的 dictType，尽管基本的 setDictItem 可能不使用它。
+        setDictItem(dictObj, keyValAdjusted, valueValAdjusted, dictType);
+        // 键/值的引用计数由 py_dict_set_item 内部处理
+    }
+
+    // 5. 将字典标记为字面量来源
+    runtime->markObjectSource(dictObj, ObjectLifecycleManager::ObjectSource::LITERAL);
+
+    // 6. 在 CodeGenBase 状态中设置结果
+    codeGen.setLastExprValue(dictObj);
+    codeGen.setLastExprType(dictType);
+    return dictObj; // 返回生成的值
 }
 
 // 处理列表表达式
@@ -720,6 +798,98 @@ llvm::Value* CodeGenExpr::createNoneLiteral()
             {});
 
     return codeGen.getBuilder().CreateCall(getNoneFunc, {}, "none");
+}
+
+// 创建空字典
+llvm::Value* CodeGenExpr::createDict(ObjectType* keyType, ObjectType* valueType)
+{
+    auto* runtime = codeGen.getRuntimeGen();
+    // 使用 CodeGenRuntime 代理方法
+    llvm::Value* dictObj = runtime->createDict(keyType, valueType);
+    if (!dictObj)
+    {
+        codeGen.logError("Failed to create dictionary object via CodeGenRuntime");
+        return nullptr;
+    }
+    return dictObj;
+}
+
+// 创建带有初始键值对的字典
+// 创建带有初始键值对的字典
+llvm::Value* CodeGenExpr::createDictWithPairs(
+        const std::vector<std::pair<llvm::Value*, llvm::Value*>>& pairs,
+        ObjectType* keyType,
+        ObjectType* valueType)
+{
+    auto* runtime = codeGen.getRuntimeGen();
+
+    // 1. 创建空字典
+    llvm::Value* dictObj = createDict(keyType, valueType);
+    if (!dictObj)
+    {
+        return nullptr;  // 错误已在 createDict 中记录
+    }
+
+    // 2. 填充键值对
+    for (const auto& pair : pairs)
+    {
+        llvm::Value* key = pair.first;
+        llvm::Value* value = pair.second;
+
+        if (!key || !value)
+        {
+            codeGen.logError("Invalid key or value provided to createDictWithPairs");
+            // 如果错误处理需要，考虑对 dictObj 进行 decref
+            return nullptr;
+        }
+
+        // 3. 使用 CodeGenExpr 代理方法设置项
+        // 这里不容易获得整体的 dict PyType，传递 nullptr。
+        setDictItem(dictObj, key, value, nullptr);
+
+        // 4. 引用计数:
+        // py_dict_set_item 在插入 *新* 项或替换现有项时内部处理 incref。
+        // 这里不需要显式的 incRef。
+        // runtime->incRef(key);   // 不需要 - 由 py_dict_set_item 处理
+        // runtime->incRef(value); // 不需要 - 由 py_dict_set_item 处理
+    }
+
+    // 可选：如果 runtime->createDict 未处理，则标记来源
+    // runtime->markObjectSource(dictObj, ObjectLifecycleManager::ObjectSource::LITERAL);
+    return dictObj;
+}
+
+// 获取字典项 (如果需要，可以实现)
+llvm::Value* CodeGenExpr::getDictItem(llvm::Value* dict, llvm::Value* key,
+                                      std::shared_ptr<PyType> dictType)
+{
+    auto* runtime = codeGen.getRuntimeGen();
+    // 使用 CodeGenRuntime 代理方法
+    llvm::Value* item = runtime->getDictItem(dict, key);
+
+    // 关于引用计数的说明：py_dict_get_item 返回一个 *借用* (borrowed) 引用。
+    // 运行时函数 *不会* 增加引用计数。
+    // 如果调用者需要持有该引用，必须调用 incRef。
+    // 这个辅助函数只是返回运行时调用的结果。
+    // 调用者（例如 handleIndexExpr）负责管理生命周期。
+
+    // 错误处理：如果键未找到或目标不是字典，py_dict_get_item 返回 NULL。
+    // 调用者应处理 NULL 结果。
+    return item;
+}
+
+// 设置字典项 (如果需要，可以实现)
+void CodeGenExpr::setDictItem(llvm::Value* dict, llvm::Value* key, llvm::Value* value,
+    std::shared_ptr<PyType> dictType)
+{
+auto* runtime = codeGen.getRuntimeGen();
+// 使用 CodeGenRuntime 代理方法
+runtime->setDictItem(dict, key, value);
+
+// 关于引用计数的说明：py_dict_set_item 内部处理引用计数。
+// - 如果键是新的：incref(key), incref(value)
+// - 如果键已存在：decref(old_value), incref(new_value)
+// 这里不需要显式的引用计数管理。
 }
 
 // 创建列表

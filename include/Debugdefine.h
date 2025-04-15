@@ -15,6 +15,8 @@
 #define DEBUG_LOG(msg) \
     std::cerr << "DEBUG: " << msg << std::endl;
 
+
+#define DEBUG_RUNTIME_py_object_set_index
 // 定义DEBUG_PRINT宏来启用调试打印
 #ifdef DEBUG
 #define DEBUG_PRINT(x) std::cerr << "DEBUG: " << x << std::endl

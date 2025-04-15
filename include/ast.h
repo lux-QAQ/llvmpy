@@ -125,6 +125,10 @@ public:
     {
         heapAllocation = value;
     }
+    int getKind() const
+    {
+        return static_cast<int>(kind());
+    }
 
 protected:
     // 内存管理标志 - 表示该节点的结果需要堆分配
@@ -466,7 +470,7 @@ public:
 
 
 // 字典字面量表达式
-/* class DictExprAST : public ExprASTBase<DictExprAST, ASTKind::DictExpr>
+class DictExprAST : public ExprASTBase<DictExprAST, ASTKind::DictExpr>
 {
     std::vector<std::pair<std::unique_ptr<ExprAST>, std::unique_ptr<ExprAST>>> pairs;
     mutable std::shared_ptr<PyType> cachedType;
@@ -489,7 +493,7 @@ public:
     bool needsCopy() const override { return false; } // New dicts don't need copying initially
 
     static void registerWithFactory(); // Declaration only
-}; */
+};
 
 
 

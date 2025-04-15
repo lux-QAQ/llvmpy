@@ -16,6 +16,10 @@ typedef struct PyDictEntry_t PyDictEntry;
 typedef struct PyDictObject_t PyDictObject;
 typedef struct PyPrimitiveObject_t PyPrimitiveObject;
 
+typedef struct PyClassObject_t PyClassObject;     
+typedef struct PyInstanceObject_t PyInstanceObject; 
+
+
 // 结构体定义
 struct PyObject_t {
     int refCount;  // 引用计数
@@ -53,6 +57,24 @@ struct PyPrimitiveObject_t {
         bool boolValue;
         char* stringValue;
     } value;
+};
+
+
+// 类对象结构体
+struct PyClassObject_t {
+    PyObject header;        // PyObject 头 (typeId 应为 PY_TYPE_CLASS)
+    const char* name;       // 类名
+    PyClassObject* base;    // 基类 (简单起见，先支持单继承)
+    PyDictObject* class_dict; // 类属性字典 (包含方法、类变量等)
+    // 可以添加 PyTypeMethods* 指针，或者依赖基于 typeId 的动态查找
+};
+
+
+// 实例对象结构体
+struct PyInstanceObject_t {
+    PyObject header;        // PyObject 头 (typeId 应为 PY_TYPE_INSTANCE 或 >= PY_TYPE_INSTANCE_BASE)
+    PyClassObject* cls;     // 指向该实例所属的类对象
+    PyDictObject* instance_dict; // 实例属性字典
 };
 
 // 比较操作符枚举

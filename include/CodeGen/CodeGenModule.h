@@ -42,6 +42,8 @@ private:
 
     // 添加运行时库函数引用
     void addRuntimeFunctions();
+    // 运行时库初始化函数
+    void createAndRegisterRuntimeInitializer();
 
     ModuleAST* currentModule;  // 添加成员变量
 
@@ -53,6 +55,10 @@ public:
 
     // 生成完整模块
     bool generateModule(ModuleAST* module);
+
+    bool generateModule(ModuleAST* module, bool isEntryPoint = true); // 默认为 true 以保持单文件行为
+
+  
 
     // 处理函数定义
     llvm::Function* handleFunctionDef(FunctionAST* funcAST);

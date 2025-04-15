@@ -1,4 +1,6 @@
 def main():
-    c={1:2, 2:3}
-    print(c[1])
+    a=2
+    while a< 10:
+        a=a+1
+    print(a)
     return 0

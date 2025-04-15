@@ -59,6 +59,11 @@ public:
     llvm::Value* getListElement(llvm::Value* list, llvm::Value* index);
     void setListElement(llvm::Value* list, llvm::Value* index, llvm::Value* value);
 
+    // 字典操作代理
+    llvm::Value* createDict(ObjectType* keyType, ObjectType* valueType);
+    llvm::Value* getDictItem(llvm::Value* dict, llvm::Value* key);
+    void setDictItem(llvm::Value* dict, llvm::Value* key, llvm::Value* value);
+
     // 准备返回值
     llvm::Value* prepareReturnValue(
             llvm::Value* value,

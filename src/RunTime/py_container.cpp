@@ -1,7 +1,9 @@
 #include "RunTime/runtime.h"
+#include "Debugdefine.h"
 #include <cstring>
 #include <cstdlib>
 #include <cctype>
+#include <cstdint> 
 
 //===----------------------------------------------------------------------===//
 // 列表操作函数
@@ -307,41 +309,36 @@ int py_dict_len(PyObject* obj)
 // 哈希函数
 unsigned int py_hash_object(PyObject* obj)
 {
-    if (!obj) return 0;
+    if (!obj) return 0; // Hash of None or NULL pointer? CPython hashes None.
 
-    switch (llvmpy::getBaseTypeId(obj->typeId))
+    int typeId = py_get_safe_type_id(obj);
+    const PyTypeMethods* methods = py_get_type_methods(typeId);
+
+    if (methods && methods->hash)
     {
-        case llvmpy::PY_TYPE_INT:
-        {
-            int val = ((PyPrimitiveObject*)obj)->value.intValue;
-            return (unsigned int)val;
+        // 调用类型特定的哈希函数
+        return methods->hash(obj);
+    }
+    else
+    {
+        // 处理不可哈希类型
+        // 检查是否是已知不可哈希类型
+        // 实际上这个部分应该交一个专门的机，，例如注册器之类的来处理
+        // 但是目前来说还没有那么多复杂的内置类型所以暂时先硬编码这样
+        int baseTypeId = llvmpy::getBaseTypeId(typeId);
+        if (baseTypeId == llvmpy::PY_TYPE_LIST || baseTypeId == llvmpy::PY_TYPE_DICT) {
+             fprintf(stderr, "TypeError: unhashable type: '%s'\n", py_type_name(typeId));
+             // 在实际应用中，这里应该设置一个异常状态并可能返回一个特殊值或让调用者处理
+             return 0; // 或者一个特定的错误代码/标记
         }
 
-        case llvmpy::PY_TYPE_BOOL:
-        {
-            bool val = ((PyPrimitiveObject*)obj)->value.boolValue;
-            return val ? 1 : 0;
-        }
-
-        case llvmpy::PY_TYPE_STRING:
-        {
-            const char* str = ((PyPrimitiveObject*)obj)->value.stringValue;
-            if (!str) return 0;
-
-            // 简单的字符串哈希算法
-            unsigned int hash = 5381;
-            int c;
-            while ((c = *str++))
-            {
-                hash = ((hash << 5) + hash) + c;  // hash * 33 + c
-            }
-
-            return hash;
-        }
-
-        default:
-            // 对于不可哈希类型，使用地址作为哈希值
-            return (unsigned int)(__intptr_t)obj;
+        // 对于其他没有明确 hash 方法的类型，可以默认使用地址作为哈希值，
+        // 但这对于值类型（如未来的自定义类实例）可能不合适。
+        // 或者更严格地报错。
+        // CPython 对没有 __hash__ 的自定义类实例也是不可哈希的，除非继承自实现了 __hash__ 的基类
+        // 或者定义了 __eq__ 但没有定义 __hash__=None。
+        fprintf(stderr, "Warning: Type '%s' does not have a specific hash method, using address.\n", py_type_name(typeId));
+        return (unsigned int)(uintptr_t)obj; // 使用地址作为后备，但这通常不好
     }
 }
 
@@ -855,6 +852,81 @@ int py_get_container_type_info(PyObject* container)
 
     // 其他容器类型或不是容器
     return llvmpy::PY_TYPE_ANY;
+}
+
+/**
+ * @brief 通用索引赋值函数 (Revised using dispatch table).
+ *
+ * Looks up and calls the appropriate type-specific index setting function.
+ *
+ * @param obj 目标容器对象 (PyObject*)。
+ * @param index 索引对象 (PyObject*)。
+ * @param value 要赋的值 (PyObject*)。
+ */
+void py_object_set_index(PyObject* obj, PyObject* index, PyObject* value)
+{
+    if (!obj)
+    {
+        fprintf(stderr, "错误: 试图在 NULL 对象上执行索引赋值\n");
+        return;
+    }
+    if (!index)
+    {
+        fprintf(stderr, "错误: 索引赋值使用了 NULL 索引\n");
+        return;
+    }
+    // value can be NULL (representing None)
+
+    // 1. Get the type ID of the target object
+    // Use py_get_safe_type_id to handle potential NULL obj, though checked above
+    int typeId = py_get_safe_type_id(obj);
+#ifdef DEBUG_RUNTIME_py_object_set_index
+    // --- 添加调试打印 ---
+    fprintf(stderr, "DEBUG: py_object_set_index called for obj typeId: %d (%s)\n", typeId, py_type_name(typeId));
+// --- 结束调试打印 ---
+#endif
+
+    // 2. Look up the methods for this type ID
+    const PyTypeMethods* methods = py_get_type_methods(typeId);
+#ifdef DEBUG_RUNTIME_py_object_set_index
+    // --- 添加调试打印 ---
+    fprintf(stderr, "DEBUG: py_get_type_methods(%d) returned: %p\n", typeId, (void*)methods);
+    if (methods)
+    {
+        fprintf(stderr, "DEBUG: methods->index_set: %p\n", (void*)methods->index_set);
+    }
+// --- 结束调试打印 ---
+#endif
+
+    // 3. Check if an index_set method exists and call it
+    if (methods && methods->index_set)
+    {
+        methods->index_set(obj, index, value);
+    }
+    else
+    {
+        // 4. Handle unsupported types
+        // Use getBaseTypeId for a slightly more general error message if needed
+        int baseTypeId = llvmpy::getBaseTypeId(typeId);  // getBaseTypeId 定义在 include/TypeIDs.h
+        const PyTypeMethods* base_methods = (baseTypeId != typeId) ? py_get_type_methods(baseTypeId) : NULL;
+#ifdef DEBUG_RUNTIME_py_object_set_index
+        // --- 添加调试打印 ---
+        fprintf(stderr, "DEBUG: No valid index_set handler found directly for typeId %d. Base typeId: %d\n", typeId, baseTypeId);
+// --- 结束调试打印 ---
+#endif
+
+        if (base_methods && base_methods->index_set)
+        {
+            // If base type has handler, maybe use it? Or require specific type?
+            // For now, require specific type or exact base type match.
+            fprintf(stderr, "类型错误: 类型 %s (base: %s) 不支持精确的索引赋值, 但基类支持\n",
+                    py_type_name(typeId), py_type_name(baseTypeId));
+        }
+        else
+        {
+            fprintf(stderr, "类型错误: 类型 %s 不支持索引赋值\n", py_type_name(typeId));
+        }
+    }
 }
 
 // 索引操作

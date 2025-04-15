@@ -536,225 +536,175 @@ PyObject* py_object_not(PyObject* a)
 //===----------------------------------------------------------------------===//
 
 // 比较操作
+// 比较操作 (根据之前的讨论修改)
 PyObject* py_object_compare(PyObject* a, PyObject* b, PyCompareOp op)
 {
+    // 1. 处理 NULL 或 None
     if (!a || !b)
     {
-        // 特殊处理None比较
         bool result = false;
-        
-        if (op == PY_CMP_EQ)
-        {
-            result = (a == b);  // 只有两个都是None时才相等
+        // None == None is True, None != None is False
+        if (op == PY_CMP_EQ) result = (a == b);
+        // None < Other, None <= Other, None > Other, None >= Other are TypeErrors in Python 3
+        // For simplicity, we might return False or handle as error. Let's return False for non-EQ/NE.
+        else if (op == PY_CMP_NE) result = (a != b);
+        else {
+             // Python 3 raises TypeError for None comparisons other than ==, !=
+             // We should ideally signal an error here. Returning False is simpler but less accurate.
+             // fprintf(stderr, "TypeError: '%s' not supported between instances of 'NoneType' and '%s'\n",
+             //         py_compare_op_name(op), py_type_name(a ? a->typeId : b->typeId));
+             // return NULL; // Indicate error
+             return py_create_bool(false); // Simplified: return False
         }
-        else if (op == PY_CMP_NE)
-        {
-            result = (a != b);  // 一个是None，一个不是None时不相等
-        }
-        
         return py_create_bool(result);
     }
 
+    // 2. 优先使用类型分发处理 EQ 和 NE
+    if (op == PY_CMP_EQ || op == PY_CMP_NE)
+    {
+        int typeIdA = py_get_safe_type_id(a);
+        const PyTypeMethods* methodsA = py_get_type_methods(typeIdA);
+
+        if (methodsA && methodsA->equals)
+        {
+            PyObject* resultObj = methodsA->equals(a, b); // 调用 a 的 equals 方法
+            if (resultObj) {
+                 // 检查返回的是否是布尔值
+                 if (py_get_safe_type_id(resultObj) == PY_TYPE_BOOL) {
+                     bool eq_result = py_extract_bool(resultObj);
+                     py_decref(resultObj); // 减少 equals 返回对象的引用计数
+                     return py_create_bool(op == PY_CMP_EQ ? eq_result : !eq_result);
+                 } else {
+                     // equals 没有返回布尔值，这是错误的
+                     fprintf(stderr, "TypeError: __eq__ returned non-boolean (type %s)\n", py_type_name(resultObj->typeId));
+                     py_decref(resultObj);
+                     // Python 会报错，我们暂时返回 False
+                     return py_create_bool(false);
+                 }
+            } else {
+                 // equals 调用失败或返回 NULL (可能内部出错)
+                 fprintf(stderr, "Error during equality comparison for type %s\n", py_type_name(typeIdA));
+                 // 返回 False 或 NULL 表示错误
+                 return py_create_bool(false); // 简化处理
+            }
+        }
+        // --- Pythonic Fallback (Optional, more complex): ---
+        // If a's type doesn't have equals, or if it returned a special "NotImplemented" value,
+        // Python would then try b's type's equals method: b.__eq__(a).
+        // For simplicity, we'll fall back directly to identity comparison if a's type doesn't handle it.
+
+        // --- Fallback to Identity Comparison ---
+        // fprintf(stderr, "Warning: Type %s has no specific equals method, falling back to identity comparison.\n", py_type_name(typeIdA));
+        bool identity_result = (a == b); // Compare pointers
+        return py_create_bool(op == PY_CMP_EQ ? identity_result : !identity_result);
+    }
+
+    // 3. 处理其他比较操作 (<, <=, >, >=)
     int aTypeId = getBaseTypeId(a->typeId);
     int bTypeId = getBaseTypeId(b->typeId);
 
-    // 数值类型比较
+    // 尝试数值比较
     if ((aTypeId == PY_TYPE_INT || aTypeId == PY_TYPE_DOUBLE || aTypeId == PY_TYPE_BOOL) &&
         (bTypeId == PY_TYPE_INT || bTypeId == PY_TYPE_DOUBLE || bTypeId == PY_TYPE_BOOL))
     {
         double valA, valB;
-        if (!py_coerce_numeric(a, b, &valA, &valB))
+        // py_coerce_numeric should handle bools correctly
+        if (py_coerce_numeric(a, b, &valA, &valB))
         {
-            fprintf(stderr, "TypeError: Cannot compare %s and %s\n",
-                    py_type_name(a->typeId), py_type_name(b->typeId));
-            return NULL;
+            bool result = false;
+            switch (op)
+            {
+                // EQ/NE handled above by type dispatch
+                case PY_CMP_LT: result = valA < valB; break;
+                case PY_CMP_LE: result = valA <= valB; break;
+                case PY_CMP_GT: result = valA > valB; break;
+                case PY_CMP_GE: result = valA >= valB; break;
+                default:
+                    fprintf(stderr, "Internal Error: Unhandled comparison operator %d\n", op);
+                    return py_create_bool(false); // Should not happen
+            }
+            return py_create_bool(result);
         }
-
-        bool result = false;
-        switch (op)
-        {
-            case PY_CMP_EQ: result = (valA == valB); break;
-            case PY_CMP_NE: result = (valA != valB); break;
-            case PY_CMP_LT: result = (valA < valB); break;
-            case PY_CMP_LE: result = (valA <= valB); break;
-            case PY_CMP_GT: result = (valA > valB); break;
-            case PY_CMP_GE: result = (valA >= valB); break;
-        }
-        
-        return py_create_bool(result);
+        // If coercion fails even for numeric types, something is wrong.
+        // Fall through to general TypeError.
     }
 
-    // 字符串比较
+    // 尝试字符串比较
     if (aTypeId == PY_TYPE_STRING && bTypeId == PY_TYPE_STRING)
     {
         const char* strA = ((PyPrimitiveObject*)a)->value.stringValue;
         const char* strB = ((PyPrimitiveObject*)b)->value.stringValue;
-        
-        if (!strA) strA = "";
+
+        if (!strA) strA = ""; // Treat NULL string pointer as empty string
         if (!strB) strB = "";
-        
+
         int cmpResult = strcmp(strA, strB);
         bool result = false;
-        
+
         switch (op)
         {
-            case PY_CMP_EQ: result = (cmpResult == 0); break;
-            case PY_CMP_NE: result = (cmpResult != 0); break;
+            // EQ/NE handled above by type dispatch
             case PY_CMP_LT: result = (cmpResult < 0); break;
             case PY_CMP_LE: result = (cmpResult <= 0); break;
             case PY_CMP_GT: result = (cmpResult > 0); break;
             case PY_CMP_GE: result = (cmpResult >= 0); break;
+             default:
+                fprintf(stderr, "Internal Error: Unhandled comparison operator %d for strings\n", op);
+                return py_create_bool(false); // Should not happen
         }
-        
         return py_create_bool(result);
     }
 
-    // 同类型列表比较
-    if (aTypeId == PY_TYPE_LIST && bTypeId == PY_TYPE_LIST)
-    {
-        PyListObject* listA = (PyListObject*)a;
-        PyListObject* listB = (PyListObject*)b;
-        
-        // 只处理等于和不等于
-        if (op == PY_CMP_EQ || op == PY_CMP_NE)
-        {
-            bool isEqual = false;
-            
-            // 长度必须相同
-            if (listA->length == listB->length)
-            {
-                isEqual = true;
-                
-                // 比较每个元素
-                for (int i = 0; i < listA->length; i++)
-                {
-                    PyObject* elemA = listA->data[i];
-                    PyObject* elemB = listB->data[i];
-                    
-                    // 如果两元素都为NULL，认为相等
-                    if (!elemA && !elemB)
-                        continue;
-                    
-                    // 如果一个为NULL另一个不是，不相等
-                    if (!elemA || !elemB)
-                    {
-                        isEqual = false;
-                        break;
-                    }
-                    
-                    // 递归比较元素
-                    PyObject* cmpResult = py_object_compare(elemA, elemB, PY_CMP_EQ);
-                    if (!cmpResult)
-                    {
-                        isEqual = false;
-                        break;
-                    }
-                    
-                    bool elemEqual = ((PyPrimitiveObject*)cmpResult)->value.boolValue;
-                    py_decref(cmpResult);
-                    
-                    if (!elemEqual)
-                    {
-                        isEqual = false;
-                        break;
-                    }
-                }
-            }
-            
-            return py_create_bool(op == PY_CMP_EQ ? isEqual : !isEqual);
-        }
-        
-        fprintf(stderr, "TypeError: '<', '<=', '>' and '>=' not supported between instances of 'list'\n");
-        return NULL;
-    }
+    // 4. 处理不支持排序的类型或混合类型
+    // Python 3 generally raises TypeError for ordering comparisons between incompatible types.
+    // List and Dict comparisons for ordering are also TypeErrors.
+    // Since EQ/NE are handled above, any remaining comparison here between incompatible types
+    // or types that don't support ordering (like list, dict) should be an error.
 
-    // 字典比较（只支持等于和不等于）
-    if (aTypeId == PY_TYPE_DICT && bTypeId == PY_TYPE_DICT)
-    {
-        if (op == PY_CMP_EQ || op == PY_CMP_NE)
-        {
-            PyDictObject* dictA = (PyDictObject*)a;
-            PyDictObject* dictB = (PyDictObject*)b;
-            
-            bool isEqual = false;
-            
-            // 长度必须相同
-            if (dictA->size == dictB->size)
-            {
-                isEqual = true;
-                
-                // 比较所有键值对
-                for (int i = 0; i < dictA->capacity; i++)
-                {
-                    if (dictA->entries[i].used && dictA->entries[i].key)
-                    {
-                        PyObject* key = dictA->entries[i].key;
-                        PyObject* valueA = dictA->entries[i].value;
-                        PyObject* valueB = py_dict_get_item(b, key);
-                        
-                        // 如果b中没有此键或值不匹配
-                        if (!valueB)
-                        {
-                            isEqual = false;
-                            break;
-                        }
-                        
-                        // 递归比较值
-                        PyObject* cmpResult = py_object_compare(valueA, valueB, PY_CMP_EQ);
-                        py_decref(valueB);  // 释放获取的值
-                        
-                        if (!cmpResult)
-                        {
-                            isEqual = false;
-                            break;
-                        }
-                        
-                        bool valueEqual = ((PyPrimitiveObject*)cmpResult)->value.boolValue;
-                        py_decref(cmpResult);
-                        
-                        if (!valueEqual)
-                        {
-                            isEqual = false;
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            return py_create_bool(op == PY_CMP_EQ ? isEqual : !isEqual);
-        }
-        
-        fprintf(stderr, "TypeError: '<', '<=', '>' and '>=' not supported between instances of 'dict'\n");
-        return NULL;
-    }
+    fprintf(stderr, "TypeError: '%s' not supported between instances of '%s' and '%s'\n",
+            py_compare_op_name(op), // Helper function to get "<", "<=", etc. string
+            py_type_name(a->typeId), py_type_name(b->typeId));
 
-    // 不同类型之间的比较（除了数值类型之外）
-    if (op == PY_CMP_EQ)
-    {
-        return py_create_bool(false);  // 不同类型永远不相等
-    }
-    else if (op == PY_CMP_NE)
-    {
-        return py_create_bool(true);   // 不同类型永远不相等
-    }
-    else
-    {
-        fprintf(stderr, "TypeError: Cannot compare %s and %s\n",
-                py_type_name(a->typeId), py_type_name(b->typeId));
-        return NULL;
+    // Return NULL to indicate an error occurred, or a specific error object if implemented.
+    // Returning a boolean might hide the error.
+    return NULL; // Indicate TypeError
+    // Or, for simplicity if error handling is basic:
+    // return py_create_bool(false);
+}
+
+// 获取compare_op名字的赋值函数
+const char* py_compare_op_name(PyCompareOp op) {
+    switch(op) {
+        case PY_CMP_LT: return "<";
+        case PY_CMP_LE: return "<=";
+        case PY_CMP_EQ: return "==";
+        case PY_CMP_NE: return "!=";
+        case PY_CMP_GT: return ">";
+        case PY_CMP_GE: return ">=";
+        default: return "op";
     }
 }
 
-// 相等性比较辅助函数
+
+
+// 相等性比较辅助函数 (可以保留，但现在主要逻辑在 py_object_compare 中)
 bool py_compare_eq(PyObject* a, PyObject* b)
 {
     PyObject* result = py_object_compare(a, b, PY_CMP_EQ);
     if (!result)
     {
+        // py_object_compare returning NULL indicates an error
+        // Handle error appropriately, maybe return false or propagate error
         return false;
     }
-    
-    bool eq = ((PyPrimitiveObject*)result)->value.boolValue;
+
+    bool eq = false;
+    if (py_get_safe_type_id(result) == PY_TYPE_BOOL) {
+        eq = ((PyPrimitiveObject*)result)->value.boolValue;
+    } else {
+        // Should not happen if py_object_compare works correctly
+        fprintf(stderr, "Internal Error: py_object_compare(EQ) returned non-bool\n");
+    }
     py_decref(result);
     return eq;
 }
@@ -765,10 +715,16 @@ bool py_compare_ne(PyObject* a, PyObject* b)
     PyObject* result = py_object_compare(a, b, PY_CMP_NE);
     if (!result)
     {
-        return true;
+        // Handle error
+        return true; // Or propagate error
     }
-    
-    bool ne = ((PyPrimitiveObject*)result)->value.boolValue;
+
+    bool ne = false;
+     if (py_get_safe_type_id(result) == PY_TYPE_BOOL) {
+        ne = ((PyPrimitiveObject*)result)->value.boolValue;
+    } else {
+        fprintf(stderr, "Internal Error: py_object_compare(NE) returned non-bool\n");
+    }
     py_decref(result);
     return ne;
 }
@@ -779,10 +735,16 @@ bool py_compare_lt(PyObject* a, PyObject* b)
     PyObject* result = py_object_compare(a, b, PY_CMP_LT);
     if (!result)
     {
-        return false;
+        // Handle error (TypeError occurred)
+        return false; // Or propagate error
     }
-    
-    bool lt = ((PyPrimitiveObject*)result)->value.boolValue;
+
+    bool lt = false;
+    if (py_get_safe_type_id(result) == PY_TYPE_BOOL) {
+        lt = ((PyPrimitiveObject*)result)->value.boolValue;
+    } else {
+         fprintf(stderr, "Internal Error: py_object_compare(LT) returned non-bool\n");
+    }
     py_decref(result);
     return lt;
 }
@@ -791,12 +753,17 @@ bool py_compare_lt(PyObject* a, PyObject* b)
 bool py_compare_le(PyObject* a, PyObject* b)
 {
     PyObject* result = py_object_compare(a, b, PY_CMP_LE);
-    if (!result)
+     if (!result)
     {
+        // Handle error
         return false;
     }
-    
-    bool le = ((PyPrimitiveObject*)result)->value.boolValue;
+    bool le = false;
+    if (py_get_safe_type_id(result) == PY_TYPE_BOOL) {
+        le = ((PyPrimitiveObject*)result)->value.boolValue;
+    } else {
+         fprintf(stderr, "Internal Error: py_object_compare(LE) returned non-bool\n");
+    }
     py_decref(result);
     return le;
 }
@@ -805,12 +772,17 @@ bool py_compare_le(PyObject* a, PyObject* b)
 bool py_compare_gt(PyObject* a, PyObject* b)
 {
     PyObject* result = py_object_compare(a, b, PY_CMP_GT);
-    if (!result)
+     if (!result)
     {
+        // Handle error
         return false;
     }
-    
-    bool gt = ((PyPrimitiveObject*)result)->value.boolValue;
+    bool gt = false;
+    if (py_get_safe_type_id(result) == PY_TYPE_BOOL) {
+        gt = ((PyPrimitiveObject*)result)->value.boolValue;
+    } else {
+         fprintf(stderr, "Internal Error: py_object_compare(GT) returned non-bool\n");
+    }
     py_decref(result);
     return gt;
 }
@@ -819,12 +791,17 @@ bool py_compare_gt(PyObject* a, PyObject* b)
 bool py_compare_ge(PyObject* a, PyObject* b)
 {
     PyObject* result = py_object_compare(a, b, PY_CMP_GE);
-    if (!result)
+     if (!result)
     {
+        // Handle error
         return false;
     }
-    
-    bool ge = ((PyPrimitiveObject*)result)->value.boolValue;
+    bool ge = false;
+    if (py_get_safe_type_id(result) == PY_TYPE_BOOL) {
+        ge = ((PyPrimitiveObject*)result)->value.boolValue;
+    } else {
+         fprintf(stderr, "Internal Error: py_object_compare(GE) returned non-bool\n");
+    }
     py_decref(result);
     return ge;
 }

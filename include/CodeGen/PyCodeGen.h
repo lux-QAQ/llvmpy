@@ -117,6 +117,7 @@ public:
     void visit(NoneExprAST* expr);
     void visit(ListExprAST* expr);
     void visit(IndexExprAST* expr);
+    void visit(DictExprAST* expr);
 
     void visit(ExprStmtAST* stmt);
     void visit(ReturnStmtAST* stmt);

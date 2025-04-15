@@ -25,7 +25,7 @@ class PrintStmtAST;
 class PassStmtAST;
 class ImportStmtAST;
 class ClassStmtAST;
-
+class DictExprAST;  // <--- 添加 DictExprAST 前向声明
 /**
  * 代码生成访问者类 - 实现访问者模式来处理AST节点
  * 
@@ -143,6 +143,12 @@ public:
      * @param node AST节点
      */
     void visit(ASTNode* node);
+
+    /**
+     * 访问字典表达式节点
+     * @param node 字典表达式AST节点
+     */
+    void visit(DictExprAST* node);  // <--- 添加 visit 声明??
 };
 
 }  // namespace llvmpy

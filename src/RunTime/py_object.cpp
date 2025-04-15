@@ -1,4 +1,5 @@
 #include "RunTime/runtime.h"
+#include "TypeIDs.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -10,6 +11,78 @@ using namespace llvmpy;
 //===----------------------------------------------------------------------===//
 // 对象创建函数实现
 //===----------------------------------------------------------------------===//
+
+
+
+PyObject* py_create_class(const char* name, PyObject* base_cls_obj, PyObject* class_dict_obj) {
+    // 参数类型检查
+    if (!name || !class_dict_obj || class_dict_obj->typeId != llvmpy::PY_TYPE_DICT) {
+        fprintf(stderr, "Error: Invalid arguments for py_create_class\n");
+        return NULL;
+    }
+    if (base_cls_obj && base_cls_obj->typeId != llvmpy::PY_TYPE_CLASS) {
+         fprintf(stderr, "Error: Base class must be a class object\n");
+         return NULL;
+    }
+
+    PyClassObject* cls = (PyClassObject*)malloc(sizeof(PyClassObject));
+    if (!cls) {
+        fprintf(stderr, "MemoryError: Failed to allocate class object\n");
+        return NULL;
+    }
+
+    cls->header.refCount = 1; // 初始引用计数为 1
+    cls->header.typeId = llvmpy::PY_TYPE_CLASS;
+    cls->name = strdup(name); // 复制类名
+    if (!cls->name) {
+        free(cls);
+        fprintf(stderr, "MemoryError: Failed to duplicate class name\n");
+        return NULL;
+    }
+    cls->base = (PyClassObject*)base_cls_obj;
+    cls->class_dict = (PyDictObject*)class_dict_obj;
+
+    // 增加基类和类字典的引用计数
+    if (cls->base) py_incref((PyObject*)cls->base);
+    py_incref((PyObject*)cls->class_dict);
+
+    // TODO: 可以在这里查找或注册特定于此类的 PyTypeMethods
+
+    return (PyObject*)cls;
+}
+
+PyObject* py_create_instance(PyObject* cls_obj) {
+    if (!cls_obj || cls_obj->typeId != llvmpy::PY_TYPE_CLASS) {
+        fprintf(stderr, "TypeError: Cannot create instance from non-class object\n");
+        return NULL;
+    }
+    PyClassObject* cls = (PyClassObject*)cls_obj;
+
+    PyInstanceObject* instance = (PyInstanceObject*)malloc(sizeof(PyInstanceObject));
+    if (!instance) {
+        fprintf(stderr, "MemoryError: Failed to allocate instance object\n");
+        return NULL;
+    }
+
+    instance->header.refCount = 1;
+    // TODO: 分配具体的实例类型 ID，可能需要一个全局计数器或更复杂的方案
+    // 暂时使用通用的 INSTANCE ID，或者如果类对象存储了实例类型ID，则使用它
+    instance->header.typeId = llvmpy::PY_TYPE_INSTANCE; // 或者 >= PY_TYPE_INSTANCE_BASE
+    instance->cls = cls;
+    instance->instance_dict = (PyDictObject*)py_create_dict(8, llvmpy::PY_TYPE_STRING); // 创建空的实例字典
+    if (!instance->instance_dict) {
+        free(instance);
+        fprintf(stderr, "MemoryError: Failed to create instance dictionary\n");
+        return NULL;
+    }
+
+    py_incref((PyObject*)instance->cls); // 增加类对象的引用计数
+
+    // TODO: 调用类的 __init__ 方法 (需要函数调用机制)
+
+    return (PyObject*)instance;
+}
+
 
 // 创建一个基本对象
 static PyObject* py_create_basic_object(int typeId)
@@ -210,68 +283,61 @@ void py_incref(PyObject* obj)
 }
 
 // 减少对象引用计数，如果减至0则释放对象
-void py_decref(PyObject* obj)
-{
-    if (!obj || obj->refCount == INT_MAX)
-    {
-        return;  // None或其他永久对象不释放
-    }
-    
+void py_decref(PyObject* obj) {
+    if (!obj) return;
     obj->refCount--;
-    
-    if (obj->refCount <= 0)
-    {
-        int typeId = obj->typeId;
-        int baseTypeId = getBaseTypeId(typeId);
-        
-        // 根据类型执行特定的清理操作
-        switch (baseTypeId)
-        {
-            case PY_TYPE_STRING:
-            {
-                PyPrimitiveObject* stringObj = (PyPrimitiveObject*)obj;
-                if (stringObj->value.stringValue)
-                {
-                    free(stringObj->value.stringValue);
-                }
+    if (obj->refCount == 0) {
+        // 根据类型执行清理
+        int baseTypeId = llvmpy::getBaseTypeId(obj->typeId); // 使用基类 ID 判断
+        switch (baseTypeId) {
+            case llvmpy::PY_TYPE_LIST:
+                py_list_decref_items((PyListObject*)obj); // 释放列表元素
+                free(((PyListObject*)obj)->data);         // 释放数据数组
+                free(obj);
                 break;
-            }
-            
-            case PY_TYPE_LIST:
-            {
-                PyListObject* list = (PyListObject*)obj;
-                // 释放列表中的所有元素
-                py_list_decref_items(list);
-                free(list->data);
-                break;
-            }
-            
-            case PY_TYPE_DICT:
-            {
-                PyDictObject* dict = (PyDictObject*)obj;
-                // 释放字典中的所有键值对
-                for (int i = 0; i < dict->capacity; i++)
-                {
-                    if (dict->entries[i].used)
-                    {
-                        if (dict->entries[i].key)
-                            py_decref(dict->entries[i].key);
-                        
-                        if (dict->entries[i].value)
-                            py_decref(dict->entries[i].value);
+            case llvmpy::PY_TYPE_DICT:
+                // 释放字典条目中的键和值
+                for (int i = 0; i < ((PyDictObject*)obj)->capacity; i++) {
+                    PyDictEntry* entry = &((PyDictObject*)obj)->entries[i];
+                    if (entry->used) {
+                        py_decref(entry->key);
+                        py_decref(entry->value);
                     }
                 }
-                free(dict->entries);
+                free(((PyDictObject*)obj)->entries); // 释放条目数组
+                free(obj);
                 break;
-            }
-            
-            default:
-                // 其他类型不需要特别处理
+            case llvmpy::PY_TYPE_STRING:
+                free(((PyPrimitiveObject*)obj)->value.stringValue); // 释放字符串内存
+                free(obj);
+                break;
+            // --- 新增: 处理类和实例 ---
+            case llvmpy::PY_TYPE_CLASS:
+                {
+                    PyClassObject* cls = (PyClassObject*)obj;
+                    free((void*)cls->name); // 释放 strdup 分配的内存
+                    py_decref((PyObject*)cls->base); // 减少基类引用
+                    py_decref((PyObject*)cls->class_dict); // 减少类字典引用
+                    free(obj);
+                }
+                break;
+            case llvmpy::PY_TYPE_INSTANCE: // 或检查 >= PY_TYPE_INSTANCE_BASE
+                {
+                    PyInstanceObject* instance = (PyInstanceObject*)obj;
+                    py_decref((PyObject*)instance->cls); // 减少类引用
+                    py_decref((PyObject*)instance->instance_dict); // 减少实例字典引用
+                    free(obj);
+                }
+                break;
+            // --- End 新增 ---
+            case llvmpy::PY_TYPE_INT:
+            case llvmpy::PY_TYPE_DOUBLE:
+            case llvmpy::PY_TYPE_BOOL:
+            case llvmpy::PY_TYPE_NONE: // None 通常是单例，不应被释放，但以防万一
+            default: // 包含其他基本类型和未知类型
+                free(obj);
                 break;
         }
-        
-        // 释放对象本身
-        free(obj);
     }
 }
 

@@ -5,11 +5,12 @@
 //#include "codegen.h"
 #include "TypeIDs.h"
 #include "lexer.h"
+#include "ObjectType.h"  // 确保包含 ObjectType.h
 
 #include <iostream>
 #include <sstream>
 #include <unordered_set>
-
+#include <stdexcept>  // For runtime_error
 namespace llvmpy
 {
 
@@ -1316,6 +1317,167 @@ ObjectType* TypeInferencer::inferBinaryOpResultType(
             // 对于未知类型ID，返回通用object类型
             return TypeRegistry::getInstance().getType("object");
     }
+}
+
+/**
+ * 推断索引操作的结果类型
+ * @param containerType 容器类型
+ * @param indexType 索引类型
+ * @return 结果类型 ObjectType*，如果无法推断或操作无效则返回 nullptr 或 Any 类型
+ */
+ObjectType* TypeInferencer::inferIndexOpResultType(
+        ObjectType* containerType,
+        ObjectType* indexType)
+{
+    if (!containerType || !indexType)
+    {
+        // 输入类型无效，无法推断
+        std::cerr << "Warning [inferIndexOpResultType]: Invalid input types (null)." << std::endl;
+        return TypeRegistry::getInstance().getType("any");  // 返回 Any 作为安全默认值
+    }
+
+    int containerTypeId = containerType->getTypeId();
+    int indexTypeId = indexType->getTypeId();
+    auto& registry = TypeRegistry::getInstance();
+
+    // 1. 处理 ANY 类型容器
+    if (containerTypeId == PY_TYPE_ANY)
+    {
+        // 对 ANY 类型进行索引，结果通常也是 ANY
+        return registry.getType("any");
+    }
+
+    // 2. 处理列表 (List)
+    // 检查是否为 ListType 或基础 PY_TYPE_LIST
+    const ListType* listType = dynamic_cast<const ListType*>(containerType);
+    if (listType || containerTypeId == PY_TYPE_LIST)
+    {
+        // 列表索引通常需要整数或布尔值 (隐式转为 0/1)
+        if (indexTypeId == PY_TYPE_INT || indexTypeId == PY_TYPE_BOOL || indexTypeId == PY_TYPE_ANY)
+        {
+            if (listType)
+            {
+                // 如果是具体的 ListType，返回其元素类型
+                return const_cast<ObjectType*>(listType->getElementType());
+            }
+            else
+            {
+                // 如果是泛型 PY_TYPE_LIST，我们不知道元素类型，返回 Any
+                std::cerr << "Warning [inferIndexOpResultType]: Indexing generic list (PY_TYPE_LIST), element type unknown. Returning Any." << std::endl;
+                return registry.getType("any");
+            }
+        }
+        else
+        {
+            // 无效的列表索引类型
+            std::cerr << "Error [inferIndexOpResultType]: Invalid index type (" << indexType->getName() << ") for list." << std::endl;
+            return nullptr;  // 表示类型错误
+        }
+    }
+
+    // 3. 处理字典 (Dict)
+    const DictType* dictType = dynamic_cast<const DictType*>(containerType);
+    if (dictType || containerTypeId == PY_TYPE_DICT)
+    {
+        if (dictType)
+        {
+            // 字典索引需要键类型或兼容类型，或 ANY
+            ObjectType* keyType = const_cast<ObjectType*>(dictType->getKeyType());
+            if (indexTypeId == keyType->getTypeId() || indexTypeId == PY_TYPE_ANY || TypeOperationRegistry::getInstance().areTypesCompatible(indexTypeId, keyType->getTypeId()))
+            {
+                // 返回字典的值类型
+                return const_cast<ObjectType*>(dictType->getValueType());
+            }
+            else
+            {
+                // 无效的字典键类型
+                std::cerr << "Error [inferIndexOpResultType]: Invalid key type (" << indexType->getName() << ") for dictionary with key type (" << keyType->getName() << ")." << std::endl;
+                return nullptr;  // 表示类型错误
+            }
+        }
+        else
+        {
+            // 如果是泛型 PY_TYPE_DICT，我们不知道键值类型，返回 Any
+            std::cerr << "Warning [inferIndexOpResultType]: Indexing generic dict (PY_TYPE_DICT), value type unknown. Returning Any." << std::endl;
+            return registry.getType("any");
+        }
+    }
+
+    // 4. 处理字符串 (String)
+    if (containerTypeId == PY_TYPE_STRING)
+    {
+        // 字符串索引通常需要整数或布尔值
+        if (indexTypeId == PY_TYPE_INT || indexTypeId == PY_TYPE_BOOL || indexTypeId == PY_TYPE_ANY)
+        {
+            // 字符串索引的结果仍然是字符串 (单个字符)
+            return registry.getType("str");
+        }
+        else
+        {
+            // 无效的字符串索引类型
+            std::cerr << "Error [inferIndexOpResultType]: Invalid index type (" << indexType->getName() << ") for string." << std::endl;
+            return nullptr;  // 表示类型错误
+        }
+    }
+
+    // 5. 处理其他可索引类型 (如果未来添加)
+    // 可以检查 TypeFeatureChecker::isIndexable(containerType)
+    // 但目前没有明确的通用索引结果类型，返回 Any
+
+    // 6. 处理不可索引类型
+    if (!TypeFeatureChecker::isIndexable(containerType))
+    {
+        std::cerr << "Error [inferIndexOpResultType]: Type (" << containerType->getName() << ") is not indexable." << std::endl;
+        return nullptr;  // 表示类型错误
+    }
+
+    // 默认或未知情况：返回 Any
+    std::cerr << "Warning [inferIndexOpResultType]: Could not determine specific result type for indexing " << containerType->getName() << " with " << indexType->getName() << ". Returning Any." << std::endl;
+    return registry.getType("any");
+}
+
+/**
+* 检查索引是否可用于容器
+* @param containerType 容器类型
+* @param indexType 索引类型
+* @return 是否可用
+*/
+bool TypeInferencer::canIndexContainer(
+        ObjectType* containerType,
+        ObjectType* indexType)
+{
+    if (!containerType || !indexType) return false;
+
+    int containerTypeId = containerType->getTypeId();
+    int indexTypeId = indexType->getTypeId();
+
+    // ANY 容器或 ANY 索引通常在运行时检查
+    if (containerTypeId == PY_TYPE_ANY || indexTypeId == PY_TYPE_ANY) return true;
+
+    // 列表/字符串索引
+    if (containerTypeId == PY_TYPE_LIST || containerTypeId == PY_TYPE_STRING || dynamic_cast<const ListType*>(containerType))
+    {
+        return indexTypeId == PY_TYPE_INT || indexTypeId == PY_TYPE_BOOL;
+    }
+
+    // 字典索引
+    const DictType* dictType = dynamic_cast<const DictType*>(containerType);
+    if (dictType || containerTypeId == PY_TYPE_DICT)
+    {
+        if (dictType)
+        {
+            ObjectType* keyType = const_cast<ObjectType*>(dictType->getKeyType());
+            return indexTypeId == keyType->getTypeId() || TypeOperationRegistry::getInstance().areTypesCompatible(indexTypeId, keyType->getTypeId());
+        }
+        else
+        {
+            // 泛型字典，允许任何非 None 索引（运行时检查）
+            return indexTypeId != PY_TYPE_NONE;
+        }
+    }
+
+    // 其他情况默认不允许静态检查通过
+    return false;
 }
 
 ObjectType* TypeInferencer::inferUnaryOpResultType(

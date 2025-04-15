@@ -28,6 +28,7 @@ PyDictEntry* py_dict_find_entry(PyDictObject* dict, PyObject* key);
 PyObject* py_dict_get_item_with_type(PyObject* dict, PyObject* key, int* out_type_id);
 
 // 索引操作
+void py_object_set_index(PyObject* obj, PyObject* index, PyObject* value);// 通用索引赋值
 PyObject* py_object_index(PyObject* obj, PyObject* index);
 PyObject* py_object_index_with_type(PyObject* obj, PyObject* index, int* out_type_id);
 PyObject* py_string_get_char(PyObject* str, int index);

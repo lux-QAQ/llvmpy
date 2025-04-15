@@ -105,37 +105,45 @@ bool PyCodeGen::generateModule(ModuleAST* module, const std::string& filename)
         std::cerr << "错误: LLVM Context 未初始化" << std::endl;
         return false;
     }
-    
+
     if (!this->module)
     {
         std::cerr << "错误: LLVM Module 未初始化" << std::endl;
         return false;
     }
-    
+
     if (!builder)
     {
         std::cerr << "错误: LLVM Builder 未初始化" << std::endl;
         return false;
     }
-    
+
     // 确保 moduleGen 已创建
     auto modGen = getModuleGen();
     if (!modGen)
     {
         std::cerr << "错误: 模块生成器未初始化" << std::endl;
-        initializeComponents(); // 尝试再次初始化组件
+        initializeComponents();  // 尝试再次初始化组件
         modGen = getModuleGen();
-        if (!modGen) {
+        if (!modGen)
+        {
             std::cerr << "错误: 无法初始化模块生成器" << std::endl;
             return false;
         }
     }
-    
+
     // 传递当前模块
     modGen->setCurrentModule(module);
 
-    // 使用模块代码生成器生成整个模块
-    bool success = modGen->generateModule(module);
+    // --- 决定是否是入口点 ---
+    // 这里简单地假设如果 filename 是 "output.ll" 或默认，则为主入口点
+    // 更健壮的方式是让调用者 (如 main.cpp) 明确指定
+    bool isEntryPoint = (filename == "output.ll" || filename.empty());
+
+    // TODO ： 这里将是多文件编译的修改关键后续需要完善整个机制
+
+    // 使用模块代码生成器生成整个模块，传入 isEntryPoint 标志
+    bool success = modGen->generateModule(module, isEntryPoint);
 
     // 如果生成成功且指定了文件名，则保存模块到文件
     if (success && !filename.empty())
@@ -218,7 +226,7 @@ ObjectType* PyCodeGen::getCurrentReturnType()
 // 表达式结果方法
 //===----------------------------------------------------------------------===//
 // 在适当位置添加方法实现
-llvm::Value* PyCodeGen::prepareAssignmentTarget(llvm::Value* value, ObjectType* targetType,const ExprAST* expr)
+llvm::Value* PyCodeGen::prepareAssignmentTarget(llvm::Value* value, ObjectType* targetType, const ExprAST* expr)
 {
     if (!value || !targetType || !expr) return value;
 

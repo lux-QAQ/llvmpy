@@ -5,9 +5,13 @@
 #include "TypeOperations.h"  // Include for TypeInferencer
 #include "ObjectLifecycle.h" // Include for ObjectLifecycleManager
 #include "ObjectRuntime.h"   // Include for ObjectRuntime
+
+
+
 #include <algorithm>
 #include <stdexcept>
 #include <iostream>
+#include <utility> // For std::pair
 #include <cmath>  // 添加这一行，确保可以使用modf函数
 namespace llvmpy
 {
@@ -356,6 +360,7 @@ void ASTFactory::registerAllNodes()
     StringExprAST::registerWithFactory();
     BoolExprAST::registerWithFactory();
     NoneExprAST::registerWithFactory();
+    DictExprAST::registerWithFactory();
 
     // 语句节点
     ExprStmtAST::registerWithFactory();
@@ -534,7 +539,7 @@ void UnaryExprAST::registerWithFactory()
     auto& factory = ASTFactory::getInstance();
     factory.registerNodeCreator<UnaryExprAST>(ASTKind::UnaryExpr, []()
                                               {
-        // 创建一个空的一元表达式，后续解析时会设置实际参数
+        // Create a default unary expression
         return std::make_unique<UnaryExprAST>('-', std::make_unique<NumberExprAST>(0)); });
 }
 // StringExprAST 实现工厂函数
@@ -597,7 +602,7 @@ std::shared_ptr<PyType> NoneExprAST::getType() const
 {
     return PyType::getVoid();
 }
-std::shared_ptr<PyType> UnaryExprAST::getType() const
+/* std::shared_ptr<PyType> UnaryExprAST::getType() const
 {
     if (cachedType)
     {
@@ -621,6 +626,31 @@ std::shared_ptr<PyType> UnaryExprAST::getType() const
     // 默认情况：保持操作数类型不变
     cachedType = operand->getType();
     return cachedType;
+} */
+
+
+std::shared_ptr<PyType> UnaryExprAST::getType() const
+{
+    if (cachedType)
+    {
+        return cachedType;
+    }
+
+    auto operandType = operand->getType();
+    if (!operandType) {
+        cachedType = PyType::getAny(); // Fallback if operand type unknown
+        return cachedType;
+    }
+
+    // Use TypeInferencer for consistency
+    ObjectType* resultObjType = TypeInferencer::inferUnaryOpResultType(operandType->getObjectType(), opCode);
+    if (!resultObjType) {
+         cachedType = PyType::getAny(); // Fallback if inference fails
+         return cachedType;
+    }
+
+    cachedType = PyType::fromObjectType(resultObjType);
+    return cachedType;
 }
 
 void UnaryExprAST::accept(PyCodeGen& codegen)
@@ -638,6 +668,79 @@ void CallExprAST::registerWithFactory()
         // 创建一个空的函数调用表达式，后续解析时会设置实际参数
         return std::make_unique<CallExprAST>("", std::vector<std::unique_ptr<ExprAST>>()); });
 }
+
+
+// getType: Infers the dictionary type based on key/value pairs
+std::shared_ptr<PyType> DictExprAST::getType() const
+{
+    if (cachedType) {
+        return cachedType;
+    }
+
+    if (pairs.empty()) {
+        // Empty dictionary defaults to dict[any, any]
+        cachedType = PyType::getDict(PyType::getAny(), PyType::getAny());
+        return cachedType;
+    }
+
+    std::shared_ptr<PyType> commonKeyType = nullptr;
+    std::shared_ptr<PyType> commonValueType = nullptr;
+
+    for (const auto& pair : pairs) {
+        if (!pair.first || !pair.second) {
+             // Should not happen with a valid parser, but handle defensively
+             commonKeyType = PyType::getAny();
+             commonValueType = PyType::getAny();
+             std::cerr << "Warning: Invalid key or value expression in DictExprAST." << std::endl;
+             break;
+        }
+        auto keyType = pair.first->getType();
+        auto valueType = pair.second->getType();
+
+        if (!keyType || !valueType) { // If any expression fails type inference
+            commonKeyType = PyType::getAny();
+            commonValueType = PyType::getAny();
+            std::cerr << "Warning: Could not infer type for key or value in DictExprAST." << std::endl;
+            break;
+        }
+
+        if (!commonKeyType) { // First element
+            commonKeyType = keyType;
+        } else if (!commonKeyType->isAny()) {
+            commonKeyType = getCommonType(commonKeyType, keyType);
+             if (!commonKeyType) { // If getCommonType returns nullptr
+                 commonKeyType = PyType::getAny(); // Fallback if no common type
+                 std::cerr << "Warning: Incompatible key types found in DictExprAST, defaulting to Any." << std::endl;
+             }
+        }
+
+        if (!commonValueType) { // First element
+            commonValueType = valueType;
+        } else if (!commonValueType->isAny()) {
+            commonValueType = getCommonType(commonValueType, valueType);
+             if (!commonValueType) { // If getCommonType returns nullptr
+                 commonValueType = PyType::getAny(); // Fallback if no common type
+                 std::cerr << "Warning: Incompatible value types found in DictExprAST, defaulting to Any." << std::endl;
+             }
+        }
+
+        // If we already defaulted to Any, no need to check further
+        if (commonKeyType->isAny() && commonValueType->isAny()) {
+            break;
+        }
+    }
+     // Ensure we have valid types, default to Any if inference failed during loop init
+    if (!commonKeyType) commonKeyType = PyType::getAny();
+    if (!commonValueType) commonValueType = PyType::getAny();
+
+    cachedType = PyType::getDict(commonKeyType, commonValueType);
+    return cachedType;
+}
+
+
+
+
+
 
 std::shared_ptr<PyType> CallExprAST::getType() const
 {
@@ -670,6 +773,17 @@ void ListExprAST::registerWithFactory()
         return std::make_unique<ListExprAST>(std::vector<std::unique_ptr<ExprAST>>()); });
 }
 
+// DictExprAST 实现工厂函数
+void DictExprAST::registerWithFactory()
+{
+    auto& factory = ASTFactory::getInstance();
+    // Register creator for DictExprAST
+    factory.registerNodeCreator<DictExprAST>(ASTKind::DictExpr, []() {
+        // Create an empty dictionary expression
+        return std::make_unique<DictExprAST>();
+    });
+}
+
 std::shared_ptr<PyType> ListExprAST::getType() const
 {
     if (cachedType)
@@ -692,6 +806,11 @@ void ListExprAST::accept(PyCodeGen& codegen)
 }
 
 
+void DictExprAST::accept(PyCodeGen& codegen)
+{
+    CodeGenVisitor visitor(codegen);
+    visitor.visit(this);
+}
 
 // 索引表达式
 // IndexExprAST 实现工厂函数
@@ -707,7 +826,7 @@ void IndexExprAST::registerWithFactory()
         ); });
 }
 
-std::shared_ptr<PyType> IndexExprAST::getType() const
+/* std::shared_ptr<PyType> IndexExprAST::getType() const
 {
     if (cachedType)
         return cachedType;
@@ -781,8 +900,45 @@ std::shared_ptr<PyType> IndexExprAST::getType() const
     }
 
     return cachedType;
-}
+} */
+std::shared_ptr<PyType> IndexExprAST::getType() const
+{
+    if (cachedType)
+        return cachedType;
 
+    auto targetTypePtr = target->getType();
+    auto indexTypePtr = index->getType(); // 获取索引表达式的类型
+
+    if (!targetTypePtr || !indexTypePtr) {
+        // 如果目标或索引类型无法推断，则返回 Any
+        cachedType = PyType::getAny();
+        std::cerr << "Warning: Could not infer type for target or index in IndexExprAST." << std::endl;
+        return cachedType;
+    }
+
+    ObjectType* targetObjType = targetTypePtr->getObjectType();
+    ObjectType* indexObjType = indexTypePtr->getObjectType(); // 获取索引的 ObjectType
+
+    if (!targetObjType || !indexObjType) {
+        // 如果无法获取 ObjectType，则返回 Any
+        cachedType = PyType::getAny();
+         std::cerr << "Warning: Could not get ObjectType for target or index in IndexExprAST." << std::endl;
+        return cachedType;
+    }
+
+    // 使用 TypeInferencer 来推断索引操作的结果类型
+    ObjectType* resultObjType = TypeInferencer::inferIndexOpResultType(targetObjType, indexObjType);
+    if (!resultObjType) {
+        // 如果 TypeInferencer 推断失败，则返回 Any
+        cachedType = PyType::getAny();
+        std::cerr << "Warning: Type inference failed for index operation in IndexExprAST." << std::endl;
+        return cachedType;
+    }
+
+    // 从推断出的 ObjectType 创建 PyType
+    cachedType = PyType::fromObjectType(resultObjType);
+    return cachedType;
+}
 void IndexExprAST::accept(PyCodeGen& codegen)
 {
     CodeGenVisitor visitor(codegen);

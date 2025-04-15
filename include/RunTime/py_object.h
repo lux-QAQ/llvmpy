@@ -17,6 +17,11 @@ PyObject* py_create_list(int size, int elemTypeId);
 PyObject* py_create_dict(int initialCapacity, int keyTypeId);
 PyObject* py_get_none(void);
 
+
+PyObject* py_create_class(const char* name, PyObject* base_cls_obj, PyObject* class_dict_obj);
+PyObject* py_create_instance(PyObject* cls_obj); // 参数是类对象
+
+
 // 引用计数管理
 void py_incref(PyObject* obj);
 void py_decref(PyObject* obj);

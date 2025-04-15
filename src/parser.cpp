@@ -57,8 +57,8 @@ void PyParser::initializeRegistries()
                        { return p.parseNoneExpr(); });
     registerExprParser(TOK_LBRACK, [](PyParser& p)
                        { return p.parseListExpr(); });
-  /*   registerExprParser(TOK_LBRACE, [](PyParser& p)
-                       { return p.parseDictExpr(); });  // Add this line */
+    registerExprParser(TOK_LBRACE, [](PyParser& p)
+                       { return p.parseDictExpr(); });  // Add this line
 
     // 语句解析器注册 - 标识符特殊处理
     // filepath: [parser.cpp](http://_vscodecontentref_/0)
@@ -643,7 +643,7 @@ std::unique_ptr<ExprAST> PyParser::parseExpression()
 }
 
 
-/* // 解析字典字面量
+// 解析字典字面量
 std::unique_ptr<ExprAST> PyParser::parseDictExpr() {
     int line = currentToken.line;
     int column = currentToken.column;
@@ -736,7 +736,7 @@ std::unique_ptr<ExprAST> PyParser::parseDictExpr() {
     auto dictExpr = makeExpr<DictExprAST>(std::move(pairs));
     dictExpr->setLocation(line, column);
     return dictExpr;
-} */
+}
 
 // 解析列表字面量
 std::unique_ptr<ExprAST> PyParser::parseListExpr()

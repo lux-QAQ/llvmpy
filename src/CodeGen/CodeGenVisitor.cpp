@@ -12,6 +12,7 @@
 #include <llvm/IR/DerivedTypes.h>
 
 #include <vector>  // 用于 std::vector
+#include <iostream>
 
 #include <set>
 
@@ -60,6 +61,10 @@ void CodeGenVisitor::visit(ASTNode* node)
         case ASTKind::ListExpr:
             visit(static_cast<ListExprAST*>(node));
             break;
+        case ASTKind::DictExpr:
+            // 调用我们刚刚添加的 visit 方法
+            visit(static_cast<DictExprAST*>(node));
+            break;
         case ASTKind::IndexExpr:
             visit(static_cast<IndexExprAST*>(node));
             break;
@@ -100,6 +105,8 @@ void CodeGenVisitor::visit(ASTNode* node)
             visit(static_cast<ModuleAST*>(node));
             break;
         default:
+        std::cerr << "CodeGenVisitor: Unhandled AST node kind: "
+                      << static_cast<int>(node->getKind()) << std::endl;
             codeGen.logError("不支持的 AST 节点类型",
                              node->line ? *node->line : 0,
                              node->column ? *node->column : 0);
@@ -1208,6 +1215,42 @@ void CodeGenVisitor::visit(IfStmtAST* node)
                 }
             }
         }
+    }
+}
+
+// --- 实现 visit(DictExprAST*) ---
+void CodeGenVisitor::visit(DictExprAST* node)
+{
+    // 获取必要的代码生成组件
+    auto* exprGen = codeGen.getExprGen();
+    auto* runtime = codeGen.getRuntimeGen(); // 用于清理临时对象
+
+    // 检查组件是否有效
+    if (!exprGen) {
+        codeGen.logError("CodeGenExpr component is not initialized.", node->line.value_or(0), node->column.value_or(0));
+        return; // 无法继续
+    }
+     if (!runtime) {
+        // 记录警告，因为无法清理临时对象，但这不一定阻止代码生成
+        codeGen.logWarning("CodeGenRuntime component is not initialized, temporary objects might leak.", node->line.value_or(0), node->column.value_or(0));
+        // 注意：这里我们选择继续，但要意识到潜在的内存管理问题
+    }
+
+    // 委托给 CodeGenExpr::handleDictExpr 进行实际的代码生成
+    // handleDictExpr 内部会处理类型推导、运行时调用、错误记录等复杂情况
+    // 它也会负责设置 codeGen.lastExprValue 和 codeGen.lastExprType
+    llvm::Value* dictValue = exprGen->handleDictExpr(node);
+
+    // 检查 handleDictExpr 是否成功 (它在出错时返回 nullptr 并记录错误)
+    if (!dictValue) {
+        // 错误已由 handleDictExpr 或其调用的函数记录，无需再次记录
+        return;
+    }
+
+    // 清理在生成字典键/值表达式时可能产生的临时对象
+    // 这很重要，因为 handleDictExpr 会递归调用 handleExpr
+    if (runtime) {
+       runtime->cleanupTemporaryObjects();
     }
 }
 

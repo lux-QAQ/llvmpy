@@ -14,8 +14,10 @@
 namespace llvmpy
 {
 
+
 // 生成完整模块
-bool CodeGenModule::generateModule(ModuleAST* module)
+// 生成完整模块
+bool CodeGenModule::generateModule(ModuleAST* module, bool isEntryPoint)
 {
     if (!module)
     {
@@ -25,19 +27,19 @@ bool CodeGenModule::generateModule(ModuleAST* module)
     // 设置当前模块
     setCurrentModule(module);
 
-    // 初始化模块
+    // 初始化模块 - 确保运行时函数声明等只执行一次
     if (!moduleInitialized)
     {
         // 添加运行时函数声明
         addRuntimeFunctions();
 
-        // 创建模块初始化函数
-        createModuleInitFunction();
+        // --- 推荐：使用全局构造函数进行运行时初始化 ---
+        createAndRegisterRuntimeInitializer(); // 这个对于所有模块都是必要的
 
         moduleInitialized = true;
     }
 
-    // 处理模块中的函数定义
+    // 处理模块中的函数定义 (对所有模块都执行)
     for (auto& func : module->getFunctions())
     {
         if (!handleFunctionDef(func.get()))
@@ -46,47 +48,72 @@ bool CodeGenModule::generateModule(ModuleAST* module)
         }
     }
 
-    // 处理全局语句（仅在main函数中执行的语句）
-    if (!module->getStatements().empty())
+    // --- 根据是否是入口点，决定如何处理全局语句 ---
+    if (isEntryPoint)
     {
-        // 创建main函数
-        std::vector<std::shared_ptr<PyType>> noParams;
-        llvm::FunctionType* mainFnType = createFunctionType(PyType::getInt(), noParams);
-        // TODO实现带参数的main函数
+        // --- 生成 main 函数作为入口点 ---
+        llvm::FunctionType* mainFnType = llvm::FunctionType::get(
+                llvm::PointerType::get(codeGen.getContext(), 0), // 返回 PyObject*
+                false);                                          // 无参数
+
         llvm::Function* mainFn = codeGen.getOrCreateExternalFunction(
                 "main",
-                llvm::Type::getInt32Ty(codeGen.getContext()),  // 返回类型为 int32
-                {},                                            // 无参数
+                mainFnType->getReturnType(),
+                {},
                 false);
 
         // 创建函数入口块
-        llvm::BasicBlock* entryBB = createFunctionEntry(mainFn);
-        codeGen.getBuilder().SetInsertPoint(entryBB);
+        llvm::BasicBlock* entryBB = nullptr;
+        if (mainFn->empty()) {
+            entryBB = createFunctionEntry(mainFn);
+        } else {
+            entryBB = &mainFn->getEntryBlock();
+        }
+        codeGen.getBuilder().SetInsertPoint(entryBB, entryBB->getFirstInsertionPt());
 
-        // 设置当前函数
+        // 设置当前函数上下文
+        llvm::Function* savedFunction = codeGen.getCurrentFunction();
+        ObjectType* savedReturnType = codeGen.getCurrentReturnType();
         codeGen.setCurrentFunction(mainFn);
+        auto anyObjectType = PyType::getAny()->getObjectType();
+        codeGen.setCurrentReturnType(anyObjectType);
 
-        // 为main函数设置返回类型
-        auto intType = TypeRegistry::getInstance().getType("int");
-        codeGen.setCurrentReturnType(intType);
-
-        // 处理模块中的语句
+        // --- 处理全局语句 ---
         auto* stmtGen = codeGen.getStmtGen();
+        // 确保插入点在 main 函数的当前末尾
+         if (!mainFn->empty() && mainFn->back().getTerminator() == nullptr) {
+             codeGen.getBuilder().SetInsertPoint(&mainFn->back());
+         } else if (mainFn->empty()) {
+             codeGen.getBuilder().SetInsertPoint(entryBB);
+         } else {
+             // 如果已有终止符，可能需要创建新块，但这里简化处理
+             codeGen.getBuilder().SetInsertPoint(&mainFn->back());
+         }
+
         for (auto& stmt : module->getStatements())
         {
             stmtGen->handleStmt(stmt.get());
         }
 
-        // 如果最后一条语句不是返回语句，添加默认返回值0
-        if (!codeGen.getBuilder().GetInsertBlock()->getTerminator())
+        // --- 确保 main 函数总是有返回语句 ---
+        if (!codeGen.getBuilder().GetInsertBlock() || !codeGen.getBuilder().GetInsertBlock()->getTerminator())
         {
-            // 创建返回值
-            llvm::Value* retVal = llvm::ConstantInt::get(
-                    llvm::Type::getInt32Ty(codeGen.getContext()), 0);
+            llvm::Function* createIntFunc = codeGen.getOrCreateExternalFunction(
+                    "py_create_int",
+                    llvm::PointerType::get(codeGen.getContext(), 0),
+                    {llvm::Type::getInt32Ty(codeGen.getContext())});
 
-            // 创建返回指令
-            codeGen.getBuilder().CreateRet(retVal);
+            llvm::Value* retValObj = codeGen.getBuilder().CreateCall(
+                    createIntFunc,
+                    {llvm::ConstantInt::get(llvm::Type::getInt32Ty(codeGen.getContext()), 0)},
+                    "ret_int_obj");
+
+            codeGen.getBuilder().CreateRet(retValObj);
         }
+
+        // 恢复之前的函数上下文
+        codeGen.setCurrentFunction(savedFunction);
+        codeGen.setCurrentReturnType(savedReturnType);
 
         // 验证main函数
         std::string errorInfo;
@@ -97,10 +124,87 @@ bool CodeGenModule::generateModule(ModuleAST* module)
             return false;
         }
     }
+    else // 非入口点模块
+    {
+        // TODO: 处理非入口点模块的全局语句
+        // 方案1: 忽略全局语句 (最简单，但功能受限)
+        // 方案2: 将全局语句放入模块初始化函数 __module_init_<module_name>
+        //        并考虑如何触发这个初始化 (例如，通过全局构造函数，或在导入时显式调用)
+        //        这需要修改 createModuleInitFunction 并可能扩展 createAndRegisterRuntimeInitializer
+        if (!module->getStatements().empty()) {
+             codeGen.logWarning("非入口点模块中的全局语句当前未被执行", 0, 0);
+        }
+    }
 
-    // 验证整个模块
     return true;
 }
+
+
+
+// --- 新增：创建并注册运行时初始化函数 ---
+void CodeGenModule::createAndRegisterRuntimeInitializer()
+{
+    llvm::LLVMContext& context = codeGen.getContext();
+    llvm::Module* module = codeGen.getModule();
+
+    // 1. 创建初始化函数 __llvmpy_runtime_init
+    llvm::FunctionType* initFuncType = llvm::FunctionType::get(llvm::Type::getVoidTy(context), false);
+    llvm::Function* initFunc = llvm::Function::Create(
+        initFuncType,
+        llvm::Function::InternalLinkage, // 或者 PrivateLinkage
+        "__llvmpy_runtime_init",
+        module
+    );
+
+    // 创建入口块
+    llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context, "entry", initFunc);
+    llvm::IRBuilder<> builder(entryBB); // 临时 builder
+
+    // 获取 py_initialize_builtin_type_methods
+    llvm::Function* runtimeInitCore = codeGen.getOrCreateExternalFunction(
+        "py_initialize_builtin_type_methods",
+        llvm::Type::getVoidTy(context),
+        {}
+    );
+
+    // 在 __llvmpy_runtime_init 中调用核心初始化函数
+    builder.CreateCall(runtimeInitCore);
+    builder.CreateRetVoid(); // 添加返回
+
+    // 2. 注册到 llvm.global_ctors
+    // 定义构造函数记录的类型: { i32, void ()*, i8* }
+    llvm::StructType* ctorEntryType = llvm::StructType::get(
+        context,
+        { llvm::Type::getInt32Ty(context),   // 优先级
+          llvm::PointerType::get(initFuncType, 0), // 函数指针
+          llvm::PointerType::get(llvm::Type::getInt8Ty(context), 0) // 数据指针 (通常为 null)
+        }
+    );
+
+    // 创建构造函数记录实例
+    llvm::Constant* ctorEntry = llvm::ConstantStruct::get(
+        ctorEntryType,
+        { llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), 65535), // 优先级 (65535 是默认)
+          initFunc, // 初始化函数
+          llvm::ConstantPointerNull::get(llvm::PointerType::get(llvm::Type::getInt8Ty(context), 0)) // 数据指针为 null
+        }
+    );
+
+    // 创建包含此记录的数组
+    llvm::ArrayType* arrayType = llvm::ArrayType::get(ctorEntryType, 1);
+    llvm::Constant* ctorsArray = llvm::ConstantArray::get(arrayType, {ctorEntry});
+
+    // 创建全局变量 @llvm.global_ctors
+    new llvm::GlobalVariable(
+        *module,
+        arrayType,
+        false, // isConstant = false
+        llvm::GlobalValue::AppendingLinkage, // 必须是 AppendingLinkage
+        ctorsArray, // 初始化值
+        "llvm.global_ctors" // 名称
+    );
+}
+
 
 // 创建模块初始化函数
 llvm::Function* CodeGenModule::createModuleInitFunction()

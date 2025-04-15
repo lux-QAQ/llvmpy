@@ -25,6 +25,9 @@ PyObject* py_object_compare(PyObject* a, PyObject* b, PyCompareOp op);
 bool py_compare_eq(PyObject* a, PyObject* b);
 bool py_compare_ne(PyObject* a, PyObject* b);
 
+// 辅助函数
+const char* py_compare_op_name(PyCompareOp op);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

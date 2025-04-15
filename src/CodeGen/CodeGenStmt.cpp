@@ -733,8 +733,9 @@ void CodeGenStmt::handleAssignStmt(AssignStmtAST* stmt)
 {
     auto& builder = codeGen.getBuilder();
     auto* exprGen = codeGen.getExprGen();
-    auto* typeGen = codeGen.getTypeGen();
+    auto* typeGen = codeGen.getTypeGen(); // 假设存在
     auto* runtime = codeGen.getRuntimeGen();
+    auto& symTable = codeGen.getSymbolTable();
 
     // 获取变量名和值表达式
     const std::string& varName = stmt->getName();
@@ -784,6 +785,8 @@ void CodeGenStmt::handleAssignStmt(AssignStmtAST* stmt)
     // 清理临时对象
     runtime->cleanupTemporaryObjects();
 }
+
+/* 
 void CodeGenStmt::handleIndexAssignStmt(IndexAssignStmtAST* stmt)
 {
     auto* exprGen = codeGen.getExprGen();
@@ -805,6 +808,11 @@ void CodeGenStmt::handleIndexAssignStmt(IndexAssignStmtAST* stmt)
     std::shared_ptr<PyType> targetType = stmt->getTarget()->getType();
     std::shared_ptr<PyType> indexType = stmt->getIndex()->getType();
     std::shared_ptr<PyType> valueType = stmt->getValue()->getType();
+    if (!targetType) {
+        codeGen.logError("Type information missing for target of index assignment", stmt->line.value_or(0), stmt->column.value_or(0));
+        runtime->cleanupTemporaryObjects(); // 清理已生成的值
+        return;
+   }
 
     // 根据容器类型处理索引赋值
     if (targetType->isList())
@@ -904,7 +912,51 @@ void CodeGenStmt::handleIndexAssignStmt(IndexAssignStmtAST* stmt)
     // 清理临时对象
     runtime->cleanupTemporaryObjects();
 }
+ */
 
+
+
+ void CodeGenStmt::handleIndexAssignStmt(IndexAssignStmtAST* stmt)
+ {
+     auto* exprGen = codeGen.getExprGen();
+     auto* runtime = codeGen.getRuntimeGen();
+     auto& builder = codeGen.getBuilder(); // 获取 Builder
+     auto& context = codeGen.getContext(); // 获取 LLVMContext
+ 
+     // 1. 获取目标对象、索引和值的 LLVM Value (PyObject*)
+     llvm::Value* target = exprGen->handleExpr(stmt->getTarget());
+     if (!target) return; // 错误已记录
+ 
+     llvm::Value* index = exprGen->handleExpr(stmt->getIndex());
+     if (!index) {
+         runtime->cleanupTemporaryObjects(); // 清理 target
+         return; // 错误已记录
+     }
+ 
+     llvm::Value* value = exprGen->handleExpr(stmt->getValue());
+     if (!value) {
+         runtime->cleanupTemporaryObjects(); // 清理 target 和 index
+         return; // 错误已记录
+     }
+ 
+     // 2. 获取通用的索引设置运行时函数 py_object_set_index
+     //    该函数负责在运行时检查 target 的类型并调用正确的具体函数
+     llvm::Function* setIndexFunc = codeGen.getOrCreateExternalFunction(
+             "py_object_set_index",                             // 函数名
+             llvm::Type::getVoidTy(context),                    // 返回类型: void
+             {                                                  // 参数类型:
+                     llvm::PointerType::get(context, 0),        // target (PyObject*)
+                     llvm::PointerType::get(context, 0),        // index (PyObject*)
+                     llvm::PointerType::get(context, 0)         // value (PyObject*)
+             });
+ 
+     // 3. 调用通用索引设置函数
+     //    假设 target, index, value 已经是正确的 PyObject* 类型
+     builder.CreateCall(setIndexFunc, {target, index, value});
+ 
+     // 4. 清理生成 target, index, value 时可能产生的临时对象
+     runtime->cleanupTemporaryObjects();
+ }
 void CodeGenStmt::handlePassStmt(PassStmtAST* stmt)
 {
     // pass语句不生成任何代码

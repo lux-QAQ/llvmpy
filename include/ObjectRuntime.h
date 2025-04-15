@@ -15,8 +15,6 @@
 namespace llvmpy
 {
 
-
-
 // 运行时类型系统管理器
 class ObjectRuntime
 {
@@ -40,6 +38,8 @@ public:
     llvm::Value* createList(llvm::Value* size, ObjectType* elemType);
     llvm::Value* createListWithValues(std::vector<llvm::Value*> values, ObjectType* elemType);
     llvm::Value* createDict(ObjectType* keyType, ObjectType* valueType);
+
+
 
     // 创建通用对象 - 根据类型自动选择正确的创建方法
     llvm::Value* createObject(llvm::Value* value, ObjectType* type);

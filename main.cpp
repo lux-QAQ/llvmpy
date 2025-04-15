@@ -14,15 +14,15 @@
 #include <llvm/Transforms/Scalar/GVN.h>
 
 // 再包含应用特定头文件
+#include "Debugdefine.h"
 #include "TypeIDs.h"
 #include "ObjectType.h"
 #include "lexer.h"
 #include "parser.h"
-#include "Debugdefine.h"
 
+#include "RunTime/runtime.h"           // 包含运行时头文件
+#include "RunTime/py_type_dispatch.h"  // 包含类型分派头文件
 using namespace llvmpy;
-
-
 
 std::string readFile(const std::string& filename)
 {
@@ -40,9 +40,10 @@ std::string readFile(const std::string& filename)
 #include "Debugdefine.h"
 int main(int argc, char** argv)
 {
-        // 确保类型系统已初始化
-        TypeRegistry::getInstance().ensureBasicTypesRegistered();
-        TypeFeatureChecker::registerBuiltinFeatureChecks();
+    // 确保类型系统已初始化
+    TypeRegistry::getInstance().ensureBasicTypesRegistered();
+    TypeFeatureChecker::registerBuiltinFeatureChecks();
+    // py_initialize_builtin_type_methods();
 #ifndef DEBUG
     if (argc < 2)
     {
@@ -108,9 +109,24 @@ int main(int argc, char** argv)
 
     // 代码生成
     PyCodeGen codegen;
-    codegen.generateModule(module.get());
+    // 假设我们总是将第一个文件视为入口点
+    bool isEntryPoint = true;  // 或者根据命令行参数等判断
+    // TODO： 多文件编译时需要更复杂的逻辑来判断入口点
+    // 在 PyCodeGen 中调用 generateModule 时传递 isEntryPoint
+    // 或者直接调用 CodeGenModule 的 generateModule
+    // codegen.generateModule(module.get(), isEntryPoint); // 如果 PyCodeGen::generateModule 接受标志
+    auto modGen = codegen.getModuleGen();
+    if (modGen)
+    {
+        modGen->generateModule(module.get(), isEntryPoint);
+    }
+    else
+    {
+        std::cerr << "Error: Module generator not available." << std::endl;
+        return 1;
+    }
 
-/*     // 优化LLVM IR (可选)
+    /*     // 优化LLVM IR (可选)
     llvm::legacy::FunctionPassManager passManager(codegen.getModule());
 
     // 添加基本优化
