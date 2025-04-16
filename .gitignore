@@ -14,6 +14,7 @@
 # IR
 *.bc
 *.ll
+*.s
 
 
 # Compiled Dynamic libraries
@@ -33,6 +34,7 @@
 *.lib
 
 # Executables
+program
 *.exe
 *.out
 *.app# Build directory
