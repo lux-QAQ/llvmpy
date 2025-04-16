@@ -17,6 +17,8 @@
 | `ci`            | 持续集成配置修改，如 GitHub Actions、Travis、Jenkins |
 | `chore`         | 其他杂项修改，如更新脚本、版本号、包管理配置等 |
 | `revert`        | 回滚某个提交 |
+| `merge`         | 合并分支 |
+| `git`           | github相关内容提交 |
 
 ---
 
