@@ -39,3 +39,6 @@ program
 *.out
 *.app# Build directory
 build/
+
+# build
+CMakePresets.json
