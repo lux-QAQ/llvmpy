@@ -330,54 +330,11 @@ std::shared_ptr<PyType> getCommonType(const std::shared_ptr<PyType>& t1, const s
 
 //========== ASTFactory 实现 ==========
 
-ASTFactory& ASTFactory::getInstance()
-{
-    static ASTFactory instance;
-    return instance;
-}
 
-std::unique_ptr<ASTNode> ASTFactory::createNode(ASTKind kind)
-{
-    auto it = nodeRegistry.find(kind);
-    if (it != nodeRegistry.end())
-    {
-        return it->second();
-    }
-    return nullptr;
-}
 
-// 注册所有节点类型
-void ASTFactory::registerAllNodes()
-{
-    // 表达式节点
-    NumberExprAST::registerWithFactory();
-    VariableExprAST::registerWithFactory();
-    BinaryExprAST::registerWithFactory();
-    UnaryExprAST::registerWithFactory();
-    CallExprAST::registerWithFactory();
-    ListExprAST::registerWithFactory();
-    IndexExprAST::registerWithFactory();
-    StringExprAST::registerWithFactory();
-    BoolExprAST::registerWithFactory();
-    NoneExprAST::registerWithFactory();
-    DictExprAST::registerWithFactory();
 
-    // 语句节点
-    ExprStmtAST::registerWithFactory();
-    IndexAssignStmtAST::registerWithFactory();
-    ReturnStmtAST::registerWithFactory();
-    IfStmtAST::registerWithFactory();
-    WhileStmtAST::registerWithFactory();
-    PrintStmtAST::registerWithFactory();
-    AssignStmtAST::registerWithFactory();
-    PassStmtAST::registerWithFactory();
-    ImportStmtAST::registerWithFactory();
-    ClassStmtAST::registerWithFactory();
 
-    // 模块和函数
-    FunctionAST::registerWithFactory();
-    ModuleAST::registerWithFactory();
-}
+
 
 
 
@@ -391,18 +348,8 @@ void registerNodeWithFactory(ASTKind kind) {
         return std::make_unique<NodeType>();
     });
 } */
-template <typename NodeType>
-void registerNodeWithFactory(ASTKind kind)
-{
-    // 对于每种类型，应该使用专门的工厂函数，
-    // 而不是尝试使用默认构造函数
-    NodeType::registerWithFactory();
-}
-// 数字表达式
-void NumberExprAST::registerWithFactory()
-{
-    registerNodeWithFactory<NumberExprAST>(ASTKind::NumberExpr);
-}
+
+
 
 std::shared_ptr<PyType> NumberExprAST::getType() const
 {
@@ -420,17 +367,9 @@ std::shared_ptr<PyType> NumberExprAST::getType() const
     }
 }
 
-void NumberExprAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
 
-// 变量引用表达式
-void VariableExprAST::registerWithFactory()
-{
-    registerNodeWithFactory<VariableExprAST>(ASTKind::VariableExpr);
-}
+
+
 
 std::shared_ptr<PyType> VariableExprAST::getType() const
 {
@@ -444,26 +383,9 @@ std::shared_ptr<PyType> VariableExprAST::getType() const
     return PyType::getAny();
 }
 
-void VariableExprAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
 
-    // 缓存从代码生成器获取的类型
-    cachedType = codegen.getLastExprType();
-}
 
-// 二元操作表达式
-void BinaryExprAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<BinaryExprAST>(ASTKind::BinaryExpr, []()
-                                               {
-        // 创建一个空的二元表达式，后续解析时会设置实际参数
-        return std::make_unique<BinaryExprAST>('+', 
-            std::make_unique<NumberExprAST>(0), 
-            std::make_unique<NumberExprAST>(0)); });
-}
+
 
 std::shared_ptr<PyType> BinaryExprAST::getType() const
 {
@@ -502,76 +424,30 @@ std::shared_ptr<PyType> BinaryExprAST::getType() const
     return cachedType;
 }
 
-void BinaryExprAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
 
-// 一元操作表达式
-void UnaryExprAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<UnaryExprAST>(ASTKind::UnaryExpr, []()
-                                              {
-        // Create a default unary expression
-        return std::make_unique<UnaryExprAST>('-', std::make_unique<NumberExprAST>(0)); });
-}
-// StringExprAST 实现工厂函数
-void StringExprAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<StringExprAST>(ASTKind::StringExpr, []()
-                                               {
-        // 创建一个空字符串表达式，后续解析时会设置实际值
-        return std::make_unique<StringExprAST>(""); });
-}
 
-void StringExprAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
+
+
+
+
 
 std::shared_ptr<PyType> StringExprAST::getType() const
 {
     return PyType::getString();
 }
 
-// BoolExprAST 实现
-void BoolExprAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<BoolExprAST>(ASTKind::BoolExpr, []()
-                                             {
-        // 创建一个默认为false的布尔表达式
-        return std::make_unique<BoolExprAST>(false); });
-}
 
-void BoolExprAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
+
+
 
 std::shared_ptr<PyType> BoolExprAST::getType() const
 {
     return PyType::getBool();
 }
 
-// NoneExprAST 实现
-void NoneExprAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<NoneExprAST>(ASTKind::NoneExpr, []()
-                                             { return std::make_unique<NoneExprAST>(); });
-}
 
-void NoneExprAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
+
+
 
 std::shared_ptr<PyType> NoneExprAST::getType() const
 {
@@ -628,21 +504,9 @@ std::shared_ptr<PyType> UnaryExprAST::getType() const
     return cachedType;
 }
 
-void UnaryExprAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
 
-// CallExprAST 实现工厂函数
-void CallExprAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<CallExprAST>(ASTKind::CallExpr, []()
-                                             {
-        // 创建一个空的函数调用表达式，后续解析时会设置实际参数
-        return std::make_unique<CallExprAST>("", std::vector<std::unique_ptr<ExprAST>>()); });
-}
+
+
 
 
 // getType: Infers the dictionary type based on key/value pairs
@@ -729,35 +593,11 @@ std::shared_ptr<PyType> CallExprAST::getType() const
     return PyType::getAny();
 }
 
-void CallExprAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
 
-    // 缓存从代码生成器获取的类型
-    cachedType = codegen.getLastExprType();
-}
 
-// ListExprAST 实现工厂函数
-void ListExprAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<ListExprAST>(ASTKind::ListExpr, []()
-                                             {
-        // 创建一个空列表表达式，后续解析时会设置实际元素
-        return std::make_unique<ListExprAST>(std::vector<std::unique_ptr<ExprAST>>()); });
-}
 
-// DictExprAST 实现工厂函数
-void DictExprAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    // Register creator for DictExprAST
-    factory.registerNodeCreator<DictExprAST>(ASTKind::DictExpr, []() {
-        // Create an empty dictionary expression
-        return std::make_unique<DictExprAST>();
-    });
-}
+
+
 
 std::shared_ptr<PyType> ListExprAST::getType() const
 {
@@ -774,32 +614,9 @@ std::shared_ptr<PyType> ListExprAST::getType() const
     return cachedType;
 }
 
-void ListExprAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
 
 
-void DictExprAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
 
-// 索引表达式
-// IndexExprAST 实现工厂函数
-void IndexExprAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<IndexExprAST>(ASTKind::IndexExpr, []()
-                                              {
-        // 创建一个空的索引表达式，后续解析时会设置实际目标和索引
-        return std::make_unique<IndexExprAST>(
-            std::make_unique<VariableExprAST>(""),
-            std::make_unique<NumberExprAST>(0)
-        ); });
-}
 
 /* std::shared_ptr<PyType> IndexExprAST::getType() const
 {
@@ -914,88 +731,23 @@ std::shared_ptr<PyType> IndexExprAST::getType() const
     cachedType = PyType::fromObjectType(resultObjType);
     return cachedType;
 }
-void IndexExprAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
+
 
 //========== 语句节点方法实现 ==========
 
-// ExprStmtAST 实现工厂函数
-void ExprStmtAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<ExprStmtAST>(ASTKind::ExprStmt, []()
-                                             {
-        // 创建一个空的表达式语句，后续解析时会设置实际表达式
-        return std::make_unique<ExprStmtAST>(std::make_unique<NumberExprAST>(0)); });
-}
-
-void ExprStmtAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
-
-// 索引赋值语句
-void IndexAssignStmtAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<IndexAssignStmtAST>(ASTKind::IndexAssignStmt, []()
-                                                    {
-        // 创建一个空的索引赋值语句，后续解析时会设置实际目标、索引和值
-        return std::make_unique<IndexAssignStmtAST>(
-            std::make_unique<VariableExprAST>(""),
-            std::make_unique<NumberExprAST>(0),
-            std::make_unique<NumberExprAST>(0)
-        ); });
-}
-
-void IndexAssignStmtAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
-
-// 返回语句
-// ReturnStmtAST 实现工厂函数
-void ReturnStmtAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<ReturnStmtAST>(ASTKind::ReturnStmt, []()
-                                               {
-        // 创建一个空的return语句，后续解析时会设置实际返回值
-        return std::make_unique<ReturnStmtAST>(nullptr); });
-}
-
-void ReturnStmtAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
 
 
 
-// if语句
-void IfStmtAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<IfStmtAST>(ASTKind::IfStmt, []()
-                                           {
-        // 创建一个空的if语句，后续解析时会设置实际条件和代码块
-        return std::make_unique<IfStmtAST>(
-            std::make_unique<BoolExprAST>(true),
-            std::vector<std::unique_ptr<StmtAST>>(),
-            std::vector<std::unique_ptr<StmtAST>>()
-        ); });
-}
 
-void IfStmtAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
+
+
+
+
+
+
+
+
+
 
 void IfStmtAST::beginScope(PyCodeGen& codegen)
 {
@@ -1007,24 +759,9 @@ void IfStmtAST::endScope(PyCodeGen& codegen)
     codegen.popScope();
 }
 
-// while语句
-void WhileStmtAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<WhileStmtAST>(ASTKind::WhileStmt, []()
-                                              {
-        // 创建一个空的while语句，后续解析时会设置实际条件和代码块
-        return std::make_unique<WhileStmtAST>(
-            std::make_unique<BoolExprAST>(true),
-            std::vector<std::unique_ptr<StmtAST>>()
-        ); });
-}
 
-void WhileStmtAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
+
+
 
 void WhileStmtAST::beginScope(PyCodeGen& codegen)
 {
@@ -1036,101 +773,21 @@ void WhileStmtAST::endScope(PyCodeGen& codegen)
     codegen.popScope();
 }
 
-// print语句
-void PrintStmtAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<PrintStmtAST>(ASTKind::PrintStmt, []()
-                                              {
-        // 创建一个空的print语句，后续解析时会设置实际打印值
-        return std::make_unique<PrintStmtAST>(std::make_unique<StringExprAST>("")); });
-}
 
-void PrintStmtAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
 
-// 赋值语句
-void AssignStmtAST::registerWithFactory()
-{
-    registerNodeWithFactory<AssignStmtAST>(ASTKind::AssignStmt);
-}
 
-void AssignStmtAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
 
-// pass语句
-void PassStmtAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<PassStmtAST>(ASTKind::PassStmt, []()
-                                             { return std::make_unique<PassStmtAST>(); });
-}
 
-void PassStmtAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
 
-// import语句
-void ImportStmtAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<ImportStmtAST>(ASTKind::ImportStmt, []()
-                                               {
-        // 创建一个空的import语句，后续解析时会设置实际模块名和别名
-        return std::make_unique<ImportStmtAST>("", ""); });
-}
 
-void ImportStmtAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
 
 //========== 类和模块方法实现 ==========
 
-// 类定义
-void ClassStmtAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<ClassStmtAST>(ASTKind::ClassStmt, []()
-                                              {
-        // 创建一个空的类定义，后续解析时会设置实际类名、基类和成员
-        return std::make_unique<ClassStmtAST>(
-            "",
-            std::vector<std::string>(),
-            std::vector<std::unique_ptr<StmtAST>>(),
-            std::vector<std::unique_ptr<FunctionAST>>()
-        ); });
-}
 
-void ClassStmtAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
 
-// 函数定义
-void FunctionAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<FunctionAST>(ASTKind::Function, []()
-                                             {
-        // 创建一个空的函数定义，后续解析时会设置实际名称、参数和函数体
-        return std::make_unique<FunctionAST>(
-            "",
-            std::vector<ParamAST>(),
-            "",
-            std::vector<std::unique_ptr<StmtAST>>()
-        ); });
-}
+
+
+
 
 std::shared_ptr<PyType> FunctionAST::inferReturnType() const {
     // 1. 优先使用显式声明的返回类型
@@ -1314,11 +971,7 @@ void FunctionAST::resolveParamTypes()
     allParamsResolved = true;
 }
 
-void FunctionAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
+
 
 // 模块
 
@@ -1338,28 +991,13 @@ void ModuleAST::addStatement(std::unique_ptr<StmtAST> stmt)
     }
 }
 
-void ModuleAST::registerWithFactory()
-{
-    auto& factory = ASTFactory::getInstance();
-    factory.registerNodeCreator<ModuleAST>(ASTKind::Module, []()
-                                           {
-        // 创建一个空的模块，后续解析时会设置实际名称和内容
-        return std::make_unique<ModuleAST>(
-            "",
-            std::vector<std::unique_ptr<StmtAST>>(),
-            std::vector<std::unique_ptr<FunctionAST>>()
-        ); });
-}
 
-void ModuleAST::accept(PyCodeGen& codegen)
-{
-    CodeGenVisitor visitor(codegen);
-    visitor.visit(this);
-}
+
+
 
 //========== 模板方法实现 ==========
 
-template <typename Derived, ASTKind K>
+/* template <typename Derived, ASTKind K>
 void StmtASTBase<Derived, K>::beginScope(PyCodeGen& codegen)
 {
     // 默认实现：什么都不做
@@ -1369,7 +1007,7 @@ template <typename Derived, ASTKind K>
 void StmtASTBase<Derived, K>::endScope(PyCodeGen& codegen)
 {
     // 默认实现：什么都不做
-}
+} */
 
 template <typename Derived, ASTKind K>
 bool ExprASTBase<Derived, K>::isNumeric() const

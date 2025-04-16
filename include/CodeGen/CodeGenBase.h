@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <functional>
 
-#include "ast.h"
+//#include "ast.h"
 #include "ObjectType.h"
 #include "TypeIDs.h"
 #include "CodeGen/VariableUpdateContext.h"
@@ -299,11 +299,11 @@ public:
         savedBlock = block;
     }
 
-    // 获取/设置最后生成的表达式信息
+/*     // 获取/设置最后生成的表达式信息
     llvm::Value* getLastExprValue() const
     {
         return lastExprValue;
-    }
+    } */
     void setLastExprValue(llvm::Value* value)
     {
         lastExprValue = value;

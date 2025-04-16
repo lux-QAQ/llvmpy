@@ -3,7 +3,7 @@
 #include <memory>
 #include <sstream>
 #include "Debugdefine.h"
-#include "ast.h"
+//#include "ast.h"
 #include <stdexcept>  // 添加头文件以使用 std::runtime_error 或其他异常
 namespace llvmpy
 {

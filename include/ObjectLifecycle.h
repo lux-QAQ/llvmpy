@@ -1,7 +1,7 @@
 #ifndef OBJECT_LIFECYCLE_H
 #define OBJECT_LIFECYCLE_H
 
-#include "ast.h"
+//#include "ast.h"
 #include "ObjectType.h"
 #include "CodeGen/CodeGenBase.h"
 #include "TypeIDs.h"

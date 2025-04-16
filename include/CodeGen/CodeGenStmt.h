@@ -2,8 +2,9 @@
 #define CODEGEN_STMT_H
 
 #include "CodeGen/CodeGenBase.h"
-#include "ast.h"
+//#include "ast.h"
 #include <unordered_map>
+#include <set>
 #include <memory>
 #include <functional>
 
@@ -97,6 +98,8 @@ public:
     
     // 辅助方法
     CodeGenBase& getCodeGen() { return codeGen; }
+
+    static void findAssignedVariablesInStmt(StmtAST* stmt, std::set<std::string>& assignedVars);
 };
 
 } // namespace llvmpy

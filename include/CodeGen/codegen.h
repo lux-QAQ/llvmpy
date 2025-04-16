@@ -11,7 +11,7 @@
 #include "CodeGen/CodeGenModule.h"
 #include "CodeGen/CodeGenType.h"
 #include "CodeGen/CodeGenRuntime.h"
-#include "CodeGen/CodeGenVisitor.h"
+
 
 namespace llvmpy
 {

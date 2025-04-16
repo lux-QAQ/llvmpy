@@ -5,7 +5,7 @@
 #include "CodeGen/CodeGenRuntime.h"
 #include "CodeGen/CodeGenModule.h"  // 添加这一行
 #include "CodeGen/PyCodeGen.h"      // 添加这一行，确保 PyCodeGen 完整定义
-#include "CodeGen/CodeGenVisitor.h"
+
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
 #include "Debugdefine.h"
@@ -319,6 +319,46 @@ void CodeGenStmt::handleIfStmt(IfStmtAST* stmt)
     builder.SetInsertPoint(mergeBB);
 }
 
+
+
+// 辅助函数：递归查找在给定语句列表（或单个语句）中被赋值的变量名
+void CodeGenStmt::findAssignedVariablesInStmt(StmtAST* stmt, std::set<std::string>& assignedVars)
+{
+    if (!stmt) return;
+
+    if (auto* assignStmt = dynamic_cast<AssignStmtAST*>(stmt))
+    {
+        assignedVars.insert(assignStmt->getName());
+    }
+    else if (auto* indexAssignStmt = dynamic_cast<IndexAssignStmtAST*>(stmt))
+    {
+        // 如果需要处理类似 a[i] = ... 的情况，可能需要更复杂的分析
+        // 这里暂时只考虑简单变量赋值
+    }
+    else if (auto* ifStmt = dynamic_cast<IfStmtAST*>(stmt))
+    {
+        for (const auto& s : ifStmt->getThenBody())
+        {
+            findAssignedVariablesInStmt(s.get(), assignedVars);
+        }
+        for (const auto& s : ifStmt->getElseBody())
+        {
+            findAssignedVariablesInStmt(s.get(), assignedVars);
+        }
+    }
+    else if (auto* whileStmt = dynamic_cast<WhileStmtAST*>(stmt))
+    {
+        // 注意：这里简化了处理，没有处理嵌套循环对外部变量的影响
+        for (const auto& s : whileStmt->getBody())
+        {
+            findAssignedVariablesInStmt(s.get(), assignedVars);
+        }
+    }
+    // 可以为其他包含语句块的 AST 节点添加处理逻辑
+}
+
+
+
 // 修改现有方法
 
 void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
@@ -359,10 +399,10 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 
     // --- 2. 识别循环中修改的变量 ---
     std::set<std::string> assignedInBody;
-    CodeGenVisitor visitor(codeGen);
     for (const auto& bodyStmt : stmt->getBody())
     {
-        visitor.findAssignedVariables(bodyStmt.get(), assignedInBody);
+        // visitor.findAssignedVariables(bodyStmt.get(), assignedInBody); // <- 修改这行
+        findAssignedVariablesInStmt(bodyStmt.get(), assignedInBody); // <- 改为调用静态函数
     }
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("  [2] Variables assigned in body:");

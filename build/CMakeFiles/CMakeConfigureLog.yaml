@@ -23,12 +23,12 @@ events:
       
       The output was:
       0
-      std::mt19937_64 seeded with current timestamp: 1744788326941
+      std::mt19937_64 seeded with current timestamp: 1744815105411
       Initializing Hikari Core with Revision ID:c0a5dfef085970282ffc43be4d44b73aa34cf82e
       Running Hikari On CMakeCCompilerId.c
       Doing Post-Run Cleanup
       Hikari Out
-      Spend Time: 0.0003290s
+      Spend Time: 0.0000219s
       
       
       Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "a.out"
@@ -51,12 +51,12 @@ events:
       
       The output was:
       0
-      std::mt19937_64 seeded with current timestamp: 1744788335745
+      std::mt19937_64 seeded with current timestamp: 1744815115038
       Initializing Hikari Core with Revision ID:c0a5dfef085970282ffc43be4d44b73aa34cf82e
       Running Hikari On CMakeCXXCompilerId.cpp
       Doing Post-Run Cleanup
       Hikari Out
-      Spend Time: 0.0000219s
+      Spend Time: 0.0000212s
       
       
       Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "a.out"
@@ -73,8 +73,8 @@ events:
     checks:
       - "Detecting C compiler ABI info"
     directories:
-      source: "/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-bVQFnC"
-      binary: "/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-bVQFnC"
+      source: "/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-7liVuU"
+      binary: "/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-7liVuU"
     cmakeVariables:
       CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: "/usr/local/bin/clang-scan-deps"
       CMAKE_C_FLAGS: ""
@@ -84,10 +84,10 @@ events:
       variable: "CMAKE_C_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: '/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-bVQFnC'
+        Change Dir: '/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-7liVuU'
         
-        Run Build Command(s): /usr/bin/ninja -v cmTC_1db48
-        [1/2] /usr/local/bin/clang   -v -MD -MT CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o -MF CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o.d -o CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o -c /usr/local/share/cmake-3.31/Modules/CMakeCCompilerABI.c
+        Run Build Command(s): /usr/bin/ninja -v cmTC_11e88
+        [1/2] /usr/local/bin/clang   -v -MD -MT CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o -MF CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o.d -o CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o -c /usr/local/share/cmake-3.31/Modules/CMakeCCompilerABI.c
         clang version 21.0.0git (https://github.com/lux-QAQ/ollvm-clang21.0.git c0a5dfef085970282ffc43be4d44b73aa34cf82e)
         If you find this project helpful, please consider * starring * the following projects:
         Ollvm21: https://github.com/lux-QAQ/llvm-project/tree/clang%2Bollvm-21.0.0
@@ -105,27 +105,24 @@ events:
         Selected multilib: .;@m64
         Found CUDA installation: /usr/lib/cuda, version 12.0
          (in-process)
-         "/usr/local/bin/clang-21" -cc1 -triple x86_64-unknown-linux-gnu -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCCompilerABI.c -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=all -fmath-errno -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -target-cpu x86-64 -tune-cpu generic -debugger-tuning=gdb -fdebug-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-bVQFnC -v -fcoverage-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-bVQFnC -resource-dir /usr/local/lib/clang/21 -dependency-file CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o.d -MT CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o -sys-header-deps -c-isystem /usr/include/ -c-isystem /usr/include/ -c-isystem . -cxx-isystem /usr/local/include -cxx-isystem /usr/local/include -cxx-isystem . -internal-isystem /usr/local/lib/clang/21/include -internal-isystem /usr/local/include -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -ferror-limit 19 -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -faddrsig -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o -x c /usr/local/share/cmake-3.31/Modules/CMakeCCompilerABI.c
+         "/usr/local/bin/clang-21" -cc1 -triple x86_64-unknown-linux-gnu -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCCompilerABI.c -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=all -fmath-errno -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -target-cpu x86-64 -tune-cpu generic -debugger-tuning=gdb -fdebug-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-7liVuU -v -fcoverage-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-7liVuU -resource-dir /usr/local/lib/clang/21 -dependency-file CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o.d -MT CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o -sys-header-deps -internal-isystem /usr/local/lib/clang/21/include -internal-isystem /usr/local/include -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -ferror-limit 19 -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -faddrsig -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o -x c /usr/local/share/cmake-3.31/Modules/CMakeCCompilerABI.c
         clang -cc1 version 21.0.0git based upon LLVM 21.0.0git default target x86_64-unknown-linux-gnu
         ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"
         ignoring nonexistent directory "/include"
-        ignoring duplicate directory "/usr/include"
-        ignoring duplicate directory "/usr/include"
         #include "..." search starts here:
         #include <...> search starts here:
-         /usr/include
-         .
          /usr/local/lib/clang/21/include
          /usr/local/include
          /usr/include/x86_64-linux-gnu
+         /usr/include
         End of search list.
-        std::mt19937_64 seeded with current timestamp: 1744788345153
+        std::mt19937_64 seeded with current timestamp: 1744815124619
         Initializing Hikari Core with Revision ID:c0a5dfef085970282ffc43be4d44b73aa34cf82e
         Running Hikari On /usr/local/share/cmake-3.31/Modules/CMakeCCompilerABI.c
         Doing Post-Run Cleanup
         Hikari Out
-        Spend Time: 0.0000536s
-        [2/2] : && /usr/local/bin/clang  -v -Wl,-v CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o -o cmTC_1db48   && :
+        Spend Time: 0.0000215s
+        [2/2] : && /usr/local/bin/clang  -v -Wl,-v CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o -o cmTC_11e88   && :
         clang version 21.0.0git (https://github.com/lux-QAQ/ollvm-clang21.0.git c0a5dfef085970282ffc43be4d44b73aa34cf82e)
         If you find this project helpful, please consider * starring * the following projects:
         Ollvm21: https://github.com/lux-QAQ/llvm-project/tree/clang%2Bollvm-21.0.0
@@ -142,7 +139,7 @@ events:
         Candidate multilib: x32;@mx32
         Selected multilib: .;@m64
         Found CUDA installation: /usr/lib/cuda, version 12.0
-         "/usr/bin/ld" -z relro --hash-style=gnu --eh-frame-hdr -m elf_x86_64 -pie -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_1db48 /lib/x86_64-linux-gnu/Scrt1.o /lib/x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/local/bin/../lib/x86_64-unknown-linux-gnu -L/usr/local/lib/clang/21/lib/x86_64-unknown-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64 -L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib64 -L/lib -L/usr/lib -L/usr/local/lib -L/usr/local/lib -L. -v CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o -lgcc --as-needed -lgcc_s --no-as-needed -lc -lgcc --as-needed -lgcc_s --no-as-needed /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /lib/x86_64-linux-gnu/crtn.o
+         "/usr/bin/ld" -z relro --hash-style=gnu --eh-frame-hdr -m elf_x86_64 -pie -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_11e88 /lib/x86_64-linux-gnu/Scrt1.o /lib/x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/local/bin/../lib/x86_64-unknown-linux-gnu -L/usr/local/lib/clang/21/lib/x86_64-unknown-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64 -L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib64 -L/lib -L/usr/lib -v CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o -lgcc --as-needed -lgcc_s --no-as-needed -lc -lgcc --as-needed -lgcc_s --no-as-needed /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /lib/x86_64-linux-gnu/crtn.o
         GNU ld (GNU Binutils for Ubuntu) 2.42
         
       exitCode: 0
@@ -156,18 +153,16 @@ events:
       Parsed C implicit include dir info: rv=done
         found start of include info
         found start of implicit include info
-          add: [/usr/include]
-          add: [.]
           add: [/usr/local/lib/clang/21/include]
           add: [/usr/local/include]
           add: [/usr/include/x86_64-linux-gnu]
+          add: [/usr/include]
         end of search list found
-        collapse include dir [/usr/include] ==> [/usr/include]
-        skipping relative include dir [.]
         collapse include dir [/usr/local/lib/clang/21/include] ==> [/usr/local/lib/clang/21/include]
         collapse include dir [/usr/local/include] ==> [/usr/local/include]
         collapse include dir [/usr/include/x86_64-linux-gnu] ==> [/usr/include/x86_64-linux-gnu]
-        implicit include dirs: [/usr/include;/usr/local/lib/clang/21/include;/usr/local/include;/usr/include/x86_64-linux-gnu]
+        collapse include dir [/usr/include] ==> [/usr/include]
+        implicit include dirs: [/usr/local/lib/clang/21/include;/usr/local/include;/usr/include/x86_64-linux-gnu;/usr/include]
       
       
   -
@@ -180,10 +175,10 @@ events:
       Parsed C implicit link information:
         link line regex: [^( *|.*[/\\])(ld[0-9]*(\\.[a-z]+)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
         linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(\\.[a-z]+)?))("|,| |$)]
-        ignore line: [Change Dir: '/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-bVQFnC']
+        ignore line: [Change Dir: '/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-7liVuU']
         ignore line: []
-        ignore line: [Run Build Command(s): /usr/bin/ninja -v cmTC_1db48]
-        ignore line: [[1/2] /usr/local/bin/clang   -v -MD -MT CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o -MF CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o.d -o CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o -c /usr/local/share/cmake-3.31/Modules/CMakeCCompilerABI.c]
+        ignore line: [Run Build Command(s): /usr/bin/ninja -v cmTC_11e88]
+        ignore line: [[1/2] /usr/local/bin/clang   -v -MD -MT CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o -MF CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o.d -o CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o -c /usr/local/share/cmake-3.31/Modules/CMakeCCompilerABI.c]
         ignore line: [clang version 21.0.0git (https://github.com/lux-QAQ/ollvm-clang21.0.git c0a5dfef085970282ffc43be4d44b73aa34cf82e)]
         ignore line: [If you find this project helpful  please consider * starring * the following projects:]
         ignore line: [Ollvm21: https://github.com/lux-QAQ/llvm-project/tree/clang%2Bollvm-21.0.0]
@@ -205,27 +200,24 @@ events:
         ignore line: [@m64]
         ignore line: [Found CUDA installation: /usr/lib/cuda  version 12.0]
         ignore line: [ (in-process)]
-        ignore line: [ "/usr/local/bin/clang-21" -cc1 -triple x86_64-unknown-linux-gnu -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCCompilerABI.c -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=all -fmath-errno -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -target-cpu x86-64 -tune-cpu generic -debugger-tuning=gdb -fdebug-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-bVQFnC -v -fcoverage-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-bVQFnC -resource-dir /usr/local/lib/clang/21 -dependency-file CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o.d -MT CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o -sys-header-deps -c-isystem /usr/include/ -c-isystem /usr/include/ -c-isystem . -cxx-isystem /usr/local/include -cxx-isystem /usr/local/include -cxx-isystem . -internal-isystem /usr/local/lib/clang/21/include -internal-isystem /usr/local/include -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -ferror-limit 19 -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -faddrsig -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o -x c /usr/local/share/cmake-3.31/Modules/CMakeCCompilerABI.c]
+        ignore line: [ "/usr/local/bin/clang-21" -cc1 -triple x86_64-unknown-linux-gnu -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCCompilerABI.c -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=all -fmath-errno -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -target-cpu x86-64 -tune-cpu generic -debugger-tuning=gdb -fdebug-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-7liVuU -v -fcoverage-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-7liVuU -resource-dir /usr/local/lib/clang/21 -dependency-file CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o.d -MT CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o -sys-header-deps -internal-isystem /usr/local/lib/clang/21/include -internal-isystem /usr/local/include -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -ferror-limit 19 -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -faddrsig -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o -x c /usr/local/share/cmake-3.31/Modules/CMakeCCompilerABI.c]
         ignore line: [clang -cc1 version 21.0.0git based upon LLVM 21.0.0git default target x86_64-unknown-linux-gnu]
         ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"]
         ignore line: [ignoring nonexistent directory "/include"]
-        ignore line: [ignoring duplicate directory "/usr/include"]
-        ignore line: [ignoring duplicate directory "/usr/include"]
         ignore line: [#include "..." search starts here:]
         ignore line: [#include <...> search starts here:]
-        ignore line: [ /usr/include]
-        ignore line: [ .]
         ignore line: [ /usr/local/lib/clang/21/include]
         ignore line: [ /usr/local/include]
         ignore line: [ /usr/include/x86_64-linux-gnu]
+        ignore line: [ /usr/include]
         ignore line: [End of search list.]
-        ignore line: [std::mt19937_64 seeded with current timestamp: 1744788345153]
+        ignore line: [std::mt19937_64 seeded with current timestamp: 1744815124619]
         ignore line: [Initializing Hikari Core with Revision ID:c0a5dfef085970282ffc43be4d44b73aa34cf82e]
         ignore line: [Running Hikari On /usr/local/share/cmake-3.31/Modules/CMakeCCompilerABI.c]
         ignore line: [Doing Post-Run Cleanup]
         ignore line: [Hikari Out]
-        ignore line: [Spend Time: 0.0000536s]
-        ignore line: [[2/2] : && /usr/local/bin/clang  -v -Wl -v CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o -o cmTC_1db48   && :]
+        ignore line: [Spend Time: 0.0000215s]
+        ignore line: [[2/2] : && /usr/local/bin/clang  -v -Wl -v CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o -o cmTC_11e88   && :]
         ignore line: [clang version 21.0.0git (https://github.com/lux-QAQ/ollvm-clang21.0.git c0a5dfef085970282ffc43be4d44b73aa34cf82e)]
         ignore line: [If you find this project helpful  please consider * starring * the following projects:]
         ignore line: [Ollvm21: https://github.com/lux-QAQ/llvm-project/tree/clang%2Bollvm-21.0.0]
@@ -246,7 +238,7 @@ events:
         ignore line: [Selected multilib: .]
         ignore line: [@m64]
         ignore line: [Found CUDA installation: /usr/lib/cuda  version 12.0]
-        link line: [ "/usr/bin/ld" -z relro --hash-style=gnu --eh-frame-hdr -m elf_x86_64 -pie -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_1db48 /lib/x86_64-linux-gnu/Scrt1.o /lib/x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/local/bin/../lib/x86_64-unknown-linux-gnu -L/usr/local/lib/clang/21/lib/x86_64-unknown-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64 -L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib64 -L/lib -L/usr/lib -L/usr/local/lib -L/usr/local/lib -L. -v CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o -lgcc --as-needed -lgcc_s --no-as-needed -lc -lgcc --as-needed -lgcc_s --no-as-needed /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /lib/x86_64-linux-gnu/crtn.o]
+        link line: [ "/usr/bin/ld" -z relro --hash-style=gnu --eh-frame-hdr -m elf_x86_64 -pie -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_11e88 /lib/x86_64-linux-gnu/Scrt1.o /lib/x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/local/bin/../lib/x86_64-unknown-linux-gnu -L/usr/local/lib/clang/21/lib/x86_64-unknown-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64 -L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib64 -L/lib -L/usr/lib -v CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o -lgcc --as-needed -lgcc_s --no-as-needed -lc -lgcc --as-needed -lgcc_s --no-as-needed /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /lib/x86_64-linux-gnu/crtn.o]
           arg [/usr/bin/ld] ==> ignore
           arg [-zrelro] ==> ignore
           arg [--hash-style=gnu] ==> ignore
@@ -257,7 +249,7 @@ events:
           arg [-dynamic-linker] ==> ignore
           arg [/lib64/ld-linux-x86-64.so.2] ==> ignore
           arg [-o] ==> ignore
-          arg [cmTC_1db48] ==> ignore
+          arg [cmTC_11e88] ==> ignore
           arg [/lib/x86_64-linux-gnu/Scrt1.o] ==> obj [/lib/x86_64-linux-gnu/Scrt1.o]
           arg [/lib/x86_64-linux-gnu/crti.o] ==> obj [/lib/x86_64-linux-gnu/crti.o]
           arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o]
@@ -271,11 +263,8 @@ events:
           arg [-L/usr/lib/../lib64] ==> dir [/usr/lib/../lib64]
           arg [-L/lib] ==> dir [/lib]
           arg [-L/usr/lib] ==> dir [/usr/lib]
-          arg [-L/usr/local/lib] ==> dir [/usr/local/lib]
-          arg [-L/usr/local/lib] ==> dir [/usr/local/lib]
-          arg [-L.] ==> ignore
           arg [-v] ==> ignore
-          arg [CMakeFiles/cmTC_1db48.dir/CMakeCCompilerABI.c.o] ==> ignore
+          arg [CMakeFiles/cmTC_11e88.dir/CMakeCCompilerABI.c.o] ==> ignore
           arg [-lgcc] ==> lib [gcc]
           arg [--as-needed] ==> ignore
           arg [-lgcc_s] ==> lib [gcc_s]
@@ -298,11 +287,9 @@ events:
         collapse library dir [/usr/lib/../lib64] ==> [/usr/lib64]
         collapse library dir [/lib] ==> [/lib]
         collapse library dir [/usr/lib] ==> [/usr/lib]
-        collapse library dir [/usr/local/lib] ==> [/usr/local/lib]
-        collapse library dir [/usr/local/lib] ==> [/usr/local/lib]
         implicit libs: [gcc;gcc_s;c;gcc;gcc_s]
         implicit objs: [/lib/x86_64-linux-gnu/Scrt1.o;/lib/x86_64-linux-gnu/crti.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o;/lib/x86_64-linux-gnu/crtn.o]
-        implicit dirs: [/usr/local/lib/x86_64-unknown-linux-gnu;/usr/local/lib/clang/21/lib/x86_64-unknown-linux-gnu;/usr/lib/gcc/x86_64-linux-gnu/13;/usr/lib64;/lib/x86_64-linux-gnu;/lib64;/usr/lib/x86_64-linux-gnu;/lib;/usr/lib;/usr/local/lib]
+        implicit dirs: [/usr/local/lib/x86_64-unknown-linux-gnu;/usr/local/lib/clang/21/lib/x86_64-unknown-linux-gnu;/usr/lib/gcc/x86_64-linux-gnu/13;/usr/lib64;/lib/x86_64-linux-gnu;/lib64;/usr/lib/x86_64-linux-gnu;/lib;/usr/lib]
         implicit fwks: []
       
       
@@ -325,8 +312,8 @@ events:
     checks:
       - "Detecting CXX compiler ABI info"
     directories:
-      source: "/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-KYAdy9"
-      binary: "/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-KYAdy9"
+      source: "/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-v1uEgd"
+      binary: "/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-v1uEgd"
     cmakeVariables:
       CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: "/usr/local/bin/clang-scan-deps"
       CMAKE_CXX_FLAGS: ""
@@ -337,10 +324,10 @@ events:
       variable: "CMAKE_CXX_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: '/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-KYAdy9'
+        Change Dir: '/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-v1uEgd'
         
-        Run Build Command(s): /usr/bin/ninja -v cmTC_a2d10
-        [1/2] /usr/local/bin/clang++   -v -MD -MT CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o -MF CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o.d -o CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o -c /usr/local/share/cmake-3.31/Modules/CMakeCXXCompilerABI.cpp
+        Run Build Command(s): /usr/bin/ninja -v cmTC_1d42d
+        [1/2] /usr/local/bin/clang++   -v -MD -MT CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o -MF CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o.d -o CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o -c /usr/local/share/cmake-3.31/Modules/CMakeCXXCompilerABI.cpp
         clang version 21.0.0git (https://github.com/lux-QAQ/ollvm-clang21.0.git c0a5dfef085970282ffc43be4d44b73aa34cf82e)
         If you find this project helpful, please consider * starring * the following projects:
         Ollvm21: https://github.com/lux-QAQ/llvm-project/tree/clang%2Bollvm-21.0.0
@@ -358,30 +345,27 @@ events:
         Selected multilib: .;@m64
         Found CUDA installation: /usr/lib/cuda, version 12.0
          (in-process)
-         "/usr/local/bin/clang-21" -cc1 -triple x86_64-unknown-linux-gnu -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCXXCompilerABI.cpp -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=all -fmath-errno -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -target-cpu x86-64 -tune-cpu generic -debugger-tuning=gdb -fdebug-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-KYAdy9 -v -fcoverage-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-KYAdy9 -resource-dir /usr/local/lib/clang/21 -dependency-file CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o.d -MT CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o -sys-header-deps -c-isystem /usr/include/ -c-isystem /usr/include/ -c-isystem . -cxx-isystem /usr/local/include -cxx-isystem /usr/local/include -cxx-isystem . -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13 -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13 -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward -internal-isystem /usr/local/lib/clang/21/include -internal-isystem /usr/local/include -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -fdeprecated-macro -ferror-limit 19 -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -fcxx-exceptions -fexceptions -faddrsig -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o -x c++ /usr/local/share/cmake-3.31/Modules/CMakeCXXCompilerABI.cpp
+         "/usr/local/bin/clang-21" -cc1 -triple x86_64-unknown-linux-gnu -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCXXCompilerABI.cpp -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=all -fmath-errno -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -target-cpu x86-64 -tune-cpu generic -debugger-tuning=gdb -fdebug-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-v1uEgd -v -fcoverage-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-v1uEgd -resource-dir /usr/local/lib/clang/21 -dependency-file CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o.d -MT CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o -sys-header-deps -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13 -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13 -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward -internal-isystem /usr/local/lib/clang/21/include -internal-isystem /usr/local/include -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -fdeprecated-macro -ferror-limit 19 -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -fcxx-exceptions -fexceptions -faddrsig -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o -x c++ /usr/local/share/cmake-3.31/Modules/CMakeCXXCompilerABI.cpp
         clang -cc1 version 21.0.0git based upon LLVM 21.0.0git default target x86_64-unknown-linux-gnu
         ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"
         ignoring nonexistent directory "/include"
-        ignoring duplicate directory "/usr/local/include"
-        ignoring duplicate directory "/usr/local/include"
         #include "..." search starts here:
         #include <...> search starts here:
-         /usr/local/include
-         .
          /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13
          /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13
          /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward
          /usr/local/lib/clang/21/include
+         /usr/local/include
          /usr/include/x86_64-linux-gnu
          /usr/include
         End of search list.
-        std::mt19937_64 seeded with current timestamp: 1744788345600
+        std::mt19937_64 seeded with current timestamp: 1744815125056
         Initializing Hikari Core with Revision ID:c0a5dfef085970282ffc43be4d44b73aa34cf82e
         Running Hikari On /usr/local/share/cmake-3.31/Modules/CMakeCXXCompilerABI.cpp
         Doing Post-Run Cleanup
         Hikari Out
-        Spend Time: 0.0000281s
-        [2/2] : && /usr/local/bin/clang++  -v -Wl,-v CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o -o cmTC_a2d10   && :
+        Spend Time: 0.0000274s
+        [2/2] : && /usr/local/bin/clang++  -v -Wl,-v CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o -o cmTC_1d42d   && :
         clang version 21.0.0git (https://github.com/lux-QAQ/ollvm-clang21.0.git c0a5dfef085970282ffc43be4d44b73aa34cf82e)
         If you find this project helpful, please consider * starring * the following projects:
         Ollvm21: https://github.com/lux-QAQ/llvm-project/tree/clang%2Bollvm-21.0.0
@@ -398,7 +382,7 @@ events:
         Candidate multilib: x32;@mx32
         Selected multilib: .;@m64
         Found CUDA installation: /usr/lib/cuda, version 12.0
-         "/usr/bin/ld" -z relro --hash-style=gnu --eh-frame-hdr -m elf_x86_64 -pie -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_a2d10 /lib/x86_64-linux-gnu/Scrt1.o /lib/x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/local/bin/../lib/x86_64-unknown-linux-gnu -L/usr/local/lib/clang/21/lib/x86_64-unknown-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64 -L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib64 -L/lib -L/usr/lib -L/usr/local/lib -L/usr/local/lib -L. -v CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /lib/x86_64-linux-gnu/crtn.o
+         "/usr/bin/ld" -z relro --hash-style=gnu --eh-frame-hdr -m elf_x86_64 -pie -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_1d42d /lib/x86_64-linux-gnu/Scrt1.o /lib/x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/local/bin/../lib/x86_64-unknown-linux-gnu -L/usr/local/lib/clang/21/lib/x86_64-unknown-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64 -L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib64 -L/lib -L/usr/lib -v CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /lib/x86_64-linux-gnu/crtn.o
         GNU ld (GNU Binutils for Ubuntu) 2.42
         
       exitCode: 0
@@ -412,24 +396,22 @@ events:
       Parsed CXX implicit include dir info: rv=done
         found start of include info
         found start of implicit include info
-          add: [/usr/local/include]
-          add: [.]
           add: [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13]
           add: [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13]
           add: [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward]
           add: [/usr/local/lib/clang/21/include]
+          add: [/usr/local/include]
           add: [/usr/include/x86_64-linux-gnu]
           add: [/usr/include]
         end of search list found
-        collapse include dir [/usr/local/include] ==> [/usr/local/include]
-        skipping relative include dir [.]
         collapse include dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13] ==> [/usr/include/c++/13]
         collapse include dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13] ==> [/usr/include/x86_64-linux-gnu/c++/13]
         collapse include dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward] ==> [/usr/include/c++/13/backward]
         collapse include dir [/usr/local/lib/clang/21/include] ==> [/usr/local/lib/clang/21/include]
+        collapse include dir [/usr/local/include] ==> [/usr/local/include]
         collapse include dir [/usr/include/x86_64-linux-gnu] ==> [/usr/include/x86_64-linux-gnu]
         collapse include dir [/usr/include] ==> [/usr/include]
-        implicit include dirs: [/usr/local/include;/usr/include/c++/13;/usr/include/x86_64-linux-gnu/c++/13;/usr/include/c++/13/backward;/usr/local/lib/clang/21/include;/usr/include/x86_64-linux-gnu;/usr/include]
+        implicit include dirs: [/usr/include/c++/13;/usr/include/x86_64-linux-gnu/c++/13;/usr/include/c++/13/backward;/usr/local/lib/clang/21/include;/usr/local/include;/usr/include/x86_64-linux-gnu;/usr/include]
       
       
   -
@@ -442,10 +424,10 @@ events:
       Parsed CXX implicit link information:
         link line regex: [^( *|.*[/\\])(ld[0-9]*(\\.[a-z]+)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
         linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(\\.[a-z]+)?))("|,| |$)]
-        ignore line: [Change Dir: '/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-KYAdy9']
+        ignore line: [Change Dir: '/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-v1uEgd']
         ignore line: []
-        ignore line: [Run Build Command(s): /usr/bin/ninja -v cmTC_a2d10]
-        ignore line: [[1/2] /usr/local/bin/clang++   -v -MD -MT CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o -MF CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o.d -o CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o -c /usr/local/share/cmake-3.31/Modules/CMakeCXXCompilerABI.cpp]
+        ignore line: [Run Build Command(s): /usr/bin/ninja -v cmTC_1d42d]
+        ignore line: [[1/2] /usr/local/bin/clang++   -v -MD -MT CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o -MF CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o.d -o CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o -c /usr/local/share/cmake-3.31/Modules/CMakeCXXCompilerABI.cpp]
         ignore line: [clang version 21.0.0git (https://github.com/lux-QAQ/ollvm-clang21.0.git c0a5dfef085970282ffc43be4d44b73aa34cf82e)]
         ignore line: [If you find this project helpful  please consider * starring * the following projects:]
         ignore line: [Ollvm21: https://github.com/lux-QAQ/llvm-project/tree/clang%2Bollvm-21.0.0]
@@ -467,30 +449,27 @@ events:
         ignore line: [@m64]
         ignore line: [Found CUDA installation: /usr/lib/cuda  version 12.0]
         ignore line: [ (in-process)]
-        ignore line: [ "/usr/local/bin/clang-21" -cc1 -triple x86_64-unknown-linux-gnu -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCXXCompilerABI.cpp -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=all -fmath-errno -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -target-cpu x86-64 -tune-cpu generic -debugger-tuning=gdb -fdebug-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-KYAdy9 -v -fcoverage-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-KYAdy9 -resource-dir /usr/local/lib/clang/21 -dependency-file CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o.d -MT CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o -sys-header-deps -c-isystem /usr/include/ -c-isystem /usr/include/ -c-isystem . -cxx-isystem /usr/local/include -cxx-isystem /usr/local/include -cxx-isystem . -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13 -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13 -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward -internal-isystem /usr/local/lib/clang/21/include -internal-isystem /usr/local/include -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -fdeprecated-macro -ferror-limit 19 -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -fcxx-exceptions -fexceptions -faddrsig -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o -x c++ /usr/local/share/cmake-3.31/Modules/CMakeCXXCompilerABI.cpp]
+        ignore line: [ "/usr/local/bin/clang-21" -cc1 -triple x86_64-unknown-linux-gnu -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCXXCompilerABI.cpp -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=all -fmath-errno -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -target-cpu x86-64 -tune-cpu generic -debugger-tuning=gdb -fdebug-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-v1uEgd -v -fcoverage-compilation-dir=/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-v1uEgd -resource-dir /usr/local/lib/clang/21 -dependency-file CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o.d -MT CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o -sys-header-deps -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13 -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13 -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward -internal-isystem /usr/local/lib/clang/21/include -internal-isystem /usr/local/include -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -fdeprecated-macro -ferror-limit 19 -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -fcxx-exceptions -fexceptions -faddrsig -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o -x c++ /usr/local/share/cmake-3.31/Modules/CMakeCXXCompilerABI.cpp]
         ignore line: [clang -cc1 version 21.0.0git based upon LLVM 21.0.0git default target x86_64-unknown-linux-gnu]
         ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"]
         ignore line: [ignoring nonexistent directory "/include"]
-        ignore line: [ignoring duplicate directory "/usr/local/include"]
-        ignore line: [ignoring duplicate directory "/usr/local/include"]
         ignore line: [#include "..." search starts here:]
         ignore line: [#include <...> search starts here:]
-        ignore line: [ /usr/local/include]
-        ignore line: [ .]
         ignore line: [ /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13]
         ignore line: [ /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13]
         ignore line: [ /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward]
         ignore line: [ /usr/local/lib/clang/21/include]
+        ignore line: [ /usr/local/include]
         ignore line: [ /usr/include/x86_64-linux-gnu]
         ignore line: [ /usr/include]
         ignore line: [End of search list.]
-        ignore line: [std::mt19937_64 seeded with current timestamp: 1744788345600]
+        ignore line: [std::mt19937_64 seeded with current timestamp: 1744815125056]
         ignore line: [Initializing Hikari Core with Revision ID:c0a5dfef085970282ffc43be4d44b73aa34cf82e]
         ignore line: [Running Hikari On /usr/local/share/cmake-3.31/Modules/CMakeCXXCompilerABI.cpp]
         ignore line: [Doing Post-Run Cleanup]
         ignore line: [Hikari Out]
-        ignore line: [Spend Time: 0.0000281s]
-        ignore line: [[2/2] : && /usr/local/bin/clang++  -v -Wl -v CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o -o cmTC_a2d10   && :]
+        ignore line: [Spend Time: 0.0000274s]
+        ignore line: [[2/2] : && /usr/local/bin/clang++  -v -Wl -v CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o -o cmTC_1d42d   && :]
         ignore line: [clang version 21.0.0git (https://github.com/lux-QAQ/ollvm-clang21.0.git c0a5dfef085970282ffc43be4d44b73aa34cf82e)]
         ignore line: [If you find this project helpful  please consider * starring * the following projects:]
         ignore line: [Ollvm21: https://github.com/lux-QAQ/llvm-project/tree/clang%2Bollvm-21.0.0]
@@ -511,7 +490,7 @@ events:
         ignore line: [Selected multilib: .]
         ignore line: [@m64]
         ignore line: [Found CUDA installation: /usr/lib/cuda  version 12.0]
-        link line: [ "/usr/bin/ld" -z relro --hash-style=gnu --eh-frame-hdr -m elf_x86_64 -pie -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_a2d10 /lib/x86_64-linux-gnu/Scrt1.o /lib/x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/local/bin/../lib/x86_64-unknown-linux-gnu -L/usr/local/lib/clang/21/lib/x86_64-unknown-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64 -L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib64 -L/lib -L/usr/lib -L/usr/local/lib -L/usr/local/lib -L. -v CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /lib/x86_64-linux-gnu/crtn.o]
+        link line: [ "/usr/bin/ld" -z relro --hash-style=gnu --eh-frame-hdr -m elf_x86_64 -pie -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_1d42d /lib/x86_64-linux-gnu/Scrt1.o /lib/x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/local/bin/../lib/x86_64-unknown-linux-gnu -L/usr/local/lib/clang/21/lib/x86_64-unknown-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64 -L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib64 -L/lib -L/usr/lib -v CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /lib/x86_64-linux-gnu/crtn.o]
           arg [/usr/bin/ld] ==> ignore
           arg [-zrelro] ==> ignore
           arg [--hash-style=gnu] ==> ignore
@@ -522,7 +501,7 @@ events:
           arg [-dynamic-linker] ==> ignore
           arg [/lib64/ld-linux-x86-64.so.2] ==> ignore
           arg [-o] ==> ignore
-          arg [cmTC_a2d10] ==> ignore
+          arg [cmTC_1d42d] ==> ignore
           arg [/lib/x86_64-linux-gnu/Scrt1.o] ==> obj [/lib/x86_64-linux-gnu/Scrt1.o]
           arg [/lib/x86_64-linux-gnu/crti.o] ==> obj [/lib/x86_64-linux-gnu/crti.o]
           arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o]
@@ -536,11 +515,8 @@ events:
           arg [-L/usr/lib/../lib64] ==> dir [/usr/lib/../lib64]
           arg [-L/lib] ==> dir [/lib]
           arg [-L/usr/lib] ==> dir [/usr/lib]
-          arg [-L/usr/local/lib] ==> dir [/usr/local/lib]
-          arg [-L/usr/local/lib] ==> dir [/usr/local/lib]
-          arg [-L.] ==> ignore
           arg [-v] ==> ignore
-          arg [CMakeFiles/cmTC_a2d10.dir/CMakeCXXCompilerABI.cpp.o] ==> ignore
+          arg [CMakeFiles/cmTC_1d42d.dir/CMakeCXXCompilerABI.cpp.o] ==> ignore
           arg [-lstdc++] ==> lib [stdc++]
           arg [-lm] ==> lib [m]
           arg [-lgcc_s] ==> lib [gcc_s]
@@ -561,11 +537,9 @@ events:
         collapse library dir [/usr/lib/../lib64] ==> [/usr/lib64]
         collapse library dir [/lib] ==> [/lib]
         collapse library dir [/usr/lib] ==> [/usr/lib]
-        collapse library dir [/usr/local/lib] ==> [/usr/local/lib]
-        collapse library dir [/usr/local/lib] ==> [/usr/local/lib]
         implicit libs: [stdc++;m;gcc_s;gcc;c;gcc_s;gcc]
         implicit objs: [/lib/x86_64-linux-gnu/Scrt1.o;/lib/x86_64-linux-gnu/crti.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o;/lib/x86_64-linux-gnu/crtn.o]
-        implicit dirs: [/usr/local/lib/x86_64-unknown-linux-gnu;/usr/local/lib/clang/21/lib/x86_64-unknown-linux-gnu;/usr/lib/gcc/x86_64-linux-gnu/13;/usr/lib64;/lib/x86_64-linux-gnu;/lib64;/usr/lib/x86_64-linux-gnu;/lib;/usr/lib;/usr/local/lib]
+        implicit dirs: [/usr/local/lib/x86_64-unknown-linux-gnu;/usr/local/lib/clang/21/lib/x86_64-unknown-linux-gnu;/usr/lib/gcc/x86_64-linux-gnu/13;/usr/lib64;/lib/x86_64-linux-gnu;/lib64;/usr/lib/x86_64-linux-gnu;/lib;/usr/lib]
         implicit fwks: []
       
       
@@ -579,76 +553,4 @@ events:
     message: |
       Running the CXX compiler's linker: "/usr/bin/ld" "-v"
       GNU ld (GNU Binutils for Ubuntu) 2.42
-  -
-    kind: "try_compile-v1"
-    backtrace:
-      - "/usr/local/share/cmake-3.31/Modules/Internal/CheckSourceCompiles.cmake:108 (try_compile)"
-      - "/usr/local/share/cmake-3.31/Modules/CheckCSourceCompiles.cmake:58 (cmake_check_source_compiles)"
-      - "/usr/lib/llvm-18/lib/cmake/llvm/FindFFI.cmake:59 (check_c_source_compiles)"
-      - "/usr/lib/llvm-18/lib/cmake/llvm/LLVMConfig.cmake:279 (find_package)"
-      - "CMakeLists.txt:38 (find_package)"
-    checks:
-      - "Performing Test HAVE_FFI_CALL"
-    directories:
-      source: "/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-MlosDY"
-      binary: "/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-MlosDY"
-    cmakeVariables:
-      CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: "/usr/local/bin/clang-scan-deps"
-      CMAKE_C_FLAGS: ""
-      CMAKE_C_FLAGS_DEBUG: "-g"
-      CMAKE_EXE_LINKER_FLAGS: ""
-      CMAKE_MODULE_PATH: "/usr/lib/llvm-18/lib/cmake/llvm"
-    buildResult:
-      variable: "HAVE_FFI_CALL"
-      cached: true
-      stdout: |
-        Change Dir: '/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-MlosDY'
-        
-        Run Build Command(s): /usr/bin/ninja -v cmTC_82f98
-        [1/2] /usr/local/bin/clang -DHAVE_FFI_CALL   -MD -MT CMakeFiles/cmTC_82f98.dir/src.c.o -MF CMakeFiles/cmTC_82f98.dir/src.c.o.d -o CMakeFiles/cmTC_82f98.dir/src.c.o -c /home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-MlosDY/src.c
-        std::mt19937_64 seeded with current timestamp: 1744788352796
-        Initializing Hikari Core with Revision ID:c0a5dfef085970282ffc43be4d44b73aa34cf82e
-        Running Hikari On /home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-MlosDY/src.c
-        Doing Post-Run Cleanup
-        Hikari Out
-        Spend Time: 0.0000215s
-        [2/2] : && /usr/local/bin/clang   CMakeFiles/cmTC_82f98.dir/src.c.o -o cmTC_82f98  /usr/lib/x86_64-linux-gnu/libffi.so && :
-        
-      exitCode: 0
-  -
-    kind: "try_compile-v1"
-    backtrace:
-      - "/usr/local/share/cmake-3.31/Modules/Internal/CheckSourceCompiles.cmake:108 (try_compile)"
-      - "/usr/local/share/cmake-3.31/Modules/CheckCSourceCompiles.cmake:58 (cmake_check_source_compiles)"
-      - "/usr/lib/llvm-18/lib/cmake/llvm/FindTerminfo.cmake:32 (check_c_source_compiles)"
-      - "/usr/lib/llvm-18/lib/cmake/llvm/LLVMConfig.cmake:291 (find_package)"
-      - "CMakeLists.txt:38 (find_package)"
-    checks:
-      - "Performing Test Terminfo_LINKABLE"
-    directories:
-      source: "/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-MlvUcn"
-      binary: "/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-MlvUcn"
-    cmakeVariables:
-      CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: "/usr/local/bin/clang-scan-deps"
-      CMAKE_C_FLAGS: ""
-      CMAKE_C_FLAGS_DEBUG: "-g"
-      CMAKE_EXE_LINKER_FLAGS: ""
-      CMAKE_MODULE_PATH: "/usr/lib/llvm-18/lib/cmake/llvm"
-    buildResult:
-      variable: "Terminfo_LINKABLE"
-      cached: true
-      stdout: |
-        Change Dir: '/home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-MlvUcn'
-        
-        Run Build Command(s): /usr/bin/ninja -v cmTC_7da0c
-        [1/2] /usr/local/bin/clang -DTerminfo_LINKABLE   -MD -MT CMakeFiles/cmTC_7da0c.dir/src.c.o -MF CMakeFiles/cmTC_7da0c.dir/src.c.o.d -o CMakeFiles/cmTC_7da0c.dir/src.c.o -c /home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-MlvUcn/src.c
-        std::mt19937_64 seeded with current timestamp: 1744788354272
-        Initializing Hikari Core with Revision ID:c0a5dfef085970282ffc43be4d44b73aa34cf82e
-        Running Hikari On /home/ljs/code/llvmpy/build/CMakeFiles/CMakeScratch/TryCompile-MlvUcn/src.c
-        Doing Post-Run Cleanup
-        Hikari Out
-        Spend Time: 0.0000222s
-        [2/2] : && /usr/local/bin/clang   CMakeFiles/cmTC_7da0c.dir/src.c.o -o cmTC_7da0c  /usr/lib/x86_64-linux-gnu/libtinfo.so && :
-        
-      exitCode: 0
 ...

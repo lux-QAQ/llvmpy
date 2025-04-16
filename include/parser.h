@@ -2,7 +2,7 @@
 #define PARSER_H
 
 #include "lexer.h"
-#include "ast.h"
+//#include "ast.h"
 #include "TypeIDs.h"
 #include "ObjectType.h"
 #include "TypeOperations.h"

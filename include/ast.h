@@ -142,8 +142,7 @@ private:
     std::unordered_map<KeyType, CreatorFunc> creators;
 };
 
-// 前向声明 AST 节点工厂
-class ASTFactory;
+
 
 /**
  * @brief 所有 AST 节点的基类。
@@ -165,7 +164,7 @@ public:
      * 这是访问者模式的核心，用于触发特定节点的代码生成逻辑。
      * @param codegen 代码生成器的引用。
      */
-    virtual void accept(PyCodeGen& codegen) = 0;
+    //virtual void accept(PyCodeGen& codegen) = 0;
 
     /** @brief 可选的源代码行号，用于错误报告。*/
     std::optional<int> line;
@@ -238,7 +237,7 @@ public:
      * @brief 接受代码生成器访问。
      * @param codegen 代码生成器引用。
      */
-    virtual void accept(PyCodeGen& codegen) override = 0;
+    //virtual void accept(PyCodeGen& codegen) override = 0;
     /**
      * @brief 获取表达式计算结果的静态类型。
      * @return std::shared_ptr<PyType> 表示表达式类型的 PyType 对象。
@@ -281,7 +280,7 @@ public:
      * @brief 接受代码生成器访问。
      * @param codegen 代码生成器引用。
      */
-    virtual void accept(PyCodeGen& codegen) override = 0;
+    //virtual void accept(PyCodeGen& codegen) override = 0;
 
     /**
      * @brief 在语句执行后执行清理操作（例如，管理作用域或资源）。
@@ -399,6 +398,21 @@ public:
     virtual void endScope(PyCodeGen& codegen);
 };
 
+// 将定义添加到这里：
+template <typename Derived, ASTKind K>
+void StmtASTBase<Derived, K>::beginScope(PyCodeGen& codegen)
+{
+    // 默认实现：什么都不做
+    // (void)codegen; // 可选：避免未使用参数警告
+}
+
+template <typename Derived, ASTKind K>
+void StmtASTBase<Derived, K>::endScope(PyCodeGen& codegen)
+{
+    // 默认实现：什么都不做
+    // (void)codegen; // 可选：避免未使用参数警告
+}
+
 // ======================== 具体表达式类 ========================
 
 /**
@@ -425,11 +439,7 @@ public:
     }
     /** @brief 获取表达式类型（int 或 double）。*/
     std::shared_ptr<PyType> getType() const override;
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
 };
 
 /**
@@ -452,11 +462,7 @@ public:
     }
     /** @brief 获取表达式类型 (string)。*/
     std::shared_ptr<PyType> getType() const override;
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
 };
 
 /**
@@ -479,11 +485,7 @@ public:
     }
     /** @brief 获取表达式类型 (bool)。*/
     std::shared_ptr<PyType> getType() const override;
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
 };
 
 /**
@@ -499,11 +501,7 @@ public:
 
     /** @brief 获取表达式类型 (None)。*/
     std::shared_ptr<PyType> getType() const override;
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
 };
 
 /**
@@ -533,16 +531,14 @@ public:
     }
     /** @brief 获取变量类型（会查询符号表）。*/
     std::shared_ptr<PyType> getType() const override;
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
+
     /** @brief 变量引用是左值。*/
     bool isLValue() const override
     {
         return true;
     }
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
+
 };
 
 /**
@@ -579,11 +575,7 @@ public:
     }
     /** @brief 获取表达式结果类型。*/
     std::shared_ptr<PyType> getType() const override;
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
 };
 
 /**
@@ -617,11 +609,7 @@ public:
     }
     /** @brief 获取表达式结果类型。*/
     std::shared_ptr<PyType> getType() const override;
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
 };
 
 /**
@@ -653,8 +641,7 @@ public:
     }
     /** @brief 获取函数返回类型。*/
     std::shared_ptr<PyType> getType() const override;
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
+
     /** @brief 设置推断出的返回类型（由类型检查器调用）。*/
     void setType(const std::shared_ptr<PyType>& type)
     {
@@ -666,8 +653,7 @@ public:
         return true;
     }
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
+
 };
 
 /**
@@ -694,8 +680,7 @@ public:
     }
     /** @brief 获取列表类型。*/
     std::shared_ptr<PyType> getType() const override;
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
+
     /** @brief 设置推断出的列表类型（由类型检查器调用）。*/
     void setType(std::shared_ptr<PyType> type)
     {
@@ -707,8 +692,7 @@ public:
         return false;
     }
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
+
 };
 
 /**
@@ -738,8 +722,7 @@ public:
     }
     /** @brief 获取字典类型。*/
     std::shared_ptr<PyType> getType() const override;
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
+
     /** @brief 新创建的字典对象本身不需要复制。*/
     bool needsCopy() const override
     {
@@ -751,8 +734,7 @@ public:
         cachedType = type;
     }
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
+
 };
 
 /**
@@ -789,16 +771,14 @@ public:
     }
     /** @brief 获取索引访问结果的类型。*/
     std::shared_ptr<PyType> getType() const override;
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
+
     /** @brief 索引访问可以作为左值 (例如 my_list[i] = value)。*/
     bool isLValue() const override
     {
         return true;
     }
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
+
 };
 
 // ======================== 具体语句类 ========================
@@ -822,11 +802,7 @@ public:
     {
         return expr.get();
     }
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
 };
 
 /**
@@ -918,11 +894,7 @@ public:
         return valueExpr.get();
     }
 
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
 };
 
 /**
@@ -944,13 +916,11 @@ public:
     {
         return value.get();
     }
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
+
     /** @brief return 语句可能需要特殊的清理逻辑（例如，确保返回值被正确处理）。*/
     //void cleanup(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
+
 };
 
 /**
@@ -986,15 +956,13 @@ public:
     {
         return elseBody;
     }
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
+
     /** @brief if 语句块开始时可能需要创建新作用域。*/
     void beginScope(PyCodeGen& codegen) override;
     /** @brief if 语句块结束时需要销毁作用域。*/
     void endScope(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
+
 };
 
 /**
@@ -1024,15 +992,13 @@ public:
     {
         return body;
     }
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
+
     /** @brief while 循环体开始时需要创建新作用域。*/
     void beginScope(PyCodeGen& codegen) override;
     /** @brief while 循环体结束时需要销毁作用域。*/
     void endScope(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
+
 };
 
 /**
@@ -1055,11 +1021,9 @@ public:
     {
         return value.get();
     }
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
+
+
 };
 
 /**
@@ -1092,11 +1056,7 @@ public:
     {
         return value.get();
     }
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
 };
 
 /**
@@ -1110,11 +1070,7 @@ public:
     PassStmtAST()
     {
     }
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /** @brief 向 ASTFactory 注册自身。*/
-    static void registerWithFactory();
 };
 
 /**
@@ -1144,13 +1100,7 @@ public:
     {
         return alias;
     }
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
-    /**
-      * @brief 向 ASTFactory 注册自身。
-      * @note 多文件编译时，import 语句的处理至关重要，需要链接或动态加载机制。
-      */
-    static void registerWithFactory();
+
 };
 
 // ======================== 函数和模块 ========================
@@ -1275,8 +1225,7 @@ public:
      */
     void resolveParamTypes();
 
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
+
 
     /**
      * @brief 设置函数所属的类上下文。
@@ -1302,11 +1251,7 @@ public:
         return !classContext.empty();
     }
 
-    /**
-     * @brief 向 ASTFactory 注册自身。
-     * @note 未来需支持：默认参数, *args, **kwargs, 装饰器, 异步函数。
-     */
-    static void registerWithFactory();
+
 };
 
 /**
@@ -1353,20 +1298,7 @@ public:
     {
         return methods;
     }
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /**
-      * @brief 向 ASTFactory 注册自身。
-      * @note 类定义是支持完整 Python 的关键。未来需处理：
-      *       - 继承和方法解析顺序 (MRO)。
-      *       - 类属性和实例属性。
-      *       - 特殊方法 (__init__, __str__, etc.)。
-      *       - 装饰器。
-      *       - 元类。
-      *       - 多文件项目中类的查找和链接。
-      */
-    static void registerWithFactory();
 };
 
 /**
@@ -1423,137 +1355,12 @@ public:
         return statements;
     }
 
-    /** @brief 接受代码生成器访问。*/
-    void accept(PyCodeGen& codegen) override;
 
-    /**
-      * @brief 向 ASTFactory 注册自身。
-      * @note 这是代码生成的入口点。多文件编译需要处理模块间的符号导入导出。
-      */
-    static void registerWithFactory();
 };
 
 // ======================== AST工厂和注册器 ========================
 
-/**
- * @brief AST 节点工厂类，使用单例模式。
- * 负责创建各种 AST 节点对象。
- * @note 未来可能需要支持多线程或多进程的 AST 创建。但是那可能是后话了，现在连基础的功能都没弄好。
- */
-class ASTFactory
-{
-public:
-    /** @brief 获取工厂的单例实例。*/
-    static ASTFactory& getInstance();
 
-    /**
-      * @brief 通用模板工厂方法，直接构造节点。
-      * @tparam NodeType 要创建的节点类型。
-      * @tparam Args 构造函数参数类型。
-      * @param args 构造函数参数。
-      * @return std::unique_ptr<NodeType> 创建的节点指针。
-      */
-    template <typename NodeType, typename... Args>
-    std::unique_ptr<NodeType> create(Args&&... args)
-    {
-        return std::make_unique<NodeType>(std::forward<Args>(args)...);
-    }
-
-    /**
-      * @brief 根据 ASTKind 创建节点（使用注册的创建器）。
-      * @param kind 要创建的节点类型枚举值。
-      * @return std::unique_ptr<ASTNode> 创建的节点指针，如果未注册则为 nullptr。
-      */
-    std::unique_ptr<ASTNode> createNode(ASTKind kind);
-
-    /**
-      * @brief 注册一个节点的默认构造函数创建器。
-      * @tparam NodeType 要注册的节点类型。
-      * @param kind 节点类型枚举值。
-      */
-    template <typename NodeType>
-    void registerNodeCreator(ASTKind kind)
-    {
-        nodeRegistry[kind] = []()
-        { return std::make_unique<NodeType>(); };
-    }
-
-    /**
-      * @brief 注册一个节点的自定义创建器函数。
-      * @tparam NodeType 要注册的节点类型。
-      * @param kind 节点类型枚举值。
-      * @param creator 一个返回 `std::unique_ptr<NodeType>` 的函数对象。
-      */
-    template <typename NodeType>
-    void registerNodeCreator(ASTKind kind, std::function<std::unique_ptr<NodeType>()> creator)
-    {
-        // 包装 creator 以匹配 nodeRegistry 的签名
-        nodeRegistry[kind] = [creator]() -> std::unique_ptr<ASTNode>
-        {
-            return creator();
-        };
-    }
-
-    /**
-      * @brief 类型判断助手：检查节点是否为指定类型。
-      * @tparam T 目标 AST 节点类型。
-      * @param node 要检查的节点指针。
-      * @return bool 如果节点是 T 类型则返回 true。
-      */
-    template <typename T>
-    static bool is(const ASTNode* node)
-    {
-        // 假设 T 有一个静态成员 NodeKind 或类似的标识符
-        // return node && node->kind() == T::NodeKind;
-        // 或者使用 dynamic_cast (如果启用了 RTTI 且有虚函数)
-        return dynamic_cast<const T*>(node) != nullptr;
-    }
-
-    /**
-      * @brief 类型转换助手：将节点指针安全转换为目标类型指针。
-      * @tparam T 目标 AST 节点类型。
-      * @param node 要转换的节点指针。
-      * @return T* 如果转换成功则返回目标类型指针，否则返回 nullptr。
-      */
-    template <typename T>
-    static T* as(ASTNode* node)
-    {
-        // return is<T>(node) ? static_cast<T*>(node) : nullptr;
-        return dynamic_cast<T*>(node);
-    }
-
-    /**
-      * @brief 类型转换助手（常量版本）。
-      */
-    template <typename T>
-    static const T* as(const ASTNode* node)
-    {
-        // return is<T>(node) ? static_cast<const T*>(node) : nullptr;
-        return dynamic_cast<const T*>(node);
-    }
-
-    /**
-      * @brief 注册所有已知的 AST 节点类型及其创建器。
-      * 通常在工厂初始化时调用。
-      */
-    void registerAllNodes();
-
-private:
-    /** @brief 私有构造函数，在内部调用 registerAllNodes。*/
-    ASTFactory()
-    {
-        registerAllNodes();
-    }
-    /** @brief 默认析构函数。*/
-    ~ASTFactory() = default;
-
-    // 禁止拷贝和赋值，确保单例
-    ASTFactory(const ASTFactory&) = delete;
-    ASTFactory& operator=(const ASTFactory&) = delete;
-
-    /** @brief 存储节点类型和对应创建函数的映射。*/
-    std::unordered_map<ASTKind, std::function<std::unique_ptr<ASTNode>()>> nodeRegistry;
-};
 
 // ======================== 类型系统接口 ========================
 

@@ -2,7 +2,7 @@
 #define CODEGEN_EXPR_H
 
 #include "CodeGen/CodeGenBase.h"
-#include "ast.h"
+//#include "ast.h"
 #include "ObjectType.h"
 #include "TypeOperations.h"
 #include <unordered_map>

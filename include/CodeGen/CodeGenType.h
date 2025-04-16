@@ -2,7 +2,7 @@
 #define CODEGEN_TYPE_H
 
 #include "CodeGen/CodeGenBase.h"
-#include "ast.h"
+//#include "ast.h"
 #include "ObjectType.h"
 #include "TypeOperations.h"
 #include "TypeIDs.h"

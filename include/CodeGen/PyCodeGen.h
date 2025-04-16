@@ -7,7 +7,7 @@
 #include "CodeGen/CodeGenModule.h"
 #include "CodeGen/CodeGenType.h"
 #include "CodeGen/CodeGenRuntime.h"
-#include "ast.h"
+//#include "ast.h"
 #include <llvm/IR/Value.h>
 
 namespace llvmpy
@@ -50,7 +50,7 @@ public:
 
     llvm::Value* prepareAssignmentTarget(llvm::Value* value, ObjectType* targetType,const ExprAST* expr);
     // 生成AST节点代码
-    llvm::Value* codegen(ASTNode* node);
+    //llvm::Value* codegen(ASTNode* node);
 
     // 表达式处理
     llvm::Value* codegenExpr(const ExprAST* expr);
@@ -82,14 +82,14 @@ public:
     ObjectType* getCurrentReturnType();
 
     // 表达式结果方法
-    llvm::Value* getLastExprValue();
+    /* llvm::Value* getLastExprValue(); */
     std::shared_ptr<PyType> getLastExprType();
 
     // 错误处理
     llvm::Value* logError(const std::string& message, int line = 0, int column = 0);
 
     // 兼容旧版接口 - 这些将转发到相应的组件
-    llvm::Value* handleNode(ASTNode* node);
+    //llvm::Value* handleNode(ASTNode* node);
     llvm::Value* handleExpr(const ExprAST* expr);
     void handleStmt(StmtAST* stmt);
     llvm::Value* handleBinOp(char op, llvm::Value* L, llvm::Value* R,

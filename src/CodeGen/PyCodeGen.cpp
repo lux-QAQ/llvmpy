@@ -5,7 +5,7 @@
 #include "CodeGen/CodeGenModule.h"
 #include "CodeGen/CodeGenType.h"
 #include "CodeGen/CodeGenRuntime.h"
-#include "CodeGen/CodeGenVisitor.h"
+
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
 #include "TypeIDs.h"
@@ -55,7 +55,7 @@ PyCodeGen::~PyCodeGen()
 // 代码生成方法
 //===----------------------------------------------------------------------===//
 
-llvm::Value* PyCodeGen::codegen(ASTNode* node)
+/* llvm::Value* PyCodeGen::codegen(ASTNode* node)
 {
     if (!node)
     {
@@ -68,7 +68,7 @@ llvm::Value* PyCodeGen::codegen(ASTNode* node)
 
     // 返回最后生成的表达式值
     return getLastExprValue();
-}
+} */
 
 llvm::Value* PyCodeGen::codegenExpr(const ExprAST* expr)
 {
@@ -266,10 +266,10 @@ llvm::Value* PyCodeGen::prepareAssignmentTarget(llvm::Value* value, ObjectType* 
 
     return value;
 }
-llvm::Value* PyCodeGen::getLastExprValue()
+/* llvm::Value* PyCodeGen::getLastExprValue()
 {
     return CodeGenBase::getLastExprValue();
-}
+} */
 
 std::shared_ptr<PyType> PyCodeGen::getLastExprType()
 {
@@ -289,10 +289,7 @@ llvm::Value* PyCodeGen::logError(const std::string& message, int line, int colum
 // 兼容旧版接口
 //===----------------------------------------------------------------------===//
 
-llvm::Value* PyCodeGen::handleNode(ASTNode* node)
-{
-    return codegen(node);
-}
+
 
 // 修改后:
 llvm::Value* PyCodeGen::handleExpr(const ExprAST* expr)
