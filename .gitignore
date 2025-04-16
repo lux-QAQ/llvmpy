@@ -1,0 +1,9 @@
+*.history
+*.log
+*.tmp
+*.swp
+
+back/
+log/
+.history/
+.vscode/
