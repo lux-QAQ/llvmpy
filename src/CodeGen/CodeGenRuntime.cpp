@@ -194,10 +194,10 @@ llvm::Value* CodeGenRuntime::copyObject(llvm::Value* obj, std::shared_ptr<PyType
 // 在 CodeGenRuntime 类中添加方法声明
 llvm::Value* CodeGenRuntime::createList(llvm::Value* size, ObjectType* elemType)
 {
-    if (runtime)
+/*     if (runtime)
     {
         return runtime->createList(size, elemType);
-    }
+    } 不在需要委托*/
 
     // 如果没有runtime，使用内置实现
     llvm::Function* createListFunc = getRuntimeFunction(
@@ -218,10 +218,10 @@ llvm::Value* CodeGenRuntime::createList(llvm::Value* size, ObjectType* elemType)
 
 llvm::Value* CodeGenRuntime::getListElement(llvm::Value* list, llvm::Value* index)
 {
-    if (runtime)
+    /* if (runtime)
     {
         return runtime->getListElement(list, index);
-    }
+    } */
 
     // 如果没有runtime，使用内置实现
     llvm::Function* getItemFunc = getRuntimeFunction(
@@ -235,11 +235,11 @@ llvm::Value* CodeGenRuntime::getListElement(llvm::Value* list, llvm::Value* inde
 
 void CodeGenRuntime::setListElement(llvm::Value* list, llvm::Value* index, llvm::Value* value)
 {
-    if (runtime)
+   /*  if (runtime)
     {
         runtime->setListElement(list, index, value);
         return;
-    }
+    } */
 
     // 如果没有runtime，使用内置实现
     llvm::Function* setItemFunc = getRuntimeFunction(
@@ -254,11 +254,11 @@ void CodeGenRuntime::setListElement(llvm::Value* list, llvm::Value* index, llvm:
 
 llvm::Value* CodeGenRuntime::createDict(ObjectType* keyType, ObjectType* valueType)
 {
-    if (runtime)
+  /*   if (runtime)
     {
         // 如果存在外部 ObjectRuntime，则委托给它
         return runtime->createDict(keyType, valueType);
-    }
+    } */
 
     // --- Fallback: Call C runtime function directly ---
     // 1. 获取 C 运行时函数 py_create_dict 的声明
@@ -292,10 +292,10 @@ llvm::Value* CodeGenRuntime::createDict(ObjectType* keyType, ObjectType* valueTy
 
 llvm::Value* CodeGenRuntime::getDictItem(llvm::Value* dict, llvm::Value* key)
 {
-    if (runtime)
+   /*  if (runtime)
     {
         return runtime->getDictItem(dict, key);
-    }
+    } */
     llvm::Function* getFunc = getRuntimeFunction(
             "py_dict_get_item",
             llvm::PointerType::get(codeGen.getContext(), 0),
@@ -305,11 +305,11 @@ llvm::Value* CodeGenRuntime::getDictItem(llvm::Value* dict, llvm::Value* key)
 
 void CodeGenRuntime::setDictItem(llvm::Value* dict, llvm::Value* key, llvm::Value* value)
 {
-    if (runtime)
+   /*  if (runtime)
     {
         runtime->setDictItem(dict, key, value);
         return;
-    }
+    } */
     llvm::Function* setFunc = getRuntimeFunction(
             "py_dict_set_item",
             llvm::Type::getVoidTy(codeGen.getContext()),  // 假设 set 不返回值

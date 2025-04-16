@@ -346,82 +346,8 @@ public:
     }
 
     // 注册所有内置特性检查
-    static void registerBuiltinFeatureChecks()
-    {
-        // 容器检查
-        // 容器检查 - 增强对PY_TYPE_LIST的支持
-        // 容器检查
-        registerFeatureCheck("container", [](const ObjectType* type) -> bool
-                             {
-        if (!type) return false;
-        
-        int typeId = type->getTypeId();
-        return type->hasFeature("container") || 
-               dynamic_cast<const ListType*>(type) || 
-               dynamic_cast<const DictType*>(type) ||
-               typeId == PY_TYPE_LIST || 
-               typeId == PY_TYPE_DICT ||
-               (typeId >= PY_TYPE_LIST_BASE && typeId < PY_TYPE_DICT_BASE) ||
-               (typeId >= PY_TYPE_DICT_BASE && typeId < PY_TYPE_FUNC_BASE); });
-
-        // 在 registerBuiltinFeatureChecks 方法中添加
-        // 可索引类型检查
-        registerFeatureCheck("indexable", [](const ObjectType* type) -> bool
-                             {
-    if (!type) return false;
+    static void registerBuiltinFeatureChecks();
     
-    int typeId = type->getTypeId();
-    return type->hasFeature("indexable") ||
-           dynamic_cast<const ListType*>(type) ||
-           typeId == PY_TYPE_STRING ||
-           typeId == PY_TYPE_LIST ||
-           typeId == PY_TYPE_DICT ||
-           (typeId >= PY_TYPE_LIST_BASE && typeId < PY_TYPE_DICT_BASE) ||
-           (typeId >= PY_TYPE_DICT_BASE && typeId < PY_TYPE_FUNC_BASE); });
-
-        // 引用类型检查
-        // 引用类型检查
-        registerFeatureCheck("reference", [](const ObjectType* type) -> bool
-                             {
-        if (!type) return false;
-        
-        int typeId = type->getTypeId();
-        return type->hasFeature("reference") ||
-               type->getCategory() == ObjectType::Reference ||
-               typeId == PY_TYPE_STRING ||
-               typeId == PY_TYPE_LIST ||
-               typeId == PY_TYPE_DICT ||
-               (typeId >= PY_TYPE_LIST_BASE && typeId < PY_TYPE_FUNC_BASE) ||
-               (typeId >= PY_TYPE_PTR); });
-
-        // 序列类型检查
-        // 序列类型检查 - 增强对PY_TYPE_LIST的支持
-        // 序列类型检查 - 增强对LIST相关类型的支持
-        registerFeatureCheck("sequence", [](const ObjectType* type) -> bool
-                             {
-            if (!type) return false;
-            
-            int typeId = type->getTypeId();
-            return type->hasFeature("sequence") ||
-                   dynamic_cast<const ListType*>(type) ||
-                   typeId == PY_TYPE_STRING ||
-                   typeId == PY_TYPE_LIST ||
-                   (typeId >= PY_TYPE_LIST_BASE && typeId < PY_TYPE_DICT_BASE); });
-
-        // 映射类型检查
-        registerFeatureCheck("mapping", [](const ObjectType* type)
-                             { return dynamic_cast<const DictType*>(type); });
-
-        // 数值类型检查
-        registerFeatureCheck("numeric", [](const ObjectType* type)
-                             {
-                const std::string& name = type->getName();
-                return type->getTypeId() == PY_TYPE_INT || type->getTypeId() == PY_TYPE_DOUBLE; });
-
-        // 可变类型检查
-        registerFeatureCheck("mutable", [](const ObjectType* type)
-                             { return dynamic_cast<const ListType*>(type) || dynamic_cast<const DictType*>(type); });
-    }
 
 private:
     // 特性检查函数注册表 - 使用静态局部变量确保线程安全初始化

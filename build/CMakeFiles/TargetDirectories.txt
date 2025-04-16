@@ -1,0 +1,11 @@
+/home/ljs/code/llvmpy/build/CMakeFiles/intrinsics_gen.dir
+/home/ljs/code/llvmpy/build/CMakeFiles/vt_gen.dir
+/home/ljs/code/llvmpy/build/CMakeFiles/omp_gen.dir
+/home/ljs/code/llvmpy/build/CMakeFiles/acc_gen.dir
+/home/ljs/code/llvmpy/build/CMakeFiles/ARMTargetParserTableGen.dir
+/home/ljs/code/llvmpy/build/CMakeFiles/AArch64TargetParserTableGen.dir
+/home/ljs/code/llvmpy/build/CMakeFiles/RISCVTargetParserTableGen.dir
+/home/ljs/code/llvmpy/build/CMakeFiles/llvmpy.dir
+/home/ljs/code/llvmpy/build/CMakeFiles/llvmpy_runtime.dir
+/home/ljs/code/llvmpy/build/CMakeFiles/edit_cache.dir
+/home/ljs/code/llvmpy/build/CMakeFiles/rebuild_cache.dir

@@ -3,7 +3,7 @@
 #include "CodeGen/CodeGenType.h"
 #include "CodeGen/CodeGenRuntime.h"
 
-#include "ObjectRuntime.h"
+//#include "ObjectRuntime.h"
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
 #include "ast.h"
@@ -672,10 +672,10 @@ llvm::Value* CodeGenExpr::handleIndexOperation(llvm::Value* target, llvm::Value*
 // 代理对象创建方法
 llvm::Value* CodeGenRuntime::createIntObject(llvm::Value* value)
 {
-    if (runtime)
+  /*   if (runtime)
     {
         return runtime->createIntObject(value);
-    }
+    } */
 
     // 如果没有runtime，使用内置实现
     llvm::Function* createFunc = getRuntimeFunction(
@@ -688,10 +688,10 @@ llvm::Value* CodeGenRuntime::createIntObject(llvm::Value* value)
 
 llvm::Value* CodeGenRuntime::createDoubleObject(llvm::Value* value)
 {
-    if (runtime)
+   /*  if (runtime)
     {
         return runtime->createDoubleObject(value);
-    }
+    } */
 
     llvm::Function* createFunc = getRuntimeFunction(
             "py_create_double",
@@ -703,10 +703,10 @@ llvm::Value* CodeGenRuntime::createDoubleObject(llvm::Value* value)
 
 llvm::Value* CodeGenRuntime::createBoolObject(llvm::Value* value)
 {
-    if (runtime)
+   /*  if (runtime)
     {
         return runtime->createBoolObject(value);
-    }
+    } */
 
     llvm::Function* createFunc = getRuntimeFunction(
             "py_create_bool",
@@ -718,10 +718,10 @@ llvm::Value* CodeGenRuntime::createBoolObject(llvm::Value* value)
 
 llvm::Value* CodeGenRuntime::createStringObject(llvm::Value* value)
 {
-    if (runtime)
+   /*  if (runtime)
     {
         return runtime->createStringObject(value);
-    }
+    } */
 
     llvm::Function* createFunc = getRuntimeFunction(
             "py_create_string",

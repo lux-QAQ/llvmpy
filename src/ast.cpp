@@ -4,7 +4,7 @@
 #include "TypeIDs.h"
 #include "TypeOperations.h"  // Include for TypeInferencer
 #include "ObjectLifecycle.h" // Include for ObjectLifecycleManager
-#include "ObjectRuntime.h"   // Include for ObjectRuntime
+//#include "ObjectRuntime.h"   // Include for ObjectRuntime
 
 
 
@@ -379,32 +379,7 @@ void ASTFactory::registerAllNodes()
     ModuleAST::registerWithFactory();
 }
 
-//========== 内存管理助手实现 ==========
 
-void MemoryManager::trackObject(PyCodeGen& codegen, llvm::Value* obj)
-{
-    if (!obj) return;
-
-    // 使用ObjectRuntime来跟踪对象
-    auto& runtime = codegen.getRuntime();
-    runtime.trackObject(obj);
-}
-
-void MemoryManager::releaseTrackedObjects(PyCodeGen& codegen)
-{
-    // 使用ObjectRuntime来释放所有跟踪的对象
-    auto& runtime = codegen.getRuntime();
-    runtime.setupCleanupForFunction();
-}
-
-llvm::Value* MemoryManager::prepareReturnValue(PyCodeGen& codegen, llvm::Value* value, PyType* type)
-{
-    if (!value || !type) return value;
-
-    // 使用ObjectRuntime来准备返回值
-    auto& runtime = codegen.getRuntime();
-    return runtime.prepareReturnValue(value, type->getObjectType());
-}
 
 //========== 表达式节点方法实现 ==========
 
@@ -1000,11 +975,7 @@ void ReturnStmtAST::accept(PyCodeGen& codegen)
     visitor.visit(this);
 }
 
-void ReturnStmtAST::cleanup(PyCodeGen& codegen)
-{
-    // 在返回前调用内存管理器释放临时对象
-    MemoryManager::releaseTrackedObjects(codegen);
-}
+
 
 // if语句
 void IfStmtAST::registerWithFactory()

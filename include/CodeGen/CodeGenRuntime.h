@@ -1,9 +1,10 @@
 #ifndef CODEGEN_RUNTIME_H
 #define CODEGEN_RUNTIME_H
 
+#include "ObjectLifecycle.h"
 #include "CodeGen/CodeGenBase.h"
 
-#include "ObjectRuntime.h"
+
 #include <llvm/IR/Value.h>
 #include <memory>
 #include <string>

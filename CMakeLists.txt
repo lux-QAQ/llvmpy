@@ -1,11 +1,16 @@
 cmake_minimum_required(VERSION 3.10.0)
 project(llvmpy VERSION 0.1.0 LANGUAGES C CXX)
 
+cmake_policy(SET CMP0074 NEW)
+
+
+
+
 # 设置 RPATH 策略
 set(CMAKE_SKIP_BUILD_RPATH FALSE)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib:/usr/lib/x86_64-linux-gnu")
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)  # 改为FALSE防止自动添加其他路径
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE) # 改为FALSE防止自动添加其他路径
 
 # 明确设置查找库的路径优先级
 list(REMOVE_ITEM CMAKE_SYSTEM_PREFIX_PATH "/home/ljs/miniconda3")
@@ -15,10 +20,17 @@ list(INSERT CMAKE_SYSTEM_LIBRARY_PATH 0 "/usr/lib/x86_64-linux-gnu")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
 # 查找依赖库，明确指定系统库路径
-set(ZLIB_ROOT "/usr")  # 优先查找系统zlib
+set(ZLIB_ROOT "/usr") # 优先查找系统zlib
 set(CMAKE_PREFIX_PATH "/usr" ${CMAKE_PREFIX_PATH})
 find_package(ZLIB REQUIRED)
 find_package(zstd QUIET)
+
+# 显式设置 LLVM_DIR 路径 (将 /path/to/your/llvm/lib/cmake/llvm 替换为你的实际路径)
+
+
+# 显式设置 LLVM_DIR 路径
+set(LLVM_DIR "/home/ljs/llvmall/lib/cmake/llvm")
+
 # 查找LLVM包
 find_package(LLVM REQUIRED CONFIG)
 
@@ -34,17 +46,17 @@ add_definitions(${LLVM_DEFINITIONS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # 添加CodeGen源文件
-file(GLOB CODEGEN_SOURCES 
+file(GLOB CODEGEN_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/CodeGen/*.cpp"
 )
 
 # 添加RunTime源文件
-file(GLOB RUNTIME_SOURCES 
+file(GLOB RUNTIME_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/RunTime/*.cpp"
 )
 
 # 添加源文件
-add_executable(llvmpy 
+add_executable(llvmpy
     main.cpp
     #src/runtime.cpp
     src/lexer.cpp
@@ -65,7 +77,7 @@ add_library(llvmpy_runtime STATIC
 )
 
 # 链接LLVM库
-llvm_map_components_to_libnames(llvm_libs support core irreader analysis instcombine 
+llvm_map_components_to_libnames(llvm_libs support core irreader analysis instcombine
     scalaropts passes ipo transformutils)
 target_link_libraries(llvmpy ${llvm_libs} ZLIB::ZLIB llvmpy_runtime)
 
