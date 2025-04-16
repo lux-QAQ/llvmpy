@@ -3,25 +3,21 @@
 
 // 定义DEBUG宏来启用调试模式
 
+//#define DEBUG
 
-#define DEBUG
+//#define DEBUG_WhileSTmt
+#ifdef DEBUG
 
 // 定义RECOVER_SOURCE_FROM_TOKENS宏来启用从Token恢复源代码
 #define RECOVER_SOURCE_FROM_TOKENS
 
-//#define DEBUG_WhileSTmt
-#ifdef DEBUG
 #define DEBUG_PARSER_Expr
 #define DEBUG_PARSER_Stmt
 #define DEBUG_PARSER_NextToken_detailed
 #define DEBUG_PARSER_NextToken
 
-
-
-
 #define DEBUG_LOG(msg) \
     std::cerr << "DEBUG: " << msg << std::endl;
-
 
 #define DEBUG_RUNTIME_py_object_set_index
 // 定义DEBUG_PRINT宏来启用调试打印
@@ -29,7 +25,5 @@
 #define DEBUG_PRINT(x) std::cerr << "DEBUG: " << x << std::endl
 #else
 
-
-
-#endif // DEBUG
-#endif // DEBUGDEFINE_H
+#endif  // DEBUG
+#endif  // DEBUGDEFINE_H
