@@ -63,7 +63,7 @@ add_executable(llvmpy
     src/parser.cpp
     src/ast.cpp
     src/ObjectType.cpp
-    src/ObjectRuntime.cpp
+    #src/ObjectRuntime.cpp
     src/TypeOperations.cpp
     src/ObjectLifecycle.cpp
     ${CODEGEN_SOURCES}
