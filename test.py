@@ -17,9 +17,16 @@ def main():
     print(fib(20, d, current_len,arr))
     current_len = 21 # 更新 #current_len
     print("测试下'!'")
-    boolvar= 1
-    boolvar= -boolvar
-    print(boolvar)
     print("测试下'!!'")
-    print(arr[current_len-1])
+    c=2
+    if c < 0:
+        print("c小于-1")
+    elif c > 0.6:
+        print("c大于-1")
+    elif c < 1:
+        print("c小于1")
+    elif c > 1:
+        print("c大于1")
+    else:
+        print("c等于1")
     return 0

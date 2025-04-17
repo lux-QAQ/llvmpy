@@ -21,7 +21,7 @@
 namespace llvmpy
 {
 
-#ifdef DEBUG_WhileSTmt
+#if defined(DEBUG_WhileSTmt) || defined(DEBUG_IfStmt)  // Define helpers if either debug flag is on
 // 辅助函数，用于将 LLVM 对象转换为字符串以便打印
 std::string llvmObjToString(const llvm::Value* V)
 {
@@ -278,53 +278,270 @@ void CodeGenStmt::handleReturnStmt(ReturnStmtAST* stmt)
     }
 }
 
+// 递归辅助函数，处理 if/elif/else 逻辑，并将所有路径导向 finalMergeBB
+// 递归辅助函数，处理 if/elif/else 逻辑，并将所有路径导向 finalMergeBB
+// 递归辅助函数，处理 if/elif/else 逻辑，并将所有路径导向 finalMergeBB
+void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* finalMergeBB)
+{
+#ifdef DEBUG_IfStmt
+    // Keep static for recursive calls, reset externally if needed (though not necessary here)
+    static int indentLevel = 0;
+    std::string indent(indentLevel * 2, ' ');
+    DEBUG_LOG(indent + "-> Entering handleIfStmtRecursive");
+    DEBUG_LOG(indent + "   Target finalMergeBB: " + llvmObjToString(finalMergeBB));
+    indentLevel++;
+#endif
+
+    auto& builder = codeGen.getBuilder();
+    llvm::Function* func = codeGen.getCurrentFunction(); // 获取当前函数
+
+    // 1. 处理当前 if/elif 的条件
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG(indent + "   [1] Handling condition...");
+#endif
+    llvm::Value* condValue = handleCondition(stmt->getCondition());
+    if (!condValue)
+    {
+#ifdef DEBUG_IfStmt
+        DEBUG_LOG(indent + "   [1] Condition generation FAILED. Returning.");
+        indentLevel--; // Decrement on early exit
+        DEBUG_LOG(indent + "<- Leaving handleIfStmtRecursive (condition failed)");
+#endif
+        return; // 条件生成失败
+    }
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG(indent + "   [1] Condition Value: " + llvmObjToString(condValue));
+#endif
+
+    // 2. 创建当前层级的 then 块和 else 入口块
+    llvm::BasicBlock* thenBB = codeGen.createBasicBlock("then", func);
+    // This block is the entry point for whatever comes after the condition is false.
+    // It might lead to an elif check, a final else block, or directly to the merge block.
+    llvm::BasicBlock* elseEntryBB = codeGen.createBasicBlock("else", func);
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG(indent + "   [2] Created blocks: thenBB=" + llvmObjToString(thenBB) + ", elseEntryBB=" + llvmObjToString(elseEntryBB));
+#endif
+
+    // 3. 创建条件跳转
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG(indent + "   [3] Creating CondBr from " + llvmObjToString(builder.GetInsertBlock()) + " on " + llvmObjToString(condValue) + " ? " + llvmObjToString(thenBB) + " : " + llvmObjToString(elseEntryBB));
+#endif
+    generateBranchingCode(condValue, thenBB, elseEntryBB);
+
+    // 4. 处理 then 分支
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG(indent + "   [4] Handling 'then' branch (Block: " + llvmObjToString(thenBB) + ")");
+#endif
+    builder.SetInsertPoint(thenBB);
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG(indent + "       Set insert point to: " + llvmObjToString(thenBB));
+    DEBUG_LOG(indent + "       Calling handleBlock for thenBody (vector)...");
+#endif
+    // 'thenBody' is still a vector in the new IfStmtAST
+    handleBlock(stmt->getThenBody());
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG(indent + "       Returned from handleBlock for thenBody. Current block: " + llvmObjToString(builder.GetInsertBlock()));
+#endif
+    // 如果 then 分支没有终止，跳转到 *最终* 的合并块
+    if (!builder.GetInsertBlock()->getTerminator())
+    {
+#ifdef DEBUG_IfStmt
+        DEBUG_LOG(indent + "       'then' block (" + llvmObjToString(builder.GetInsertBlock()) + ") did not terminate. Creating Br to finalMergeBB (" + llvmObjToString(finalMergeBB) + ")");
+#endif
+        builder.CreateBr(finalMergeBB);
+    }
+#ifdef DEBUG_IfStmt
+    else
+    {
+        DEBUG_LOG(indent + "       'then' block (" + llvmObjToString(builder.GetInsertBlock()) + ") already terminated.");
+    }
+#endif
+
+    // 5. 处理 else 分支 (可能是下一个 elif 或最终的 else)
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG(indent + "   [5] Handling 'else'/'elif' part (Entry Block: " + llvmObjToString(elseEntryBB) + ")");
+#endif
+    builder.SetInsertPoint(elseEntryBB); // Start generating code for the else part here
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG(indent + "       Set insert point to: " + llvmObjToString(elseEntryBB));
+#endif
+
+    // --- FIX: Use getElseStmt() ---
+    StmtAST* elseStmt = stmt->getElseStmt();
+
+    if (elseStmt) // 检查是否有 else 或 elif 部分
+    {
+#ifdef DEBUG_IfStmt
+        DEBUG_LOG(indent + "       Else statement exists (not null). Kind: " + std::to_string(static_cast<int>(elseStmt->kind())));
+#endif
+        // 检查第一个语句是否是 IfStmtAST (代表 elif)
+        if (auto* nextIf = dynamic_cast<IfStmtAST*>(elseStmt))
+        {
+#ifdef DEBUG_IfStmt
+            DEBUG_LOG(indent + "       Else statement is IfStmtAST (elif). Making recursive call...");
+#endif
+            // 是 elif 结构：递归调用，传递 *相同* 的 finalMergeBB
+            // The recursive call starts from the current block (elseEntryBB)
+            handleIfStmtRecursive(nextIf, finalMergeBB);
+            // 递归调用会处理后续的跳转，这里不需要额外操作
+#ifdef DEBUG_IfStmt
+            DEBUG_LOG(indent + "       Returned from recursive call for elif.");
+            indentLevel--; // Decrement before returning from this path
+            DEBUG_LOG(indent + "<- Leaving handleIfStmtRecursive (elif handled)");
+#endif
+            return; // 从当前递归层返回, crucial!
+        }
+        else
+        {
+            // 不是 elif，意味着这是最终的 else 块
+            // It could be a BlockStmtAST or a single StmtAST
+#ifdef DEBUG_IfStmt
+            DEBUG_LOG(indent + "       Else statement is NOT IfStmtAST. Treating as final 'else' block.");
+#endif
+            // Check if it's a BlockStmtAST
+            if (auto* elseBlock = dynamic_cast<BlockStmtAST*>(elseStmt))
+            {
+#ifdef DEBUG_IfStmt
+                DEBUG_LOG(indent + "           Else statement is BlockStmtAST. Calling handleBlock...");
+#endif
+                handleBlock(elseBlock->getStatements()); // 处理 BlockStmt 的语句列表
+#ifdef DEBUG_IfStmt
+                DEBUG_LOG(indent + "           Returned from handleBlock for else block. Current block: " + llvmObjToString(builder.GetInsertBlock()));
+#endif
+            }
+            else
+            {
+                // It's a single statement else block.
+                // We should still handle it within a scope for consistency,
+                // although handleStmt itself might not manage scopes.
+                // Calling handleStmt directly is simpler here.
+#ifdef DEBUG_IfStmt
+                DEBUG_LOG(indent + "           Else statement is a single statement. Calling handleStmt...");
+#endif
+                handleStmt(elseStmt); // 处理单个 else 语句
+#ifdef DEBUG_IfStmt
+                DEBUG_LOG(indent + "           Returned from handleStmt for else statement. Current block: " + llvmObjToString(builder.GetInsertBlock()));
+#endif
+            }
+
+            // 如果 else 分支没有终止，跳转到 *最终* 的合并块
+            if (!builder.GetInsertBlock()->getTerminator())
+            {
+#ifdef DEBUG_IfStmt
+                DEBUG_LOG(indent + "       Final 'else' block (" + llvmObjToString(builder.GetInsertBlock()) + ") did not terminate. Creating Br to finalMergeBB (" + llvmObjToString(finalMergeBB) + ")");
+#endif
+                builder.CreateBr(finalMergeBB);
+            }
+#ifdef DEBUG_IfStmt
+            else
+            {
+                DEBUG_LOG(indent + "       Final 'else' block (" + llvmObjToString(builder.GetInsertBlock()) + ") already terminated.");
+            }
+#endif
+        }
+        // --- End of handling non-elif else ---
+    }
+    else
+    {
+        // 没有 else/elif 部分 (elseStmt is null)
+#ifdef DEBUG_IfStmt
+        DEBUG_LOG(indent + "       Else statement is null (no else/elif). Creating direct Br from elseEntryBB (" + llvmObjToString(elseEntryBB) + ") to finalMergeBB (" + llvmObjToString(finalMergeBB) + ")");
+#endif
+        builder.CreateBr(finalMergeBB); // else 分支直接跳到最终合并块
+    }
+
+#ifdef DEBUG_IfStmt
+    indentLevel--; // Decrement on normal exit from this level
+    DEBUG_LOG(indent + "<- Leaving handleIfStmtRecursive (normal exit)");
+#endif
+}
+// 公共入口函数
+// 公共入口函数
 void CodeGenStmt::handleIfStmt(IfStmtAST* stmt)
 {
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG("-> Entering handleIfStmt (Public Entry)");
+#endif
     auto& builder = codeGen.getBuilder();
-
-    // 获取条件的布尔值
-    llvm::Value* condValue = handleCondition(stmt->getCondition());
-    if (!condValue) return;
-
-    // 创建必要的基本块
     llvm::Function* func = codeGen.getCurrentFunction();
-    llvm::BasicBlock* thenBB = codeGen.createBasicBlock("then", func);
-    llvm::BasicBlock* elseBB = codeGen.createBasicBlock("else", func);
-    llvm::BasicBlock* mergeBB = codeGen.createBasicBlock("ifcont", func);
-
-    // 创建条件分支
-    generateBranchingCode(condValue, thenBB, elseBB);
-
-    // 处理then分支
-    builder.SetInsertPoint(thenBB);
-    handleBlock(stmt->getThenBody());
-
-    // 如果then分支没有终止（例如，没有return语句），添加跳转到merge块
-    if (!builder.GetInsertBlock()->getTerminator())
+    if (!func)
     {
-        builder.CreateBr(mergeBB);
+        codeGen.logError("Cannot generate if statement outside a function.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
+#ifdef DEBUG_IfStmt
+        DEBUG_LOG("   ERROR: Not inside a function. Aborting.");
+        DEBUG_LOG("<- Leaving handleIfStmt (error)");
+#endif
+        return;
     }
 
-    // 处理else分支
-    builder.SetInsertPoint(elseBB);
-    handleBlock(stmt->getElseBody());
+    // 1. 创建整个 if-elif-else 链条最终的合并块
+    llvm::BasicBlock* finalMergeBB = codeGen.createBasicBlock("ifcont", func);
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG("   [1] Created finalMergeBB: " + llvmObjToString(finalMergeBB));
+#endif
 
-    // 如果else分支没有终止，添加跳转到merge块
-    if (!builder.GetInsertBlock()->getTerminator())
+    // 记录调用前的插入块，用于后续判断
+    llvm::BasicBlock* originalInsertBB = builder.GetInsertBlock();
+    bool originalBlockTerminated = originalInsertBB && originalInsertBB->getTerminator();
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG("   [Pre] Original Insert BB: " + llvmObjToString(originalInsertBB) + ", Terminated: " + (originalBlockTerminated ? "Yes" : "No"));
+#endif
+
+    // 2. 开始递归处理
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG("   [2] Calling handleIfStmtRecursive...");
+#endif
+    handleIfStmtRecursive(stmt, finalMergeBB);
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG("   [2] Returned from handleIfStmtRecursive. Current block: " + llvmObjToString(builder.GetInsertBlock()));
+#endif
+
+    // 3. 将插入点设置到最终的合并块，继续生成后续代码
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG("   [3] Checking reachability of finalMergeBB (" + llvmObjToString(finalMergeBB) + ")");
+#endif
+    bool hasUses = !finalMergeBB->use_empty();
+    bool hasPreds = llvm::pred_begin(finalMergeBB) != llvm::pred_end(finalMergeBB);
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG("       Has Uses: " + std::string(hasUses ? "Yes" : "No"));
+    DEBUG_LOG("       Has Predecessors: " + std::string(hasPreds ? "Yes" : "No"));
+#endif
+    if (hasUses || hasPreds)
     {
-        builder.CreateBr(mergeBB);
+        // 如果 finalMergeBB 有前驱块或用途，说明它是可达的
+#ifdef DEBUG_IfStmt
+        DEBUG_LOG("       finalMergeBB is reachable. Setting insert point.");
+#endif
+        builder.SetInsertPoint(finalMergeBB);
+    }
+    else if (!originalBlockTerminated)
+    {
+        // 如果 finalMergeBB 没有前驱/用途，但原始块也没有终止
+#ifdef DEBUG_IfStmt
+        DEBUG_LOG("       finalMergeBB is unreachable, but original block was not terminated. Erasing finalMergeBB.");
+        DEBUG_LOG("       WARNING: Builder insert point might be invalid now.");
+#endif
+        finalMergeBB->eraseFromParent();
+        // 注意：此时 builder 的插入点可能处于无效状态
+    }
+    else
+    {
+        // 如果 finalMergeBB 没有前驱/用途，并且原始块已经终止
+#ifdef DEBUG_IfStmt
+        DEBUG_LOG("       finalMergeBB is unreachable, and original block was terminated. Erasing finalMergeBB as dead code.");
+#endif
+        finalMergeBB->eraseFromParent();
     }
 
-    // 继续处理merge块之后的代码
-    builder.SetInsertPoint(mergeBB);
+#ifdef DEBUG_IfStmt
+    DEBUG_LOG("<- Leaving handleIfStmt (Public Entry). Final insert point: " + llvmObjToString(builder.GetInsertBlock()));
+#endif
 }
-
-
 
 // 辅助函数：递归查找在给定语句列表（或单个语句）中被赋值的变量名
 void CodeGenStmt::findAssignedVariablesInStmt(StmtAST* stmt, std::set<std::string>& assignedVars)
 {
-    if (!stmt) return;
+    if (!stmt) return; // Base case: null statement
 
     if (auto* assignStmt = dynamic_cast<AssignStmtAST*>(stmt))
     {
@@ -332,32 +549,53 @@ void CodeGenStmt::findAssignedVariablesInStmt(StmtAST* stmt, std::set<std::strin
     }
     else if (auto* indexAssignStmt = dynamic_cast<IndexAssignStmtAST*>(stmt))
     {
-        // 如果需要处理类似 a[i] = ... 的情况，可能需要更复杂的分析
-        // 这里暂时只考虑简单变量赋值
+        // If a[i] = ... should mark 'a' as assigned, more complex analysis is needed.
+        // For now, assume it doesn't assign to a simple variable name directly
+        // relevant for PHI nodes. If needed, extract the base variable name from
+        // indexAssignStmt->getTarget() if it's a VariableExprAST.
+        // Example (if needed later):
+        // if (auto* targetVar = dynamic_cast<VariableExprAST*>(indexAssignStmt->getTarget())) {
+        //     assignedVars.insert(targetVar->getName());
+        // }
     }
     else if (auto* ifStmt = dynamic_cast<IfStmtAST*>(stmt))
     {
+        // Recurse into the 'then' body (which is a vector)
         for (const auto& s : ifStmt->getThenBody())
         {
             findAssignedVariablesInStmt(s.get(), assignedVars);
         }
-        for (const auto& s : ifStmt->getElseBody())
-        {
-            findAssignedVariablesInStmt(s.get(), assignedVars);
-        }
+        // Recurse into the 'else' statement (which is a single StmtAST*)
+        // The recursive call handles if it's null, another IfStmt, a BlockStmt, etc.
+        findAssignedVariablesInStmt(ifStmt->getElseStmt(), assignedVars); // <--- FIX: Use getElseStmt()
     }
     else if (auto* whileStmt = dynamic_cast<WhileStmtAST*>(stmt))
     {
-        // 注意：这里简化了处理，没有处理嵌套循环对外部变量的影响
+        // Recurse into the loop body (which is a vector)
         for (const auto& s : whileStmt->getBody())
         {
             findAssignedVariablesInStmt(s.get(), assignedVars);
         }
     }
-    // 可以为其他包含语句块的 AST 节点添加处理逻辑
+    // --- ADDED: Handle BlockStmtAST explicitly ---
+    else if (auto* blockStmt = dynamic_cast<BlockStmtAST*>(stmt))
+    {
+        for (const auto& s : blockStmt->getStatements())
+        {
+            findAssignedVariablesInStmt(s.get(), assignedVars);
+        }
+    }
+    // Add cases for other compound statements (ForStmt, FunctionDef, ClassDef?)
+    // if they can contain assignments relevant to outer scopes (unlikely for Func/Class defs).
+    // For example, if you add ForStmtAST:
+    // else if (auto* forStmt = dynamic_cast<ForStmtAST*>(stmt)) {
+    //     // Handle assignment to loop variable if necessary
+    //     // assignedVars.insert(forStmt->getLoopVariable());
+    //     for (const auto& s : forStmt->getBody()) {
+    //         findAssignedVariablesInStmt(s.get(), assignedVars);
+    //     }
+    // }
 }
-
-
 
 // 修改现有方法
 
@@ -402,7 +640,7 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
     for (const auto& bodyStmt : stmt->getBody())
     {
         // visitor.findAssignedVariables(bodyStmt.get(), assignedInBody); // <- 修改这行
-        findAssignedVariablesInStmt(bodyStmt.get(), assignedInBody); // <- 改为调用静态函数
+        findAssignedVariablesInStmt(bodyStmt.get(), assignedInBody);  // <- 改为调用静态函数
     }
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("  [2] Variables assigned in body:");
@@ -773,7 +1011,7 @@ void CodeGenStmt::handleAssignStmt(AssignStmtAST* stmt)
 {
     auto& builder = codeGen.getBuilder();
     auto* exprGen = codeGen.getExprGen();
-    auto* typeGen = codeGen.getTypeGen(); // 假设存在
+    auto* typeGen = codeGen.getTypeGen();  // 假设存在
     auto* runtime = codeGen.getRuntimeGen();
     auto& symTable = codeGen.getSymbolTable();
 
@@ -954,49 +1192,50 @@ void CodeGenStmt::handleIndexAssignStmt(IndexAssignStmtAST* stmt)
 }
  */
 
+void CodeGenStmt::handleIndexAssignStmt(IndexAssignStmtAST* stmt)
+{
+    auto* exprGen = codeGen.getExprGen();
+    auto* runtime = codeGen.getRuntimeGen();
+    auto& builder = codeGen.getBuilder();  // 获取 Builder
+    auto& context = codeGen.getContext();  // 获取 LLVMContext
 
+    // 1. 获取目标对象、索引和值的 LLVM Value (PyObject*)
+    llvm::Value* target = exprGen->handleExpr(stmt->getTarget());
+    if (!target) return;  // 错误已记录
 
- void CodeGenStmt::handleIndexAssignStmt(IndexAssignStmtAST* stmt)
- {
-     auto* exprGen = codeGen.getExprGen();
-     auto* runtime = codeGen.getRuntimeGen();
-     auto& builder = codeGen.getBuilder(); // 获取 Builder
-     auto& context = codeGen.getContext(); // 获取 LLVMContext
- 
-     // 1. 获取目标对象、索引和值的 LLVM Value (PyObject*)
-     llvm::Value* target = exprGen->handleExpr(stmt->getTarget());
-     if (!target) return; // 错误已记录
- 
-     llvm::Value* index = exprGen->handleExpr(stmt->getIndex());
-     if (!index) {
-         runtime->cleanupTemporaryObjects(); // 清理 target
-         return; // 错误已记录
-     }
- 
-     llvm::Value* value = exprGen->handleExpr(stmt->getValue());
-     if (!value) {
-         runtime->cleanupTemporaryObjects(); // 清理 target 和 index
-         return; // 错误已记录
-     }
- 
-     // 2. 获取通用的索引设置运行时函数 py_object_set_index
-     //    该函数负责在运行时检查 target 的类型并调用正确的具体函数
-     llvm::Function* setIndexFunc = codeGen.getOrCreateExternalFunction(
-             "py_object_set_index",                             // 函数名
-             llvm::Type::getVoidTy(context),                    // 返回类型: void
-             {                                                  // 参数类型:
-                     llvm::PointerType::get(context, 0),        // target (PyObject*)
-                     llvm::PointerType::get(context, 0),        // index (PyObject*)
-                     llvm::PointerType::get(context, 0)         // value (PyObject*)
-             });
- 
-     // 3. 调用通用索引设置函数
-     //    假设 target, index, value 已经是正确的 PyObject* 类型
-     builder.CreateCall(setIndexFunc, {target, index, value});
- 
-     // 4. 清理生成 target, index, value 时可能产生的临时对象
-     runtime->cleanupTemporaryObjects();
- }
+    llvm::Value* index = exprGen->handleExpr(stmt->getIndex());
+    if (!index)
+    {
+        runtime->cleanupTemporaryObjects();  // 清理 target
+        return;                              // 错误已记录
+    }
+
+    llvm::Value* value = exprGen->handleExpr(stmt->getValue());
+    if (!value)
+    {
+        runtime->cleanupTemporaryObjects();  // 清理 target 和 index
+        return;                              // 错误已记录
+    }
+
+    // 2. 获取通用的索引设置运行时函数 py_object_set_index
+    //    该函数负责在运行时检查 target 的类型并调用正确的具体函数
+    llvm::Function* setIndexFunc = codeGen.getOrCreateExternalFunction(
+            "py_object_set_index",           // 函数名
+            llvm::Type::getVoidTy(context),  // 返回类型: void
+            {
+                    // 参数类型:
+                    llvm::PointerType::get(context, 0),  // target (PyObject*)
+                    llvm::PointerType::get(context, 0),  // index (PyObject*)
+                    llvm::PointerType::get(context, 0)   // value (PyObject*)
+            });
+
+    // 3. 调用通用索引设置函数
+    //    假设 target, index, value 已经是正确的 PyObject* 类型
+    builder.CreateCall(setIndexFunc, {target, index, value});
+
+    // 4. 清理生成 target, index, value 时可能产生的临时对象
+    runtime->cleanupTemporaryObjects();
+}
 void CodeGenStmt::handlePassStmt(PassStmtAST* stmt)
 {
     // pass语句不生成任何代码

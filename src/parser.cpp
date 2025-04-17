@@ -917,51 +917,76 @@ std::unique_ptr<StmtAST> PyParser::parseReturnStmt()
 
 std::unique_ptr<StmtAST> PyParser::parseIfStmt()
 {
-    nextToken();  // 消费'if'
+    int startLine = currentToken.line;
+    int startCol = currentToken.column;
+    nextToken(); // 消费 'if'
 
-    // 解析条件表达式
+    // 1. 解析 'if' 条件
     auto condition = parseExpression();
     if (!condition)
         return nullptr;
 
-    // 检查冒号
+    // 2. 期望 ':' 和 NEWLINE
     if (!expectToken(TOK_COLON, "Expected ':' after if condition"))
         return nullptr;
-
-    // 跳过到行尾的所有token
-    while (currentToken.type != TOK_NEWLINE && currentToken.type != TOK_EOF)
-        nextToken();
-
-    // 检查换行
-    if (!expectToken(TOK_NEWLINE, "Expected newline after ':'"))
+    // Python 允许在 ':' 后直接换行，或有注释后再换行
+    while (currentToken.type != TOK_NEWLINE && currentToken.type != TOK_EOF) {
+         // 可以选择性地处理注释或简单地跳过
+         nextToken();
+    }
+    if (!expectToken(TOK_NEWLINE, "Expected newline after ':' in if statement"))
         return nullptr;
 
-    // 解析if语句体
+    // 3. 解析 'then' 代码块
     auto thenBody = parseBlock();
+    if (thenBody.empty()) { // Python 要求 if 后面必须有代码块 (至少一个 pass)
+        return logParseError<StmtAST>("Expected an indented block after 'if' statement");
+    }
+    // 注意：parseBlock 应该处理 INDENT 和 DEDENT
 
-    // 处理elif部分
-    std::vector<std::unique_ptr<StmtAST>> elseBody;
-    while (currentToken.type == TOK_ELIF)
+    // 4. 解析 'else' 部分 (可能是 elif 或 else)
+    std::unique_ptr<StmtAST> elseNode = nullptr; // 初始化 else 部分为 null
+
+    if (currentToken.type == TOK_ELIF)
     {
-        auto elifStmt = parseElifPart();
-        if (!elifStmt)
+        // 如果是 'elif'，递归地调用 parseIfStmt 来处理 elif 及后续链条
+        // 'elif' 本质上就是一个新的 'if' 语句，出现在上一个 'if' 的 else 位置
+        elseNode = parseIfStmt(); // 递归调用会处理 'elif' 关键字的消费
+        if (!elseNode) return nullptr; // 检查递归调用的结果
+    }
+    else if (currentToken.type == TOK_ELSE)
+    {
+        nextToken(); // 消费 'else'
+
+        // 期望 ':' 和 NEWLINE
+        if (!expectToken(TOK_COLON, "Expected ':' after 'else'"))
             return nullptr;
-        elseBody.push_back(std::move(elifStmt));
+        while (currentToken.type != TOK_NEWLINE && currentToken.type != TOK_EOF) {
+             nextToken();
+        }
+        if (!expectToken(TOK_NEWLINE, "Expected newline after ':' in else statement"))
+            return nullptr;
+
+        // 解析 'else' 代码块
+        auto elseBodyStmts = parseBlock();
+        if (elseBodyStmts.empty()) {
+             return logParseError<StmtAST>("Expected an indented block after 'else' statement");
+        }
+
+        // 将 else 块封装成 BlockStmtAST (或者根据你的 AST 设计调整)
+        // 如果 else 块只有一个语句，也可以直接用那个语句，但 BlockStmtAST 更通用
+        elseNode = std::make_unique<BlockStmtAST>(std::move(elseBodyStmts));
+        elseNode->setLocation(startLine, startCol); // 或者使用 else 关键字的位置
     }
 
-    // 处理else部分
-    if (currentToken.type == TOK_ELSE)
-    {
-        if (parseElsePart(elseBody) == nullptr)
-            return nullptr;
-    }
-
-    return makeStmt<IfStmtAST>(std::move(condition),
-                               std::move(thenBody),
-                               std::move(elseBody));
+    // 5. 创建并返回顶层 IfStmtAST
+    auto ifStmt = makeStmt<IfStmtAST>(std::move(condition), std::move(thenBody), std::move(elseNode));
+    // makeStmt 应该会设置初始 'if' 的位置，或者在这里手动设置
+    ifStmt->setLocation(startLine, startCol);
+    return ifStmt;
 }
 
-std::unique_ptr<StmtAST> PyParser::parseElifPart()
+/* std::unique_ptr<StmtAST> PyParser::parseElifPart()
 {
     nextToken();  // 消费'elif'
 
@@ -989,7 +1014,7 @@ std::unique_ptr<StmtAST> PyParser::parseElifPart()
     return makeStmt<IfStmtAST>(std::move(condition),
                                std::move(thenBody),
                                std::vector<std::unique_ptr<StmtAST>>());
-}
+} */
 
 std::unique_ptr<StmtAST> PyParser::parseElsePart(std::vector<std::unique_ptr<StmtAST>>& elseBody)
 {
@@ -1390,72 +1415,69 @@ std::unique_ptr<FunctionAST> PyParser::parseFunction()
 // 在parseBlock函数中添加作用域管理
 std::vector<std::unique_ptr<StmtAST>> PyParser::parseBlock()
 {
-    if (!expectToken(TOK_INDENT, "Expected indented block"))
+#ifdef DEBUG_PARSER_Block
+    std::cerr << "Debug [parseBlock]: Entering parseBlock. Expecting INDENT. Current token: "
+              << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "') at L"
+              << currentToken.line << " C" << currentToken.column << std::endl;
+#endif
+    if (!expectToken(TOK_INDENT, "Expected indented block")) {
+        // 如果没有 INDENT，返回空列表，让调用者处理错误（例如 if/else/while 后面必须有块）
         return {};
-
-    std::vector<std::unique_ptr<StmtAST>> statements;
-
-    // 创建一个局部变量表，记录在此块中声明的变量
-    std::unordered_map<std::string, std::shared_ptr<PyType>> localVars;
-
-    while (currentToken.type != TOK_DEDENT && currentToken.type != TOK_EOF)
-    {
-        if (currentToken.type == TOK_NEWLINE)
-        {
-            nextToken();
-            continue;
-        }
-
-        // 保存当前token信息，用于错误报告
-        PyToken failedToken = currentToken;
-        auto stmt = parseStatement();
-
-        if (!stmt)
-        {
-            std::cerr << "Error: parseStatement returned nullptr. Current token before skipping: '"
-                      << currentToken.value << "' type: " << lexer.getTokenName(currentToken.type) << std::endl;  // Log current token
-
-            // 记录更详细的错误信息...
-            std::cerr << "Error: Failed to parse statement starting near token '"
-                      << failedToken.value << "' (" << lexer.getTokenName(failedToken.type)
-                      << ") at line " << failedToken.line << ", col " << failedToken.column
-                      << ". Skipping token '" << currentToken.value << "'." << std::endl;
-
-            nextToken();  // Consume the problematic token
-
-            std::cerr << "Error: Current token after skipping: '"
-                      << currentToken.value << "' type: " << lexer.getTokenName(currentToken.type) << std::endl;  // Log token after skipping
-
-            continue;
-        }
-
-        // 如果是赋值语句，记录变量类型信息
-        if (auto assignStmt = dynamic_cast<AssignStmtAST*>(stmt.get()))
-        {
-            std::string varName = assignStmt->getName();
-            const ExprAST* valueExpr = assignStmt->getValue();
-
-            if (valueExpr)
-            {
-                // 确保类型信息存在
-                auto valueType = valueExpr->getType();
-                if (valueType)
-                {
-                    localVars[varName] = valueType;
-                }
-                else
-                {
-                    std::cerr << "Warning: Type information missing for variable '" << varName
-                              << "' assignment at line " << failedToken.line << std::endl;
-                }
-            }
-        }
-
-        statements.push_back(std::move(stmt));
     }
 
-    if (currentToken.type == TOK_DEDENT)
-        nextToken();  // 消费DEDENT
+    std::vector<std::unique_ptr<StmtAST>> statements;
+    // 循环解析语句，直到遇到 DEDENT 或 EOF
+    while (currentToken.type != TOK_DEDENT && currentToken.type != TOK_EOF)
+    {
+        // 跳过空行（纯粹的 NEWLINE token）
+        while (currentToken.type == TOK_NEWLINE) {
+#ifdef DEBUG_PARSER_Block
+            std::cerr << "Debug [parseBlock]: Skipping NEWLINE." << std::endl;
+#endif
+            nextToken();
+        }
+
+        // 如果跳过换行后遇到 DEDENT 或 EOF，则块结束
+        if (currentToken.type == TOK_DEDENT || currentToken.type == TOK_EOF) {
+            break;
+        }
+
+#ifdef DEBUG_PARSER_Block
+        std::cerr << "Debug [parseBlock]: Parsing statement inside block. Current token: "
+                  << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "') at L"
+                  << currentToken.line << " C" << currentToken.column << std::endl;
+#endif
+        auto stmt = parseStatement();
+        if (!stmt) {
+            // 如果语句解析失败，停止解析块并向上层报告错误（通过返回部分解析的列表）
+            // 或者可以考虑更健壮的错误恢复，但现在先停止
+#ifdef DEBUG_PARSER_Block
+            std::cerr << "Debug [parseBlock]: parseStatement returned nullptr. Aborting block parsing." << std::endl;
+#endif
+            // 可能需要消耗掉出错行的剩余 token 直到 NEWLINE 来尝试恢复？
+            // for now, just return what we have, error should have been thrown/logged
+             return statements; // 或者直接返回 {} 表示失败？取决于错误处理策略
+        }
+        statements.push_back(std::move(stmt));
+
+        // parseStatement 应该负责消费语句后的 NEWLINE (如果适用)
+        // 这里不需要额外处理 NEWLINE，除非 parseStatement 不能保证这一点
+    }
+
+    // 期望 DEDENT 来结束块
+    if (!expectToken(TOK_DEDENT, "Expected dedent (unindent) to end block")) {
+        // 如果没有 DEDENT，这是一个严重的缩进错误
+        // 错误已由 expectToken 记录，但我们可能仍需返回已解析的语句
+        // 或者根据策略清空列表表示块解析失败
+#ifdef DEBUG_PARSER_Block
+        std::cerr << "Debug [parseBlock]: Failed to find DEDENT. Returning potentially incomplete block." << std::endl;
+#endif
+    }
+#ifdef DEBUG_PARSER_Block
+    else {
+        std::cerr << "Debug [parseBlock]: Exiting parseBlock successfully. Found DEDENT. Parsed " << statements.size() << " statements." << std::endl;
+    }
+#endif
 
     return statements;
 }
