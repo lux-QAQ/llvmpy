@@ -15,7 +15,7 @@ def main():
     print(fib(10, d, current_len,arr))
     current_len = 11 # 更新 current_len
     print(fib(20, d, current_len,arr))
-    current_len = 21 # 更新 current_len
+    current_len = 21 # 更新 #current_len
     print("测试下'!'")
     boolvar= 1
     boolvar= -boolvar
