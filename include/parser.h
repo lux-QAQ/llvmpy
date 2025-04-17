@@ -338,7 +338,7 @@ private:
     std::unique_ptr<StmtAST> parseExpressionStmt();
     std::unique_ptr<StmtAST> parseReturnStmt();
     std::unique_ptr<StmtAST> parseIfStmt();
-    std::unique_ptr<StmtAST> parseElifPart();
+    //std::unique_ptr<StmtAST> parseElifPart();
     std::unique_ptr<StmtAST> parseElsePart(std::vector<std::unique_ptr<StmtAST>>& elseBody);
     std::unique_ptr<StmtAST> parsePrintStmt();
     std::unique_ptr<StmtAST> parseAssignStmt();

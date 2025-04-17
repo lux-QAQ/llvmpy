@@ -749,7 +749,7 @@ std::shared_ptr<PyType> IndexExprAST::getType() const
 
 
 
-void IfStmtAST::beginScope(PyCodeGen& codegen)
+/* void IfStmtAST::beginScope(PyCodeGen& codegen)
 {
     codegen.pushScope();
 }
@@ -757,7 +757,7 @@ void IfStmtAST::beginScope(PyCodeGen& codegen)
 void IfStmtAST::endScope(PyCodeGen& codegen)
 {
     codegen.popScope();
-}
+} */
 
 
 

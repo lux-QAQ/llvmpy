@@ -52,6 +52,7 @@ enum class ASTKind
     PassStmt,         ///< pass 语句节点
     ImportStmt,       ///< import 语句节点
     ClassStmt,        ///< class 定义语句节点
+    BlockStmt,        ///< 代码块语句节点
     BinaryExpr,       ///< 二元操作表达式节点
     UnaryExpr,        ///< 一元操作表达式节点
     NumberExpr,       ///< 数字字面量表达式节点
@@ -926,43 +927,79 @@ public:
 /**
  * @brief if 语句节点 (包括 elif 和 else)。
  */
-class IfStmtAST : public StmtASTBase<IfStmtAST, ASTKind::IfStmt>
-{
-    std::unique_ptr<ExprAST> condition;              ///< if 条件表达式。
-    std::vector<std::unique_ptr<StmtAST>> thenBody;  ///< if 分支的语句块。
-    std::vector<std::unique_ptr<StmtAST>> elseBody;  ///< else 或 elif 分支的语句块。
+// class IfStmtAST : public StmtASTBase<IfStmtAST, ASTKind::IfStmt>
+// {
+//     std::unique_ptr<ExprAST> condition;              ///< if 条件表达式。
+//     std::vector<std::unique_ptr<StmtAST>> thenBody;  ///< if 分支的语句块。
+//     std::vector<std::unique_ptr<StmtAST>> elseBody;  ///< else 或 elif 分支的语句块。
+
+// public:
+//     /** @brief 构造函数。*/
+//     IfStmtAST(std::unique_ptr<ExprAST> cond,
+//               std::vector<std::unique_ptr<StmtAST>> thenB,
+//               std::vector<std::unique_ptr<StmtAST>> elseB)
+//         : condition(std::move(cond)), thenBody(std::move(thenB)), elseBody(std::move(elseB))
+//     {
+//     }
+
+//     /** @brief 获取条件表达式。*/
+//     const ExprAST* getCondition() const
+//     {
+//         return condition.get();
+//     }
+//     /** @brief 获取 then 分支语句块。*/
+//     const std::vector<std::unique_ptr<StmtAST>>& getThenBody() const
+//     {
+//         return thenBody;
+//     }
+//     /** @brief 获取 else/elif 分支语句块。*/
+//     const std::vector<std::unique_ptr<StmtAST>>& getElseBody() const
+//     {
+//         return elseBody;
+//     }
+
+//     /** @brief if 语句块开始时可能需要创建新作用域。*/
+//     void beginScope(PyCodeGen& codegen) override;
+//     /** @brief if 语句块结束时需要销毁作用域。*/
+//     void endScope(PyCodeGen& codegen) override;
+
+
+// };
+
+class IfStmtAST : public StmtASTBase<IfStmtAST, ASTKind::IfStmt> { // <--- 新代码
+    std::unique_ptr<ExprAST> condition;
+    std::vector<std::unique_ptr<StmtAST>> thenBody;
+    std::unique_ptr<StmtAST> elseStmt;
 
 public:
-    /** @brief 构造函数。*/
-    IfStmtAST(std::unique_ptr<ExprAST> cond,
-              std::vector<std::unique_ptr<StmtAST>> thenB,
-              std::vector<std::unique_ptr<StmtAST>> elseB)
-        : condition(std::move(cond)), thenBody(std::move(thenB)), elseBody(std::move(elseB))
-    {
-    }
+    IfStmtAST(std::unique_ptr<ExprAST> Condition,
+              std::vector<std::unique_ptr<StmtAST>> ThenBody,
+              std::unique_ptr<StmtAST> ElseStmt)
+        : condition(std::move(Condition)),
+          thenBody(std::move(ThenBody)),
+          elseStmt(std::move(ElseStmt)) {}
 
-    /** @brief 获取条件表达式。*/
-    const ExprAST* getCondition() const
-    {
-        return condition.get();
-    }
-    /** @brief 获取 then 分支语句块。*/
-    const std::vector<std::unique_ptr<StmtAST>>& getThenBody() const
-    {
-        return thenBody;
-    }
-    /** @brief 获取 else/elif 分支语句块。*/
-    const std::vector<std::unique_ptr<StmtAST>>& getElseBody() const
-    {
-        return elseBody;
-    }
+    // kind() 方法现在由 StmtASTBase 提供
 
-    /** @brief if 语句块开始时可能需要创建新作用域。*/
-    void beginScope(PyCodeGen& codegen) override;
-    /** @brief if 语句块结束时需要销毁作用域。*/
-    void endScope(PyCodeGen& codegen) override;
+    ExprAST* getCondition() const { return condition.get(); }
+    const std::vector<std::unique_ptr<StmtAST>>& getThenBody() const { return thenBody; }
+    StmtAST* getElseStmt() const { return elseStmt.get(); }
+    // 如果 IfStmtAST 需要 accept 方法，需要添加
+    // llvm::Value* accept(ASTVisitor& visitor) override;
+};
 
 
+class BlockStmtAST : public StmtASTBase<BlockStmtAST, ASTKind::BlockStmt> { // <--- 新代码
+    std::vector<std::unique_ptr<StmtAST>> statements;
+public:
+    BlockStmtAST(std::vector<std::unique_ptr<StmtAST>> Stmts)
+        : statements(std::move(Stmts)) {}
+
+    // kind() 方法现在由 StmtASTBase 提供，不需要手动实现
+
+    const std::vector<std::unique_ptr<StmtAST>>& getStatements() const { return statements; }
+    // 如果 BlockStmtAST 需要 accept 方法，需要添加
+    // llvm::Value* accept(ASTVisitor& visitor) override;
 };
 
 /**

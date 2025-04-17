@@ -76,7 +76,9 @@ public:
     void endScope();
     
     // 条件语句处理
+
     llvm::Value* handleCondition(const ExprAST* condition);
+    void handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* finalMergeBB);
     void generateBranchingCode(llvm::Value* condValue, 
                               llvm::BasicBlock* thenBlock, 
                               llvm::BasicBlock* elseBlock);

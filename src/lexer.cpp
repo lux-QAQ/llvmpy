@@ -613,9 +613,14 @@ PyToken PyLexer::scanToken() {
 void PyLexer::tokenizeSource() {
     bool atLineStart = true;
     bool lastLineWasEmpty = false;
-    bool inFunctionBody = false;  // 新增：跟踪是否在函数体内
-    int emptyLineCount = 0;      // 新增：连续空行计数
-    
+    // bool inFunctionBody = false; // 暂时不需要这个标志
+    int emptyLineCount = 0;
+
+    // 初始化缩进栈，确保至少有一个0级缩进
+    if (indentStack.empty()) {
+        indentStack.push_back(0);
+    }
+
     while (!isAtEnd()) {
         // 处理行首的缩进
         if (atLineStart && peek() != '\n') {
@@ -624,69 +629,124 @@ void PyLexer::tokenizeSource() {
             size_t tempPos = position;
             int indent = calculateIndent();
             tempPos += indent;
-            while (tempPos < sourceCode.length() && (sourceCode[tempPos] == ' ' || sourceCode[tempPos] == '\t')) 
+            while (tempPos < sourceCode.length() && (sourceCode[tempPos] == ' ' || sourceCode[tempPos] == '\t'))
                 tempPos++;
             if (tempPos < sourceCode.length() && sourceCode[tempPos] == '#')
                 isCommentLine = true;
-            
+
             // 只在非注释行处理缩进
             if (!isCommentLine) {
-                processIndentation();
+                processIndentation(); // processIndentation 内部会添加 INDENT/DEDENT tokens
                 emptyLineCount = 0;  // 重置空行计数
             } else {
                 // 对于注释行，只跳过空白，不产生缩进标记
-                position += indent;
-                currentColumn += indent;
+                position += indent; // processIndentation 内部会处理 position 和 currentColumn，这里不需要重复
+                // currentColumn += indent; // processIndentation 内部会处理
             }
-            
+
             atLineStart = false;
             lastLineWasEmpty = false;
+
+            // 如果跳过缩进和注释后到达行尾或文件尾，则继续下一轮循环
+            if (isAtEnd() || peek() == '\n') {
+                 // 如果是换行符，scanToken 会处理它
+                 // 如果是 EOF，循环将在下次迭代终止
+                 continue;
+            }
+
         } else if (atLineStart && peek() == '\n') {
-            // 处理空行
+            // 处理空行或行首的换行符
             lastLineWasEmpty = true;
             emptyLineCount++;
-            advance();  // 移动到下一个字符
-            tokens.push_back(PyToken(TOK_NEWLINE, "\n", currentLine-1, currentColumn));
-            atLineStart = true;
-            continue;
+            advance();  // 消费 '\n'
+            // 只有在前一个token不是NEWLINE时才添加，避免连续多个NEWLINE token
+            if (tokens.empty() || tokens.back().type != TOK_NEWLINE) {
+                 tokens.push_back(PyToken(TOK_NEWLINE, "\n", currentLine-1, 1)); // 列通常重置为1
+            } else {
+                 // 更新最后一个 NEWLINE 的行号 (如果需要更精确的行号)
+                 // tokens.back().line = currentLine - 1;
+            }
+            atLineStart = true; // 保持 atLineStart 为 true，因为下一行还是行首
+            continue; // 继续下一轮循环处理可能的缩进或下一个 token
         }
-        
-        // 扫描token
-        PyToken token = scanToken();
-        tokens.push_back(token);
-        
-        // 检查函数定义上下文
-        if (token.type == TOK_DEF) {
-            inFunctionBody = true;  // 即将进入函数体
-        } else if (token.type == TOK_DEDENT && inFunctionBody) {
-            // 可能离开函数体
-            inFunctionBody = false;
+
+        // 扫描token (如果不是行首空白或换行)
+        PyToken token = scanToken(); // scanToken 会处理空白和注释直到下一个有效 token 或 EOF
+
+        // --- 移除循环内部的 EOF 处理 ---
+        // if (token.type == TOK_EOF) { ... break; }
+
+        // 只有当 scanToken 返回非 EOF 时才添加
+        if (token.type != TOK_EOF) {
+            tokens.push_back(token);
+        } else {
+            // 如果 scanToken 返回 EOF，则退出循环，让循环外的逻辑处理
+            break;
         }
-        
+
+
         // 检查是否需要在行尾添加NEWLINE
         if (token.type == TOK_NEWLINE) {
             atLineStart = true;
-        } else if (token.type == TOK_EOF) {
-            // 文件结束时确保所有缩进级别都正确关闭
-            while (indentStack.size() > 1) {
-                indentStack.pop_back();
-                tokens.emplace_back(TOK_DEDENT, "", currentLine, currentColumn);
-            }
-            break;
+        } else {
+            // 如果 scanToken 返回的不是 NEWLINE，则下一轮循环不是行首
+            // (除非 scanToken 内部消耗了换行符，但标准 scanToken 应该在换行符处停止或返回 NEWLINE)
+            // 确保 scanToken 在遇到换行符时返回 TOK_NEWLINE 或停止
+            atLineStart = false; // 假设 scanToken 消耗了非换行符
         }
+        // --- 如果 scanToken 返回 EOF，循环将在下一次迭代时因 !isAtEnd() 为 false 或 break 而终止 ---
     }
-    
+
+    // --- 将 DEDENT 生成逻辑移到循环外部 ---
+    // 文件结束时确保所有缩进级别都正确关闭
+    // 在添加最终 EOF token 之前执行
+    while (indentStack.size() > 1) { // 只要栈深度大于1（即存在非0缩进）
+        indentStack.pop_back();
+        // 使用最后一个非 EOF/NEWLINE token 的行号，或者当前位置的行号
+        size_t refLine = currentLine;
+        if (!tokens.empty()) {
+            // 查找最后一个有意义的 token 的行号
+            for (auto it = tokens.rbegin(); it != tokens.rend(); ++it) {
+                if (it->type != TOK_EOF && it->type != TOK_NEWLINE && it->type != TOK_INDENT && it->type != TOK_DEDENT) {
+                    refLine = it->line;
+                    break;
+                }
+            }
+        }
+        // DEDENT 通常概念上发生在下一行的开始，所以列号为1比较合理
+        size_t refCol = 1;
+        tokens.emplace_back(TOK_DEDENT, "", refLine, refCol);
+#ifdef DEBUG_LEXER_INDENT
+        std::cerr << "Debug [tokenizeSource]: Added EOF DEDENT. Stack size: " << indentStack.size() << std::endl;
+#endif
+    }
+
     // 确保最后一个token是EOF
     if (tokens.empty() || tokens.back().type != TOK_EOF) {
-        tokens.emplace_back(TOK_EOF, "", currentLine, currentColumn);
+        // 如果最后一个 token 是 NEWLINE，EOF 应该在下一行
+        size_t eofLine = currentLine;
+        size_t eofCol = currentColumn;
+        if (!tokens.empty() && tokens.back().type == TOK_NEWLINE) {
+             eofLine = tokens.back().line + 1; // EOF 在换行符之后的新行
+             eofCol = 1;
+        }
+        tokens.emplace_back(TOK_EOF, "", eofLine, eofCol);
+#ifdef DEBUG_LEXER
+        std::cerr << "Debug [tokenizeSource]: Added final EOF token at L" << eofLine << " C" << eofCol << std::endl;
+#endif
     }
-    
-    // 后处理：移除文件末尾错误的缩进标记
+
+    // 后处理：移除文件末尾错误的缩进标记 (这个逻辑现在应该不再需要)
+    /*
     size_t i = tokens.size() - 2;  // 跳过EOF
     while (i > 0 && tokens[i].type == TOK_INDENT) {
         tokens.erase(tokens.begin() + i);
         i--;
     }
+    */
+#ifdef DEBUG_LEXER
+    std::cerr << "Debug [tokenizeSource]: Tokenization complete. Total tokens: " << tokens.size() << std::endl;
+#endif
 }
 
 PyToken PyLexer::getNextToken() {
