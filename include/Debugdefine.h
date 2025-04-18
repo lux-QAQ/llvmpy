@@ -3,7 +3,7 @@
 
 // 定义DEBUG宏来启用调试模式
 
-//#define DEBUG
+#define DEBUG
 
 
 #ifdef DEBUG

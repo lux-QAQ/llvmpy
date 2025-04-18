@@ -44,7 +44,7 @@ void PyTokenRegistry::initialize() {
     registerKeyword("while", TOK_WHILE);
     registerKeyword("for", TOK_FOR);
     registerKeyword("in", TOK_IN);
-    registerKeyword("print", TOK_PRINT);
+    registerKeyword("print", TOK_PRINT);// 注意：Python 3 中 print 是函数
     registerKeyword("import", TOK_IMPORT);
     registerKeyword("class", TOK_CLASS);
     registerKeyword("pass", TOK_PASS);
@@ -64,6 +64,15 @@ void PyTokenRegistry::initialize() {
     registerKeyword("True", TOK_BOOL);
     registerKeyword("False", TOK_BOOL);
     registerKeyword("None", TOK_NONE);
+
+    registerKeyword("and", TOK_AND);
+    registerKeyword("or", TOK_OR);
+    registerKeyword("not", TOK_NOT);
+    registerKeyword("is", TOK_IS);
+    registerKeyword("yield", TOK_YIELD);
+    registerKeyword("async", TOK_ASYNC);
+    registerKeyword("await", TOK_AWAIT);
+    registerKeyword("del", TOK_DEL);
     
     // 注册简单操作符
     registerSimpleOperator('(', TOK_LPAREN);
@@ -132,6 +141,18 @@ void PyTokenRegistry::initialize() {
     tokenNameRegistry.registerItem(TOK_GLOBAL, "GLOBAL");
     tokenNameRegistry.registerItem(TOK_NONLOCAL, "NONLOCAL");
     tokenNameRegistry.registerItem(TOK_RAISE, "RAISE");
+
+    tokenNameRegistry.registerItem(TOK_YIELD, "YIELD");
+    tokenNameRegistry.registerItem(TOK_IS, "IS");
+
+    tokenNameRegistry.registerItem(TOK_NOT, "NOT");
+    tokenNameRegistry.registerItem(TOK_AND, "AND");
+    tokenNameRegistry.registerItem(TOK_OR, "OR");
+    tokenNameRegistry.registerItem(TOK_DEL, "DEL");
+
+    tokenNameRegistry.registerItem(TOK_EXEC, "EXEC");
+    tokenNameRegistry.registerItem(TOK_ASYNC, "ASYNC");
+    tokenNameRegistry.registerItem(TOK_AWAIT, "AWAIT");
     
     // 操作符名称
     tokenNameRegistry.registerItem(TOK_LPAREN, "LPAREN");
@@ -516,28 +537,36 @@ PyToken PyLexer::handleNumber() {
 }
 
 PyToken PyLexer::handleString() {
-    char quote = peek();
+    char quote = peek(); // 记录开始的引号
     advance(); // 消费开始引号
-    
+
     size_t start = position;
+    std::string content; // 用于存储处理转义后的内容 (如果需要)
+    std::string raw_content; // 用于存储原始未处理的内容 (更适合恢复)
+
     while (!isAtEnd() && peek() != quote) {
-        if (peek() == '\\') {
-            advance(); // 跳过转义字符
+        char current_char = peek();
+        if (current_char == '\\') {
+            raw_content += current_char; // 添加反斜杠
+            advance(); // 跳过转义字符的反斜杠
             if (isAtEnd()) {
-                return errorToken("Unterminated string");
+                return errorToken("Unterminated string literal");
             }
+            raw_content += peek(); // 添加被转义的字符
+        } else {
+             raw_content += current_char;
         }
         advance();
     }
-    
+
     if (isAtEnd()) {
-        return errorToken("Unterminated string");
+        return errorToken("Unterminated string literal");
     }
-    
-    std::string str = sourceCode.substr(start, position - start);
+
     advance(); // 消费结束引号
-    
-    return PyToken(TOK_STRING, str, currentLine, currentColumn - str.length() - 2);
+
+    // 返回包含原始未处理内容的 Token，并记录引号类型
+    return PyToken(TOK_STRING, raw_content, currentLine, currentColumn - raw_content.length() - 2, quote);
 }
 
 PyToken PyLexer::handleOperator() {
@@ -849,57 +878,113 @@ std::pair<size_t, std::string> PyLexer::extractTypeAnnotation(size_t startPos) c
 }
 
 void PyLexer::recoverSourceFromTokens(const std::string& filename) const {
-#ifdef RECOVER_SOURCE_FROM_TOKENS
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        std::cerr << "Error: Could not open file for writing: " << filename << std::endl;
-        return;
-    }
+    #ifdef RECOVER_SOURCE_FROM_TOKENS
+        std::ofstream file(filename);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open file for writing: " << filename << std::endl;
+            return;
+        }
     
-    int currentIndent = 0;
-    bool atLineStart = true;
+        int currentIndent = 0;
+        bool atLineStart = true;
+        PyToken previousToken = {TOK_ERROR, "", 0, 0}; // 用于跟踪前一个 token
     
-    for (size_t i = 0; i < tokens.size(); i++) {
-        const PyToken& token = tokens[i];
-        
-        switch (token.type) {
-            case TOK_INDENT:
-                currentIndent += 4; // 使用4个空格作为缩进
-                break;
-                
-            case TOK_DEDENT:
-                currentIndent = std::max(0, currentIndent - 4);
-                break;
-                
-            case TOK_NEWLINE:
-                file << "\n";
-                atLineStart = true;
-                break;
-                
-            case TOK_EOF:
-                // 忽略EOF
-                break;
-                
-            default:
-                if (atLineStart) {
-                    // 添加缩进
+        for (size_t i = 0; i < tokens.size(); i++) {
+            const PyToken& token = tokens[i];
+    
+            // --- 处理行首缩进 ---
+            if (atLineStart) {
+                if (token.type != TOK_INDENT && token.type != TOK_DEDENT && token.type != TOK_EOF && token.type != TOK_NEWLINE) {
                     file << std::string(currentIndent, ' ');
                     atLineStart = false;
-                } else if (i > 0 && PyTokenRegistry::needsSpaceBetween(tokens[i-1].type, token.type)) {
-                    file << " ";
                 }
-                
-                // 写入token的值
-                file << token.value;
-                break;
-        }
-    }
+            }
     
-    file.close();
-    std::cout << "Source code recovered to: " << filename << std::endl;
-#else
-    std::cerr << "Source recovery disabled. Define RECOVER_SOURCE_FROM_TOKENS to enable." << std::endl;
-#endif
-}
+            // --- 更智能的空格处理 ---
+            bool needsSpace = false;
+            if (!atLineStart && i > 0) { // 只有在非行首且不是第一个 token 时才考虑加空格
+                needsSpace = true; // 默认需要空格
+    
+                // --- 不需要空格的条件 ---
+                // 1. 点号前后
+                if (previousToken.type == TOK_DOT || token.type == TOK_DOT) {
+                    needsSpace = false;
+                }
+                // 2. 左括号/方括号/花括号之后
+                else if (previousToken.type == TOK_LPAREN || previousToken.type == TOK_LBRACK || previousToken.type == TOK_LBRACE) {
+                    needsSpace = false;
+                }
+                // 3. 右括号/方括号/花括号之前
+                else if (token.type == TOK_RPAREN || token.type == TOK_RBRACK || token.type == TOK_RBRACE) {
+                    needsSpace = false;
+                }
+                // 4. 逗号/冒号之前
+                else if (token.type == TOK_COMMA || token.type == TOK_COLON) {
+                    needsSpace = false;
+                }
+                // 5. 函数调用/索引: IDENTIFIER/Keyword 后跟 ( 或 [
+                else if ((previousToken.type == TOK_IDENTIFIER || PyTokenRegistry::isKeyword(previousToken.value)) &&
+                         (token.type == TOK_LPAREN || token.type == TOK_LBRACK)) {
+                    needsSpace = false;
+                }
+                // 6. 冒号之后 (例如类型注解，字典字面量) - 通常需要空格，但切片不需要，这里简化，先允许空格
+                // 7. 逗号之后 - 通常需要空格，让默认逻辑处理
+    
+                // --- 可能需要强制空格的情况 (覆盖默认) ---
+                // (可以根据需要添加，例如二元操作符两侧，但目前的默认添加空格可能已足够)
+            }
+    
+            if (needsSpace) {
+                file << " ";
+            }
+    
+            // --- 处理 Token 本身 ---
+            switch (token.type) {
+                case TOK_INDENT:
+                    currentIndent += 4; // 使用4个空格作为缩进
+                    break;
+    
+                case TOK_DEDENT:
+                    currentIndent = std::max(0, currentIndent - 4);
+                    break;
+    
+                case TOK_NEWLINE:
+                    file << "\n";
+                    atLineStart = true;
+                    break;
+    
+                case TOK_EOF:
+                    // 忽略EOF
+                    break;
+    
+                case TOK_STRING:
+                    // 使用存储的引号类型恢复字符串
+                    if (token.quoteChar == '\'' || token.quoteChar == '"') {
+                        file << token.quoteChar << token.value << token.quoteChar;
+                    } else {
+                        // 如果没有记录引号类型，默认使用双引号
+                        file << "\"" << token.value << "\"";
+                    }
+                    atLineStart = false;
+                    break;
+    
+                default:
+                    // 写入token的值
+                    file << token.value;
+                    atLineStart = false;
+                    break;
+            }
+            // 更新 previousToken，跳过不影响布局的 token
+            if (token.type != TOK_INDENT && token.type != TOK_DEDENT && token.type != TOK_NEWLINE && token.type != TOK_EOF) {
+                 previousToken = token;
+            }
+        }
+    
+        file.close();
+        std::cout << "Source code recovered to: " << filename << std::endl;
+    #else
+        std::cerr << "Source recovery disabled. Define RECOVER_SOURCE_FROM_TOKENS to enable." << std::endl;
+    #endif
+    }
 
 } // namespace llvmpy

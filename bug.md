@@ -11,6 +11,6 @@
         print("c大于等于2")
     return 0
 ```
-过程异常
+过程异（fixed）
 
 2. recovered_source.py恢复字符串异常

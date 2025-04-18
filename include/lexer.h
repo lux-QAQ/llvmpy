@@ -73,6 +73,17 @@ enum PyTokenType
     TOK_GLOBAL = -32,    ///< global
     TOK_NONLOCAL = -33,  ///< nonlocal
     TOK_RAISE = -34,     ///< raise
+    TOK_YIELD = -35,     ///< yield
+    TOK_IS = -36,        ///< is
+    TOK_IS_NOT = -37,    ///< is not
+    TOK_NOT = -38,       ///< not
+    TOK_NOT_IN = -39,    ///< not in
+    TOK_AND = -40,       ///< and
+    TOK_OR = -41,        ///< or  
+    TOK_DEL = -42,       ///< del
+    TOK_EXEC = -43,      ///< exec
+    TOK_ASYNC = -44,      ///< async
+    TOK_AWAIT = -45,     ///< await
     /// @note 缺少 True, False, None (作为字面量处理), and, or, not, is, yield, await, async 等关键字
     ///< 操作符和分隔符 (-50 到 -99)
     TOK_LPAREN = -50,        ///< (
@@ -129,6 +140,7 @@ struct PyToken
     std::string value;  ///< Token 的原始文本值 (例如 "def", "my_var", "123", "+")
     int line;           ///< Token 在源代码中的起始行号 (从 1 开始)
     int column;         ///< Token 在源代码中的起始列号 (从 1 开始)
+    char quoteChar = 0; // 新增：存储字符串的引号类型 (' 或 ")，0 表示非字符串
 
     /**
      * @brief 构造函数。
@@ -136,11 +148,10 @@ struct PyToken
      * @param v Token 的原始值。
      * @param l Token 的行号。
      * @param c Token 的列号。
+     * @param qc Token 的引号类型 (目前仅在复原字符串 Token 中使用)。
      */
-    PyToken(PyTokenType t, const std::string& v, int l, int c)
-        : type(t), value(v), line(l), column(c)
-    {
-    }
+     PyToken(PyTokenType t, const std::string& v, size_t l, size_t c, char qc = 0) // 修改构造函数
+     : type(t), value(v), line(l), column(c), quoteChar(qc) {}
 
     /**
      * @brief 默认构造函数。
