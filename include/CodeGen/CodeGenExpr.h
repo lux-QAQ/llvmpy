@@ -71,12 +71,14 @@ public:
     llvm::Value* handleExpr(const ExprAST* expr);
 
     // 二元操作处理 - 使用TypeOperations
-    llvm::Value* handleBinOp(char op, llvm::Value* L, llvm::Value* R,
+    llvm::Value* handleBinOp(PyTokenType op,
+                             llvm::Value* L, llvm::Value* R,
                              std::shared_ptr<PyType> leftType,
                              std::shared_ptr<PyType> rightType);
 
     // 一元操作处理 - 使用TypeOperations
-    llvm::Value* handleUnaryOp(char op, llvm::Value* operand,
+    llvm::Value* handleUnaryOp(PyTokenType op,
+                               llvm::Value* operand,
                                std::shared_ptr<PyType> operandType);
 
     // 索引操作处理 - 使用runtime
@@ -112,8 +114,6 @@ public:
                              std::shared_ptr<PyType> dictType);
     void setDictItem(llvm::Value* dict, llvm::Value* key, llvm::Value* value,
                      std::shared_ptr<PyType> dictType);
-
-
 
     // 辅助方法
     CodeGenBase& getCodeGen()

@@ -171,10 +171,11 @@ llvm::Value* CodeGenExpr::handleBinaryExpr(BinaryExprAST* expr)
     llvm::Value* R = handleExpr(expr->getRHS());
     if (!R) return nullptr;
 
-    // 使用类型推导的二元操作
-    return handleBinOp(expr->getOp(), L, R,
-                       expr->getLHS()->getType(),
-                       expr->getRHS()->getType());
+      // --- 修改：获取 PyTokenType 并传递 ---
+      PyTokenType op = expr->getOpType(); // Changed: getOp() -> getOpType()
+      return handleBinOp(op, L, R, // Pass PyTokenType
+                         expr->getLHS()->getType(),
+                         expr->getRHS()->getType());
 }
 
 // 处理一元操作表达式
@@ -185,7 +186,8 @@ llvm::Value* CodeGenExpr::handleUnaryExpr(UnaryExprAST* expr)
     if (!operand) return nullptr;
 
     // 使用类型推导的一元操作
-    return handleUnaryOp(expr->getOpCode(), operand,
+    PyTokenType op = expr->getOpType(); // Changed: getOpCode() -> getOpType()
+    return handleUnaryOp(op, operand, // Pass PyTokenType
                          expr->getOperand()->getType());
 }
 
@@ -395,7 +397,7 @@ llvm::Value* CodeGenExpr::handleIndexExpr(IndexExprAST* expr)
 }
 
 // 二元操作处理函数
-llvm::Value* CodeGenExpr::handleBinOp(char op, llvm::Value* L, llvm::Value* R,
+llvm::Value* CodeGenExpr::handleBinOp(PyTokenType op, llvm::Value* L, llvm::Value* R,
                                       std::shared_ptr<PyType> leftType,
                                       std::shared_ptr<PyType> rightType)
 {
@@ -459,7 +461,11 @@ llvm::Value* CodeGenExpr::handleBinOp(char op, llvm::Value* L, llvm::Value* R,
 
     if (!desc)
     {
-        return codeGen.logError("Unsupported binary operation: " + std::string(1, op) + " between " + leftType->getObjectType()->getName() + " and " + rightType->getObjectType()->getName());
+        // --- 修改：错误信息使用 op (PyTokenType) ---
+        // Note: Need a way to convert PyTokenType back to string for error message
+        // For now, just log the integer value or a generic message
+        return codeGen.logError("Unsupported binary operation (token: " + std::to_string(op) + ") between " + leftType->getObjectType()->getName() + " and " + rightType->getObjectType()->getName());
+        // --- 结束修改 ---
     }
 
     // 执行操作
@@ -498,7 +504,7 @@ llvm::Value* CodeGenExpr::handleBinOp(char op, llvm::Value* L, llvm::Value* R,
 }
 
 // 一元操作处理函数
-llvm::Value* CodeGenExpr::handleUnaryOp(char op, llvm::Value* operand,
+llvm::Value* CodeGenExpr::handleUnaryOp(PyTokenType op, llvm::Value* operand,
                                         std::shared_ptr<PyType> operandType)
 {
     auto* runtime = codeGen.getRuntimeGen();
@@ -514,7 +520,10 @@ llvm::Value* CodeGenExpr::handleUnaryOp(char op, llvm::Value* operand,
 
     if (!desc)
     {
-        return codeGen.logError("Unsupported unary operation: " + std::string(1, op) + " on " + operandType->getObjectType()->getName());
+        // --- 修改：错误信息使用 op (PyTokenType) ---
+        // Note: Need a way to convert PyTokenType back to string for error message
+        return codeGen.logError("Unsupported unary operation (token: " + std::to_string(op) + ") on " + operandType->getObjectType()->getName());
+        // --- 结束修改 ---
     }
 
     // 执行操作

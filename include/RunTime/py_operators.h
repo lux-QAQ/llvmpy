@@ -12,6 +12,7 @@ extern "C" {
 bool py_coerce_numeric(PyObject* a, PyObject* b, double* out_a, double* out_b);
 
 // 算术运算
+PyObject* py_object_power(PyObject* a, PyObject* b);
 PyObject* py_object_add(PyObject* a, PyObject* b);
 PyObject* py_object_subtract(PyObject* a, PyObject* b);
 PyObject* py_object_multiply(PyObject* a, PyObject* b);

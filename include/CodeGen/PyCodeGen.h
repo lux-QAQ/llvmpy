@@ -88,11 +88,12 @@ public:
     // 错误处理
     llvm::Value* logError(const std::string& message, int line = 0, int column = 0);
 
-    // 兼容旧版接口 - 这些将转发到相应的组件
+     // 兼容旧版接口 - 这些将转发到相应的组件
     //llvm::Value* handleNode(ASTNode* node);
     llvm::Value* handleExpr(const ExprAST* expr);
     void handleStmt(StmtAST* stmt);
-    llvm::Value* handleBinOp(char op, llvm::Value* L, llvm::Value* R,
+ 
+    llvm::Value* handleBinOp(PyTokenType op, llvm::Value* L, llvm::Value* R,
                              ObjectType* leftType, ObjectType* rightType);
 
     // 返回运行时对象接口
@@ -106,32 +107,7 @@ public:
         return *runtime;
     }
 
-    // Visitor模式接口实现 - AST 节点访问方法
-    void visit(NumberExprAST* expr);
-    void visit(VariableExprAST* expr);
-    void visit(BinaryExprAST* expr);
-    void visit(CallExprAST* expr);
-    void visit(UnaryExprAST* expr);
-    void visit(StringExprAST* expr);
-    void visit(BoolExprAST* expr);
-    void visit(NoneExprAST* expr);
-    void visit(ListExprAST* expr);
-    void visit(IndexExprAST* expr);
-    void visit(DictExprAST* expr);
 
-    void visit(ExprStmtAST* stmt);
-    void visit(ReturnStmtAST* stmt);
-    void visit(IfStmtAST* stmt);
-    void visit(WhileStmtAST* stmt);
-    void visit(PrintStmtAST* stmt);
-    void visit(AssignStmtAST* stmt);
-    void visit(PassStmtAST* stmt);
-    void visit(ImportStmtAST* stmt);
-    void visit(ClassStmtAST* stmt);
-    void visit(IndexAssignStmtAST* stmt);
-
-    void visit(FunctionAST* func);
-    void visit(ModuleAST* module);
 };
 
 }  // namespace llvmpy

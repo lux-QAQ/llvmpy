@@ -27,6 +27,7 @@
 #include <llvm/IR/Value.h>
 #include <llvm/IR/LLVMContext.h>
 
+#include "lexer.h"
 #include <ObjectType.h>
 
 namespace llvmpy
@@ -65,6 +66,7 @@ enum class ASTKind
     BoolExpr,         ///< 布尔字面量表达式节点 (True, False)
     NoneExpr,         ///< None 字面量表达式节点
     DictExpr,         ///< 字典字面量表达式节点
+    FunctionDefStmt,  ///< 函数定义语句节点包装
     Unknown           ///< 未知或错误节点类型
 };
 
@@ -547,22 +549,30 @@ public:
  */
 class BinaryExprAST : public ExprASTBase<BinaryExprAST, ASTKind::BinaryExpr>
 {
-    char op;                            ///< 操作符（逆天char，需要修改为枚举）
+    
+    PyTokenType opType; // 新增：使用 PyTokenType 表示操作符
     std::unique_ptr<ExprAST> lhs, rhs;  ///< 左操作数。
     /** @brief 缓存推断出的结果类型。*/
     mutable std::shared_ptr<PyType> cachedType;  ///< 右操作数。
 
 public:
     /** @brief 构造函数。*/
-    BinaryExprAST(char op, std::unique_ptr<ExprAST> lhs, std::unique_ptr<ExprAST> rhs)
-        : op(op), lhs(std::move(lhs)), rhs(std::move(rhs))
+
+    // 更新构造函数以接受 PyTokenType
+    BinaryExprAST(PyTokenType op, std::unique_ptr<ExprAST> lhs, std::unique_ptr<ExprAST> rhs)
+        : opType(op), lhs(std::move(lhs)), rhs(std::move(rhs))
     {
     }
 
     /** @brief 获取操作符。*/
-    char getOp() const
+    // char getOp() const // 删除旧 getter
+    // {
+    //     return op;
+    // }
+    // 更新 getter 以返回 PyTokenType
+    PyTokenType getOpType() const
     {
-        return op;
+        return opType;
     }
     /** @brief 获取左操作数。*/
     const ExprAST* getLHS() const
@@ -586,22 +596,30 @@ public:
 class UnaryExprAST : public ExprASTBase<UnaryExprAST, ASTKind::UnaryExpr>
 {
 private:
-    char opCode;                       ///< 操作符 (例如 '-', '!')。（逆天char，需要修改为枚举）
+  
+    PyTokenType opType; // 新增：使用 PyTokenType 表示操作符
     std::unique_ptr<ExprAST> operand;  ///< 操作数。
     /** @brief 缓存推断出的结果类型。*/
     mutable std::shared_ptr<PyType> cachedType;
 
 public:
-    /** @brief 构造函数。*/
-    UnaryExprAST(char opcode, std::unique_ptr<ExprAST> operand)
-        : opCode(opcode), operand(std::move(operand))
+     /** @brief 构造函数。*/
+   
+    // 更新构造函数以接受 PyTokenType
+    UnaryExprAST(PyTokenType opcode, std::unique_ptr<ExprAST> operand)
+        : opType(opcode), operand(std::move(operand))
     {
     }
 
-    /** @brief 获取操作符。*/
-    char getOpCode() const
+     /** @brief 获取操作符。*/
+    // char getOpCode() const // 删除旧 getter
+    // {
+    //     return opCode;
+    // }
+    // 更新 getter 以返回 PyTokenType
+    PyTokenType getOpType() const
     {
-        return opCode;
+        return opType;
     }
     /** @brief 获取操作数。*/
     const ExprAST* getOperand() const
@@ -984,8 +1002,7 @@ public:
     ExprAST* getCondition() const { return condition.get(); }
     const std::vector<std::unique_ptr<StmtAST>>& getThenBody() const { return thenBody; }
     StmtAST* getElseStmt() const { return elseStmt.get(); }
-    // 如果 IfStmtAST 需要 accept 方法，需要添加
-    // llvm::Value* accept(ASTVisitor& visitor) override;
+
 };
 
 
@@ -998,8 +1015,7 @@ public:
     // kind() 方法现在由 StmtASTBase 提供，不需要手动实现
 
     const std::vector<std::unique_ptr<StmtAST>>& getStatements() const { return statements; }
-    // 如果 BlockStmtAST 需要 accept 方法，需要添加
-    // llvm::Value* accept(ASTVisitor& visitor) override;
+
 };
 
 /**
@@ -1166,6 +1182,10 @@ struct ParamAST
     }  // typeName 为空表示无注解
 };
 
+
+
+
+
 /**
  * @brief 函数定义节点 (def func(...): ...)。
  * @warning 类型推断可能比较复杂，需要处理多个 return 语句和不同分支，干脆交给runtime。这一块做的非常杂乱有的是直接现场分析，有的是直接视为Any让runtime分析。
@@ -1290,6 +1310,38 @@ public:
 
 
 };
+
+
+
+/**
+ * @brief 函数定义语句节点。
+ *
+ * 这个节点包装了一个 FunctionAST，表示一个 'def' 语句。
+ * 代码生成器会处理这个节点，在运行时创建函数对象并将其绑定到作用域。
+ */
+ class FunctionDefStmtAST : public StmtASTBase<FunctionDefStmtAST, ASTKind::FunctionDefStmt> // 需要在 ASTKind 中添加 FunctionDefStmt
+ {
+     std::unique_ptr<FunctionAST> funcAST;
+ 
+ public:
+     /** @brief 构造函数。*/
+     FunctionDefStmtAST(std::unique_ptr<FunctionAST> func) : funcAST(std::move(func))
+     {
+         // 继承 FunctionAST 的位置信息
+         if (funcAST && funcAST->line.has_value() && funcAST->column.has_value()) {
+              this->setLocation(funcAST->line.value(), funcAST->column.value());
+         }
+     }
+ 
+     /** @brief 获取包含的 FunctionAST。*/
+     const FunctionAST* getFunctionAST() const
+     {
+         return funcAST.get();
+     }
+ 
+  
+ };
+
 
 /**
  * @brief 类定义语句节点 (class MyClass(Base1, Base2): ...)。

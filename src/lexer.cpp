@@ -107,6 +107,8 @@ void PyTokenRegistry::initialize() {
     registerCompoundOperator("**", TOK_POWER);
     registerCompoundOperator("//", TOK_FLOOR_DIV);
     registerCompoundOperator("->", TOK_ARROW);
+    registerCompoundOperator("**=", TOK_POWER_ASSIGN);
+    registerCompoundOperator("//=", TOK_FLOOR_DIV_ASSIGN);
     
     // 注册token名称
     tokenNameRegistry.registerItem(TOK_EOF, "EOF");

@@ -6,6 +6,7 @@
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
 #include "TypeIDs.h"
+#include "parser.h"
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <iostream>
@@ -88,7 +89,7 @@ std::shared_ptr<PyType> CodeGenType::inferExprType(const ExprAST* expr)
         case ASTKind::BinaryExpr:
         {
             auto binExpr = static_cast<const BinaryExprAST*>(expr);
-            char op = binExpr->getOp();
+            PyTokenType op = binExpr->getOpType();
 
             // 递归获取左右操作数类型
             std::shared_ptr<PyType> leftType = inferExprType(binExpr->getLHS());
@@ -102,7 +103,7 @@ std::shared_ptr<PyType> CodeGenType::inferExprType(const ExprAST* expr)
         case ASTKind::UnaryExpr:
         {
             auto unaryExpr = static_cast<const UnaryExprAST*>(expr);
-            char op = unaryExpr->getOpCode();
+            PyTokenType op = unaryExpr->getOpType();
 
             // 递归获取操作数类型
             std::shared_ptr<PyType> operandType = inferExprType(unaryExpr->getOperand());
@@ -165,7 +166,7 @@ std::shared_ptr<PyType> CodeGenType::inferExprType(const ExprAST* expr)
 }
 
 std::shared_ptr<PyType> CodeGenType::inferBinaryExprType(
-        char op,
+        PyTokenType op,  // Changed: char -> PyTokenType
         std::shared_ptr<PyType> leftType,
         std::shared_ptr<PyType> rightType)
 {
@@ -176,15 +177,15 @@ std::shared_ptr<PyType> CodeGenType::inferBinaryExprType(
     int leftTypeId = OperationCodeGenerator::getTypeId(leftType->getObjectType());
     int rightTypeId = OperationCodeGenerator::getTypeId(rightType->getObjectType());
 
-    // 使用类型操作注册表获取结果类型ID
+    // 使用类型操作注册表获取结果类型ID (现在传递 PyTokenType)
     int resultTypeId = registry.getResultTypeId(leftTypeId, rightTypeId, op);
 
-    // 如果找不到直接对应的类型，尝试找到可操作路径
+    // 如果找不到直接对应的类型，尝试找到可操作路径 (现在传递 PyTokenType)
     if (resultTypeId == -1)
     {
         std::pair<int, int> opPath = registry.findOperablePath(op, leftTypeId, rightTypeId);
 
-        // 如果找到可操作路径，重新获取结果类型
+        // 如果找到可操作路径，重新获取结果类型 (现在传递 PyTokenType)
         if (opPath.first != leftTypeId || opPath.second != rightTypeId)
         {
             resultTypeId = registry.getResultTypeId(opPath.first, opPath.second, op);
@@ -208,20 +209,20 @@ std::shared_ptr<PyType> CodeGenType::inferBinaryExprType(
             }
         }
 
-        // 对于字符串连接
-        if (op == '+' && leftType->isString() && rightType->isString())
+        // 对于字符串连接 (使用 PyTokenType)
+        if (op == TOK_PLUS && leftType->isString() && rightType->isString())
         {
             return PyType::getString();
         }
 
-        // 对于比较操作，结果是布尔类型
-        if (op == '<' || op == '>' || op == 'l' || op == 'g' || op == 'e' || op == 'n')
+        // 对于比较操作，结果是布尔类型 (使用 PyTokenType)
+        if (op == TOK_LT || op == TOK_GT || op == TOK_LE || op == TOK_GE || op == TOK_EQ || op == TOK_NEQ || op == TOK_IS || op == TOK_IS_NOT || op == TOK_IN || op == TOK_NOT_IN)
         {
             return PyType::getBool();
         }
 
-        // 默认使用左操作数类型
-        return leftType;
+        // 默认使用左操作数类型 (或者返回 Any 更安全)
+        return PyType::getAny();  // Changed: return leftType -> return PyType::getAny()
     }
 
     // 从结果类型ID创建PyType
@@ -229,7 +230,7 @@ std::shared_ptr<PyType> CodeGenType::inferBinaryExprType(
 }
 
 std::shared_ptr<PyType> CodeGenType::inferUnaryExprType(
-        char op,
+        PyTokenType op,  // Changed: char -> PyTokenType
         std::shared_ptr<PyType> operandType)
 {
     // 使用TypeOperations推导一元操作结果类型
@@ -238,7 +239,7 @@ std::shared_ptr<PyType> CodeGenType::inferUnaryExprType(
     // 获取操作数类型ID
     int typeId = OperationCodeGenerator::getTypeId(operandType->getObjectType());
 
-    // 查找一元操作描述符
+    // 查找一元操作描述符 (现在传递 PyTokenType)
     UnaryOpDescriptor* desc = registry.getUnaryOpDescriptor(op, typeId);
 
     if (desc)
@@ -247,33 +248,123 @@ std::shared_ptr<PyType> CodeGenType::inferUnaryExprType(
         return getTypeFromId(desc->resultTypeId);
     }
 
-    // 如果没有找到描述符，使用默认推导规则
+    // 如果没有找到描述符，使用默认推导规则 (使用 PyTokenType)
     switch (op)
     {
-        case '-':
+        case TOK_MINUS:  // Changed: '-' -> TOK_MINUS
             // 数值类型的取负保持类型不变
             if (operandType->isNumeric())
             {
                 return operandType;
             }
+            // 如果不是数值类型，则 fallthrough 到 default
             break;
 
-        case '!':
+        case TOK_NOT:  // Changed: '!' -> TOK_NOT
             // 逻辑非的结果是布尔类型
             return PyType::getBool();
 
-        case '~':
-            // 按位取反，对于整数保持类型不变
-            if (operandType->isInt())
-            {
-                return operandType;
-            }
-            break;
+        // case TOK_TILDE: // Changed: '~' -> TOK_TILDE (If you add bitwise not)
+        //     // 按位取反，对于整数保持类型不变
+        //     if (operandType->isInt())
+        //     {
+        //         return operandType;
+        //     }
+        //     break;
+
+        // --- 添加 default 分支处理其他未明确处理的操作符 ---
+        default:
+            // 对于其他未知或不支持的一元操作，默认返回 Any
+            // 也可以在这里添加日志记录
+            std::cerr << "Warning: Unhandled unary operator token " << op << " in inferUnaryExprType. Returning Any." << std::endl;
+            break; // Fallthrough 到函数末尾的 return PyType::getAny()
+        // --- 结束添加 ---
     }
 
-    // 默认情况返回Any类型
+    // 默认情况返回Any类型 (包括从 TOK_MINUS 的非数值情况 fallthrough)
     return PyType::getAny();
 }
+
+
+ObjectType* CodeGenType::getFunctionObjectType(const FunctionAST* funcAST)
+{
+    if (!funcAST) {
+        codeGen.logError("Cannot get ObjectType for null FunctionAST");
+        return nullptr;
+    }
+
+    // --- 1. Resolve Return Type (Default to Any if no hint) ---
+    ObjectType* returnObjectType = nullptr;
+    // 使用存储在 FunctionAST 中的返回类型名称字符串
+    const std::string& returnTypeName = funcAST->getReturnTypeName(); // 使用 string getter
+
+    if (!returnTypeName.empty()) { // 检查字符串是否为空
+        // 使用 PyTypeParser 从字符串解析类型
+        std::shared_ptr<PyType> returnPyType = PyTypeParser::parseType(returnTypeName);
+        if (returnPyType) {
+            returnObjectType = returnPyType->getObjectType();
+        } else {
+            codeGen.logWarning("Failed to parse return type name '" + returnTypeName + "' for function: " + funcAST->getName() + ". Defaulting to any.",
+                             funcAST->line.value_or(0), funcAST->column.value_or(0));
+        }
+    }
+
+    // Default to 'object' if no hint or parsing failed
+    if (!returnObjectType) {
+        returnObjectType = TypeRegistry::getInstance().getType("object");
+        if (!returnObjectType) {
+             codeGen.logError("Default type 'object' not found in TypeRegistry!");
+             return nullptr;
+        }
+    }
+
+    // --- 2. Resolve Parameter Types (Default to Any if no hint) ---
+    std::vector<ObjectType*> paramObjectTypes;
+    for (const auto& param : funcAST->getParams()) {
+        ObjectType* paramObjectType = nullptr;
+        // 使用存储在 ParamAST 中的参数类型名称字符串
+        const std::string& paramTypeName = param.typeName; // 直接访问 string 成员
+
+        if (!paramTypeName.empty()) { // 检查字符串是否为空
+            // 使用 PyTypeParser 从字符串解析类型
+            std::shared_ptr<PyType> paramPyType = PyTypeParser::parseType(paramTypeName);
+            if (paramPyType) {
+                paramObjectType = paramPyType->getObjectType();
+            } else {
+                 codeGen.logWarning("Failed to parse type name '" + paramTypeName + "' for parameter '" + param.name
+                                 + "' in function: " + funcAST->getName() + ". Defaulting to any.",
+                                 funcAST->line.value_or(0), funcAST->column.value_or(0));
+            }
+        }
+
+        // Default to 'object' if no hint or parsing failed
+        if (!paramObjectType) {
+            paramObjectType = TypeRegistry::getInstance().getType("object");
+             if (!paramObjectType) {
+                 codeGen.logError("Default type 'object' not found in TypeRegistry!");
+                 return nullptr;
+             }
+        }
+        paramObjectTypes.push_back(paramObjectType);
+    }
+
+    // --- 3. Get/Create FunctionType from Registry ---
+    ObjectType* functionType = TypeRegistry::getInstance().getFunctionType(returnObjectType, paramObjectTypes);
+
+    if (!functionType) {
+         codeGen.logError("Failed to get or create FunctionType in TypeRegistry for function: " + funcAST->getName());
+         return nullptr;
+    }
+
+    #ifdef DEBUG_CODEGEN_TYPE
+    std::cerr << "Debug [CodeGenType]: Resolved static FunctionType for '" << funcAST->getName()
+              << "' as " << functionType->getName() << std::endl;
+    #endif
+
+    return functionType; // This will be a FunctionType*
+}
+
+
 
 std::shared_ptr<PyType> CodeGenType::inferIndexExprType(
         std::shared_ptr<PyType> targetType,
@@ -432,7 +523,7 @@ std::shared_ptr<PyType> CodeGenType::analyzeReturnExpr(
         {
             // 处理二元运算表达式，如 a+1
             auto binExpr = static_cast<const BinaryExprAST*>(expr);
-            char op = binExpr->getOp();
+            PyTokenType op = binExpr->getOpType();  // Changed: getOp() -> getOpType()
 
             // 递归分析左右操作数
             std::shared_ptr<PyType> leftType = inferExprType(binExpr->getLHS());

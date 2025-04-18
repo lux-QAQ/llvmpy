@@ -55,20 +55,7 @@ PyCodeGen::~PyCodeGen()
 // 代码生成方法
 //===----------------------------------------------------------------------===//
 
-/* llvm::Value* PyCodeGen::codegen(ASTNode* node)
-{
-    if (!node)
-    {
-        return nullptr;
-    }
 
-    // 使用访问者模式处理AST节点
-    CodeGenVisitor visitor(*this);
-    visitor.visit(node);
-
-    // 返回最后生成的表达式值
-    return getLastExprValue();
-} */
 
 llvm::Value* PyCodeGen::codegenExpr(const ExprAST* expr)
 {
@@ -289,8 +276,6 @@ llvm::Value* PyCodeGen::logError(const std::string& message, int line, int colum
 // 兼容旧版接口
 //===----------------------------------------------------------------------===//
 
-
-
 // 修改后:
 llvm::Value* PyCodeGen::handleExpr(const ExprAST* expr)
 {
@@ -302,14 +287,17 @@ void PyCodeGen::handleStmt(StmtAST* stmt)
     codegenStmt(stmt);
 }
 
-llvm::Value* PyCodeGen::handleBinOp(char op, llvm::Value* L, llvm::Value* R,
+// --- 修改：将 char op 改为 PyTokenType op ---
+llvm::Value* PyCodeGen::handleBinOp(PyTokenType op, llvm::Value* L, llvm::Value* R,
                                     ObjectType* leftType, ObjectType* rightType)
+// --- 结束修改 ---
 {
     // 将ObjectType转换为PyType进行处理
     std::shared_ptr<PyType> leftPyType = std::make_shared<PyType>(leftType);
     std::shared_ptr<PyType> rightPyType = std::make_shared<PyType>(rightType);
 
     // 利用TypeOperations自动处理二元操作类型推导
+    // 现在传递的是 PyTokenType op，类型匹配
     return getExprGen()->handleBinOp(op, L, R, leftPyType, rightPyType);
 }
 

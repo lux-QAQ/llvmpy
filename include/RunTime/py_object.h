@@ -32,6 +32,9 @@ PyObject* py_object_copy(PyObject* obj, int typeId);
 // 对象长度
 int py_object_len(PyObject* obj);
 
+// 添加函数创建声明
+PyObject* py_create_function(void* func_ptr, int signature_type_id);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

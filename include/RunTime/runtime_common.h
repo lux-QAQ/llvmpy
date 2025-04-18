@@ -19,6 +19,7 @@ typedef struct PyPrimitiveObject_t PyPrimitiveObject;
 typedef struct PyClassObject_t PyClassObject;     
 typedef struct PyInstanceObject_t PyInstanceObject; 
 
+typedef struct PyFunctionObject_t PyFunctionObject;
 
 // 结构体定义
 struct PyObject_t {
@@ -69,6 +70,13 @@ struct PyClassObject_t {
     // 可以添加 PyTypeMethods* 指针，或者依赖基于 typeId 的动态查找
 };
 
+
+struct PyFunctionObject_t {
+    PyObject header;            /**< 标准对象头 (refCount, typeId)。typeId 应为 PY_TYPE_FUNC。*/
+    void* func_ptr;             /**< 指向编译后的 LLVM 函数的指针。*/
+    int   signature_type_id;    /**< 来自编译器的 FunctionType 的类型 ID，描述函数签名。*/
+    // 可以添加其他字段，如 __name__, __doc__, 闭包变量等
+};
 
 // 实例对象结构体
 struct PyInstanceObject_t {

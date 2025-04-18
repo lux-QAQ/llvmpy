@@ -35,17 +35,20 @@ public:
     // 获取类实例类型
     std::shared_ptr<PyType> getClassInstanceType(const std::string& className);
 
+    // 尝试获取函数对象类型
+    ObjectType* getFunctionObjectType(const FunctionAST* funcAST);
+
     // 推导表达式类型 - 使用TypeOperations
     std::shared_ptr<PyType> inferExprType(const ExprAST* expr);
 
     // 推导二元操作表达式类型
-    std::shared_ptr<PyType> inferBinaryExprType(char op,
-                                                std::shared_ptr<PyType> leftType,
-                                                std::shared_ptr<PyType> rightType);
+    std::shared_ptr<PyType> inferBinaryExprType(PyTokenType op, // Changed: char -> PyTokenType
+        std::shared_ptr<PyType> leftType,
+        std::shared_ptr<PyType> rightType);
 
     // 推导一元操作表达式类型
-    std::shared_ptr<PyType> inferUnaryExprType(char op,
-                                               std::shared_ptr<PyType> operandType);
+    std::shared_ptr<PyType> inferUnaryExprType(PyTokenType op, // Changed: char -> PyTokenType
+        std::shared_ptr<PyType> operandType);
 
     // 推导索引表达式类型
     std::shared_ptr<PyType> inferIndexExprType(

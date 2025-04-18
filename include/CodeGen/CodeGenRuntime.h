@@ -4,7 +4,6 @@
 #include "ObjectLifecycle.h"
 #include "CodeGen/CodeGenBase.h"
 
-
 #include <llvm/IR/Value.h>
 #include <memory>
 #include <string>
@@ -94,6 +93,14 @@ public:
     // 判断对象是否需要特殊处理
     bool needsLifecycleManagement(std::shared_ptr<PyType> type);
     bool isTemporaryObject(llvm::Value* value);
+
+    /**
+     * @brief 创建一个 Python 函数对象，包装给定的 LLVM 函数。
+     * @param llvmFunc 指向已编译的 LLVM 函数的指针。
+     * @param funcObjectType 代表此函数 Python 签名的 ObjectType* (应为 FunctionType*)。
+     * @return 指向新创建的 Python 函数对象 (PyObject*) 的 llvm::Value*。
+     */
+    llvm::Value* createFunctionObject(llvm::Function* llvmFunc, ObjectType* funcObjectType);
 
     // 访问外部运行时
     ObjectRuntime* getRuntime()

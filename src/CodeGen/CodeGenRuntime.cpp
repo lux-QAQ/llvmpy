@@ -25,6 +25,69 @@ namespace llvmpy
 // 运行时函数管理
 //===----------------------------------------------------------------------===//
 
+
+
+llvm::Value* CodeGenRuntime::createFunctionObject(llvm::Function* llvmFunc, ObjectType* funcObjectType) {
+    // --- 输入验证 ---
+    if (!llvmFunc) {
+        codeGen.logError("Cannot create function object from null LLVM function.");
+        return nullptr;
+    }
+    // 确保传入的是 FunctionType
+    if (!funcObjectType || funcObjectType->getCategory() != ObjectType::Function) {
+        codeGen.logError("Cannot create function object: provided ObjectType is null or not a FunctionType.");
+        return nullptr;
+    }
+
+    auto& context = codeGen.getContext();
+    auto& builder = codeGen.getBuilder();
+
+    // --- 1. 定义 C 运行时函数 py_create_function 的 LLVM 签名 ---
+    // 签名: PyObject* py_create_function(void* func_ptr, int signature_type_id)
+    llvm::Type* pyObjectType = llvm::PointerType::get(context, 0); // PyObject*
+    llvm::Type* voidPtrType = llvm::PointerType::getUnqual(context); // void*
+    llvm::Type* int32Type = llvm::Type::getInt32Ty(context);       // int
+
+    // --- 2. 获取 C 运行时函数的 LLVM 类型 ---
+    llvm::FunctionType* runtimeFuncType = llvm::FunctionType::get(
+        pyObjectType,       // 返回类型: PyObject*
+        {voidPtrType, int32Type}, // 参数类型: void*, int
+        false               // 是否可变参数: 否
+    );
+
+    // --- 3. 获取 C 运行时函数的 LLVM 声明 ---
+    // 使用 getRuntimeFunction 获取或创建外部函数声明
+    llvm::Function* pyCreateFunc = getRuntimeFunction(
+        "py_create_function", // C 函数的名称
+        runtimeFuncType->getReturnType(),
+        {runtimeFuncType->getParamType(0), runtimeFuncType->getParamType(1)}
+    );
+
+    if (!pyCreateFunc) {
+        // getRuntimeFunction 内部应该已经处理了查找和创建
+        // 如果仍然失败，可能是链接问题或名称冲突
+        codeGen.logError("Failed to get or create runtime function 'py_create_function'. Linker error likely.");
+        return nullptr;
+    }
+
+    // --- 4. 准备调用参数 ---
+    // 参数1: 将 llvm::Function* 转换为 void*
+    llvm::Value* funcPtrVoid = builder.CreateBitCast(llvmFunc, voidPtrType, "func_ptr_void");
+
+    // 参数2: 从 ObjectType 获取类型 ID
+    // 这里依赖 ObjectType::getTypeId() 返回代表函数签名的 int ID
+    int signatureTypeId = funcObjectType->getTypeId();
+    llvm::Value* typeIdVal = llvm::ConstantInt::get(int32Type, signatureTypeId, /*isSigned=*/true);
+
+    // --- 5. 创建对 C 运行时函数的调用 ---
+    llvm::Value* pyFuncObj = builder.CreateCall(pyCreateFunc, {funcPtrVoid, typeIdVal}, "new_py_func_obj");
+
+    // --- 6. 返回创建的 Python 函数对象 (llvm::Value*) ---
+    // 注意：py_create_function 返回的对象引用计数为 1，
+    // CodeGenStmt::handleFunctionDefStmt 中 setVariable 可能需要处理 incRef (如果符号表持有引用)。
+    return pyFuncObj;
+}
+
 llvm::Function* CodeGenRuntime::getRuntimeFunction(
         const std::string& name,
         llvm::Type* returnType,

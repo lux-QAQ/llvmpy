@@ -111,6 +111,10 @@ void CodeGenStmt::initializeHandlers()
     {
         static_cast<CodeGenStmt*>(cg.getStmtGen())->handleClassStmt(static_cast<ClassStmtAST*>(stmt));
     };
+        // 注册 FunctionDefStmt 的处理器
+        stmtHandlers[ASTKind::FunctionDefStmt] = [](CodeGenBase& cg, StmtAST* s) {
+            static_cast<CodeGenStmt*>(cg.getStmtGen())->handleFunctionDefStmt(static_cast<FunctionDefStmtAST*>(s));
+        };
 
     handlersInitialized = true;
 }
@@ -166,6 +170,44 @@ void CodeGenStmt::beginScope()
 void CodeGenStmt::endScope()
 {
     codeGen.getSymbolTable().popScope();
+}
+
+
+// --- 实现 handleFunctionDefStmt ---
+void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt) {
+    // --- 获取 AST 信息 ---
+    const FunctionAST* funcAST = stmt->getFunctionAST();
+    if (!funcAST) { /* log error */ return; }
+    std::string funcName = funcAST->getName();
+    int line = stmt->line.value_or(0);
+    int col = stmt->column.value_or(0);
+
+    // --- 步骤 2.1: 调用 CodeGenModule 生成 LLVM 函数 ---
+    // CodeGenModule::handleFunctionDef 会负责生成函数签名和函数体 IR
+    llvm::Function* llvmFunc = codeGen.getModuleGen()->handleFunctionDef(const_cast<FunctionAST*>(funcAST));
+    if (!llvmFunc) { /* 错误已在 handleFunctionDef 中记录 */ return; }
+
+    // --- 步骤 2.2: 调用 CodeGenType 获取 Python 函数类型 ---
+    // CodeGenType::getFunctionObjectType 会解析参数/返回类型提示或推断
+    ObjectType* funcObjectType = codeGen.getTypeGen()->getFunctionObjectType(funcAST);
+    if (!funcObjectType || funcObjectType->getCategory() != ObjectType::Function) {
+        /* log error */ return;
+    }
+
+    // --- 步骤 2.3: 调用 CodeGenRuntime 创建 Python 函数对象 ---
+    // CodeGenRuntime::createFunctionObject 会调用 C 运行时函数 (如 py_create_function)
+    llvm::Value* pyFuncObj = codeGen.getRuntimeGen()->createFunctionObject(llvmFunc, funcObjectType);
+    if (!pyFuncObj) { /* log error */ return; }
+
+    // --- 步骤 2.4: 调用 PySymbolTable 绑定名称 ---
+    // 将函数名 funcName 绑定到运行时对象 pyFuncObj
+    codeGen.getSymbolTable().setVariable(funcName, pyFuncObj, funcObjectType);
+    // 可能需要处理引用计数 (如果 setVariable 不处理)
+    // codeGen.getRuntimeGen()->incRef(pyFuncObj); // 取决于 setVariable 的实现
+
+    #ifdef DEBUG_CODEGEN_STMT
+    std::cerr << "Debug [CodeGenStmt]: Defined function '" << funcName << "'..." << std::endl;
+    #endif
 }
 
 llvm::Value* CodeGenStmt::handleCondition(const ExprAST* condition)
@@ -639,7 +681,7 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
     std::set<std::string> assignedInBody;
     for (const auto& bodyStmt : stmt->getBody())
     {
-        // visitor.findAssignedVariables(bodyStmt.get(), assignedInBody); // <- 修改这行
+        
         findAssignedVariablesInStmt(bodyStmt.get(), assignedInBody);  // <- 改为调用静态函数
     }
 #ifdef DEBUG_WhileSTmt

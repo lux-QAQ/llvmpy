@@ -54,6 +54,9 @@ private:
     
     // 处理类定义语句
     void handleClassStmt(ClassStmtAST* stmt);
+
+    // 处理函数定义（包装后的）
+    void handleFunctionDefStmt(FunctionDefStmtAST* stmt); // <--- 添加声明
     
     // 初始化语句处理器
     static void initializeHandlers();

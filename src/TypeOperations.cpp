@@ -10,7 +10,7 @@
 #include <iostream>
 #include <sstream>
 #include <unordered_set>
-#include <stdexcept>  // For runtime_error
+
 namespace llvmpy
 {
 
@@ -34,37 +34,81 @@ TypeOperationRegistry::TypeOperationRegistry()
 void TypeOperationRegistry::initializeBuiltinOperations()
 {
     // 注册整数操作
-    registerBinaryOp('+', PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_INT, "py_object_add", true);
-    registerBinaryOp('-', PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_INT, "py_object_subtract", true);
-    registerBinaryOp('*', PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_INT, "py_object_multiply", true);
-    registerBinaryOp('/', PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_DOUBLE, "py_object_divide", true);
-    registerBinaryOp('%', PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_INT, "py_object_modulo", true);
+    registerBinaryOp(TOK_PLUS, PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_INT, "py_object_add", true);
+    registerBinaryOp(TOK_MINUS, PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_INT, "py_object_subtract", true);
+    registerBinaryOp(TOK_MUL, PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_INT, "py_object_multiply", true);
+    registerBinaryOp(TOK_DIV, PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_DOUBLE, "py_object_divide", true);  // Integer division results in float in Python 3
+    registerBinaryOp(TOK_MOD, PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_INT, "py_object_modulo", true);
+    // Add comparison operators for int
+    registerBinaryOp(TOK_LT, PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_GT, PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_LE, PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_GE, PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_compare", true);
 
     // 注册浮点数操作
-    registerBinaryOp('+', PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_add", true);
-    registerBinaryOp('-', PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_subtract", true);
-    registerBinaryOp('*', PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_multiply", true);
-    registerBinaryOp('/', PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_divide", true);
+    registerBinaryOp(TOK_PLUS, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_add", true);
+    registerBinaryOp(TOK_MINUS, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_subtract", true);
+    registerBinaryOp(TOK_MUL, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_multiply", true);
+    registerBinaryOp(TOK_DIV, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_divide", true);
+    // Add comparison operators for double
+    registerBinaryOp(TOK_LT, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_GT, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_LE, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_GE, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
 
     // 注册混合数值类型操作 (整数和浮点数)
-    registerBinaryOp('+', PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_add", true);
-    registerBinaryOp('+', PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_DOUBLE, "py_object_add", true);
-    registerBinaryOp('-', PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_subtract", true);
-    registerBinaryOp('-', PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_DOUBLE, "py_object_subtract", true);
-    registerBinaryOp('*', PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_multiply", true);
-    registerBinaryOp('*', PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_DOUBLE, "py_object_multiply", true);
-    registerBinaryOp('/', PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_divide", true);
-    registerBinaryOp('/', PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_DOUBLE, "py_object_divide", true);
+    registerBinaryOp(TOK_PLUS, PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_add", true);
+    registerBinaryOp(TOK_PLUS, PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_DOUBLE, "py_object_add", true);
+    registerBinaryOp(TOK_MINUS, PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_subtract", true);
+    registerBinaryOp(TOK_MINUS, PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_DOUBLE, "py_object_subtract", true);
+    registerBinaryOp(TOK_MUL, PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_multiply", true);
+    registerBinaryOp(TOK_MUL, PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_DOUBLE, "py_object_multiply", true);
+    registerBinaryOp(TOK_DIV, PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_divide", true);
+    registerBinaryOp(TOK_DIV, PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_DOUBLE, "py_object_divide", true);
+    // Add comparison operators for mixed types
+    registerBinaryOp(TOK_LT, PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_LT, PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_GT, PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_GT, PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_LE, PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_LE, PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_GE, PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_GE, PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_compare", true);
+
+    // 添加：注册幂运算
+    registerBinaryOp(TOK_POWER, PY_TYPE_INT, PY_TYPE_INT, PY_TYPE_ANY, "py_object_power", true);  // Result can be int or double
+    registerBinaryOp(TOK_POWER, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_power", true);
+    registerBinaryOp(TOK_POWER, PY_TYPE_INT, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_power", true);
+    registerBinaryOp(TOK_POWER, PY_TYPE_DOUBLE, PY_TYPE_INT, PY_TYPE_DOUBLE, "py_object_power", true);
 
     // 注册字符串操作
-    registerBinaryOp('+', PY_TYPE_STRING, PY_TYPE_STRING, PY_TYPE_STRING, "py_object_add", true);
-    registerBinaryOp('*', PY_TYPE_STRING, PY_TYPE_INT, PY_TYPE_STRING, "py_object_multiply", true);
-    registerBinaryOp('*', PY_TYPE_INT, PY_TYPE_STRING, PY_TYPE_STRING, "py_object_multiply", true);
+    registerBinaryOp(TOK_PLUS, PY_TYPE_STRING, PY_TYPE_STRING, PY_TYPE_STRING, "py_object_add", true);
+    registerBinaryOp(TOK_MUL, PY_TYPE_STRING, PY_TYPE_INT, PY_TYPE_STRING, "py_object_multiply", true);
+    registerBinaryOp(TOK_MUL, PY_TYPE_INT, PY_TYPE_STRING, PY_TYPE_STRING, "py_object_multiply", true);
+    // Add comparison operators for string
+    registerBinaryOp(TOK_LT, PY_TYPE_STRING, PY_TYPE_STRING, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_GT, PY_TYPE_STRING, PY_TYPE_STRING, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_STRING, PY_TYPE_STRING, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_STRING, PY_TYPE_STRING, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_LE, PY_TYPE_STRING, PY_TYPE_STRING, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_GE, PY_TYPE_STRING, PY_TYPE_STRING, PY_TYPE_BOOL, "py_object_compare", true);
 
     // 注册列表操作
-    registerBinaryOp('+', PY_TYPE_LIST, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_add", true);
-    registerBinaryOp('*', PY_TYPE_LIST, PY_TYPE_INT, PY_TYPE_LIST, "py_object_multiply", true);
-    registerBinaryOp('*', PY_TYPE_INT, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_multiply", true);
+    registerBinaryOp(TOK_PLUS, PY_TYPE_LIST, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_add", true);
+    registerBinaryOp(TOK_MUL, PY_TYPE_LIST, PY_TYPE_INT, PY_TYPE_LIST, "py_object_multiply", true);
+    registerBinaryOp(TOK_MUL, PY_TYPE_INT, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_multiply", true);
+    // Add comparison operators for list (usually identity or element-wise, handled by runtime)
+    registerBinaryOp(TOK_EQ, PY_TYPE_LIST, PY_TYPE_LIST, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_LIST, PY_TYPE_LIST, PY_TYPE_BOOL, "py_object_compare", true);
+    // LT, GT, LE, GE are generally not defined for lists in the same way as numbers/strings
 
     // 注册类型转换
     registerTypeConversion(PY_TYPE_INT, PY_TYPE_DOUBLE, "py_convert_int_to_double", 1);
@@ -101,27 +145,34 @@ void TypeOperationRegistry::initializeBuiltinOperations()
     registerTypeCompatibility(PY_TYPE_STRING, PY_TYPE_BOOL, true);
 
     // 注册类型提升规则 (操作数类型混合时的结果类型)
-    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, '+', PY_TYPE_DOUBLE);
-    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, '-', PY_TYPE_DOUBLE);
-    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, '*', PY_TYPE_DOUBLE);
-    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, '/', PY_TYPE_DOUBLE);
+    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, TOK_PLUS, PY_TYPE_DOUBLE);
+    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, TOK_MINUS, PY_TYPE_DOUBLE);
+    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, TOK_MUL, PY_TYPE_DOUBLE);
+    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, TOK_DIV, PY_TYPE_DOUBLE);
+    // Add promotions for comparison operators if needed (result is always bool)
+    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, TOK_LT, PY_TYPE_BOOL);
+    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, TOK_GT, PY_TYPE_BOOL);
+    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, TOK_EQ, PY_TYPE_BOOL);
+    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, TOK_NEQ, PY_TYPE_BOOL);
+    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, TOK_LE, PY_TYPE_BOOL);
+    registerTypePromotion(PY_TYPE_INT, PY_TYPE_DOUBLE, TOK_GE, PY_TYPE_BOOL);
 
     // 注册容器类型操作
-    registerBinaryOp('+', PY_TYPE_LIST, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_add", true);
-    registerBinaryOp('*', PY_TYPE_LIST, PY_TYPE_INT, PY_TYPE_LIST, "py_object_multiply", true);
-    registerBinaryOp('*', PY_TYPE_INT, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_multiply", true);
+    registerBinaryOp(TOK_PLUS, PY_TYPE_LIST, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_add", true);
+    registerBinaryOp(TOK_MUL, PY_TYPE_LIST, PY_TYPE_INT, PY_TYPE_LIST, "py_object_multiply", true);
+    registerBinaryOp(TOK_MUL, PY_TYPE_INT, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_multiply", true);
 
     // 注册列表基础类型操作 - 使其与列表类型兼容
-    registerBinaryOp('+', PY_TYPE_LIST_BASE, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_add", true);
-    registerBinaryOp('+', PY_TYPE_LIST, PY_TYPE_LIST_BASE, PY_TYPE_LIST, "py_object_add", true);
-    registerBinaryOp('+', PY_TYPE_LIST_BASE, PY_TYPE_LIST_BASE, PY_TYPE_LIST_BASE, "py_object_add", true);
-    registerBinaryOp('*', PY_TYPE_LIST_BASE, PY_TYPE_INT, PY_TYPE_LIST_BASE, "py_object_multiply", true);
-    registerBinaryOp('*', PY_TYPE_INT, PY_TYPE_LIST_BASE, PY_TYPE_LIST_BASE, "py_object_multiply", true);
+    registerBinaryOp(TOK_PLUS, PY_TYPE_LIST_BASE, PY_TYPE_LIST, PY_TYPE_LIST, "py_object_add", true);
+    registerBinaryOp(TOK_PLUS, PY_TYPE_LIST, PY_TYPE_LIST_BASE, PY_TYPE_LIST, "py_object_add", true);
+    registerBinaryOp(TOK_PLUS, PY_TYPE_LIST_BASE, PY_TYPE_LIST_BASE, PY_TYPE_LIST_BASE, "py_object_add", true);
+    registerBinaryOp(TOK_MUL, PY_TYPE_LIST_BASE, PY_TYPE_INT, PY_TYPE_LIST_BASE, "py_object_multiply", true);
+    registerBinaryOp(TOK_MUL, PY_TYPE_INT, PY_TYPE_LIST_BASE, PY_TYPE_LIST_BASE, "py_object_multiply", true);
 
     // 注册字典基础类型操作
-    registerBinaryOp('+', PY_TYPE_DICT_BASE, PY_TYPE_DICT, PY_TYPE_DICT, "py_object_add", true);
-    registerBinaryOp('+', PY_TYPE_DICT, PY_TYPE_DICT_BASE, PY_TYPE_DICT, "py_object_add", true);
-    registerBinaryOp('+', PY_TYPE_DICT_BASE, PY_TYPE_DICT_BASE, PY_TYPE_DICT_BASE, "py_object_add", true);
+    registerBinaryOp(TOK_PLUS, PY_TYPE_DICT_BASE, PY_TYPE_DICT, PY_TYPE_DICT, "py_object_add", true);            // Note: Dict addition isn't standard Python
+    registerBinaryOp(TOK_PLUS, PY_TYPE_DICT, PY_TYPE_DICT_BASE, PY_TYPE_DICT, "py_object_add", true);            // Note: Dict addition isn't standard Python
+    registerBinaryOp(TOK_PLUS, PY_TYPE_DICT_BASE, PY_TYPE_DICT_BASE, PY_TYPE_DICT_BASE, "py_object_add", true);  // Note: Dict addition isn't standard Python
 
     // 注册指针类型操作
     registerTypeCompatibility(PY_TYPE_PTR_INT, PY_TYPE_INT, true);
@@ -184,7 +235,7 @@ void TypeOperationRegistry::initializeBuiltinOperations()
     // 2. 字典索引操作 - 字典可以用各种类型作为键
     registerTypeCompatibility(PY_TYPE_DICT, PY_TYPE_INT, true);
     registerTypeCompatibility(PY_TYPE_DICT, PY_TYPE_STRING, true);
-    registerTypeCompatibility(PY_TYPE_DICT, PY_TYPE_DOUBLE, true);
+    registerTypeCompatibility(PY_TYPE_DICT, PY_TYPE_DOUBLE, true);  // Note: Using float as dict key is generally discouraged
     registerTypeCompatibility(PY_TYPE_DICT, PY_TYPE_BOOL, true);
     registerTypeCompatibility(PY_TYPE_DICT_BASE, PY_TYPE_ANY, true);
 
@@ -222,50 +273,79 @@ void TypeOperationRegistry::initializeBuiltinOperations()
             PY_TYPE_STRING, PY_TYPE_LIST, PY_TYPE_DICT};
 
     // 对每种操作符
-    std::vector<char> operators = {'+', '-', '*', '/', '%', '<', '>', '=', '!'};
+    // 对每种操作符
+    std::vector<PyTokenType> operators = {
+            TOK_PLUS, TOK_MINUS, TOK_MUL, TOK_DIV, TOK_MOD,
+            TOK_LT, TOK_GT, TOK_EQ, TOK_NEQ, TOK_LE, TOK_GE,
+            TOK_POWER  // --- 添加 TOK_POW ---
+                       // Add other relevant binary operators like TOK_AMPERSAND, TOK_VBAR, TOK_CIRCUMFLEX if needed
+    };
 
     for (int typeId : basicTypes)
     {
-        // 注册类型兼容性
+        // 注册类型兼容性 (Already done above, but doesn't hurt to ensure)
         registerTypeCompatibility(PY_TYPE_ANY, typeId, true);
 
-        for (char op : operators)
+        for (PyTokenType op : operators)
         {
+            bool isComparison = (op == TOK_LT || op == TOK_GT || op == TOK_EQ || op == TOK_NEQ || op == TOK_LE || op == TOK_GE);
+            int resultType = isComparison ? PY_TYPE_BOOL : PY_TYPE_ANY;
+            // Use a generic runtime function name; specific logic is in handleAnyTypeOperation
+            std::string runtimeFuncName = isComparison ? "py_object_compare" : "py_object_binary_op";
+
             // ANY 作为左操作数
             registerBinaryOp(
                     op,
                     PY_TYPE_ANY,
                     typeId,
-                    (op == '<' || op == '>' || op == '=' || op == '!') ? PY_TYPE_BOOL : PY_TYPE_ANY,
-                    "py_object_compare"  // 实际函数会在 handleAnyTypeOperation 中确定
-            );
+                    resultType,
+                    runtimeFuncName);
 
             // ANY 作为右操作数
             registerBinaryOp(
                     op,
                     typeId,
                     PY_TYPE_ANY,
-                    (op == '<' || op == '>' || op == '=' || op == '!') ? PY_TYPE_BOOL : PY_TYPE_ANY,
-                    "py_object_compare"  // 实际函数会在 handleAnyTypeOperation 中确定
-            );
+                    resultType,
+                    runtimeFuncName);
         }
     }
 
     // ANY 与 ANY 的操作
-    for (char op : operators)
+    for (PyTokenType op : operators)
     {
+        bool isComparison = (op == TOK_LT || op == TOK_GT || op == TOK_EQ || op == TOK_NEQ || op == TOK_LE || op == TOK_GE);
+        int resultType = isComparison ? PY_TYPE_BOOL : PY_TYPE_ANY;
+        std::string runtimeFuncName = isComparison ? "py_object_compare" : "py_object_binary_op";
+
         registerBinaryOp(
                 op,
                 PY_TYPE_ANY,
                 PY_TYPE_ANY,
-                (op == '<' || op == '>' || op == '=' || op == '!') ? PY_TYPE_BOOL : PY_TYPE_ANY,
-                "py_object_compare"  // 实际函数会在 handleAnyTypeOperation 中确定
-        );
+                resultType,
+                runtimeFuncName);
     }
+
+    // Register Unary Operations (Example)
+    registerUnaryOp(TOK_MINUS, PY_TYPE_INT, PY_TYPE_INT, "py_object_negate", true);
+
+    registerUnaryOp(TOK_MINUS, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_negate", true);
+
+    registerUnaryOp(TOK_NOT, PY_TYPE_BOOL, PY_TYPE_BOOL, "py_object_not", true);      // Assuming TOK_NOT for '!' or 'not'
+    registerUnaryOp(TOK_MINUS, PY_TYPE_BOOL, PY_TYPE_INT, "py_object_negate", true);  // Negating bool results in int (-1 or 0)
+    registerUnaryOp(TOK_MINUS, PY_TYPE_ANY, PY_TYPE_ANY, "py_object_negate", true);
+
+    registerUnaryOp(TOK_NOT, PY_TYPE_INT, PY_TYPE_BOOL, "py_object_not", true);
+    registerUnaryOp(TOK_NOT, PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_not", true);
+    registerUnaryOp(TOK_NOT, PY_TYPE_STRING, PY_TYPE_BOOL, "py_object_not", true);
+    registerUnaryOp(TOK_NOT, PY_TYPE_LIST, PY_TYPE_BOOL, "py_object_not", true);
+    registerUnaryOp(TOK_NOT, PY_TYPE_DICT, PY_TYPE_BOOL, "py_object_not", true);
+    registerUnaryOp(TOK_NOT, PY_TYPE_ANY, PY_TYPE_BOOL, "py_object_not", true);
+    // Add TOK_TILDE if needed for bitwise invert
 }
 
 void TypeOperationRegistry::registerBinaryOp(
-        char op,
+        PyTokenType op,
         int leftTypeId,
         int rightTypeId,
         int resultTypeId,
@@ -286,7 +366,7 @@ void TypeOperationRegistry::registerBinaryOp(
 }
 
 void TypeOperationRegistry::registerUnaryOp(
-        char op,
+        PyTokenType op,
         int operandTypeId,
         int resultTypeId,
         const std::string& runtimeFunc,
@@ -330,7 +410,7 @@ void TypeOperationRegistry::registerTypeCompatibility(int typeIdA, int typeIdB, 
     typeCompatibility[reverseKey] = compatible;
 }
 
-void TypeOperationRegistry::registerTypePromotion(int typeIdA, int typeIdB, char op, int resultTypeId)
+void TypeOperationRegistry::registerTypePromotion(int typeIdA, int typeIdB, PyTokenType op, int resultTypeId)
 {
     size_t hashValue = (static_cast<size_t>(typeIdA) << 16) | (static_cast<size_t>(typeIdB) << 8) | static_cast<size_t>(op);
 
@@ -344,7 +424,7 @@ void TypeOperationRegistry::registerTypePromotion(int typeIdA, int typeIdB, char
     typePromotions[std::make_tuple(typeIdB, typeIdA, op)] = resultTypeId;
 }
 
-BinaryOpDescriptor* TypeOperationRegistry::getBinaryOpDescriptor(char op, int leftTypeId, int rightTypeId)
+BinaryOpDescriptor* TypeOperationRegistry::getBinaryOpDescriptor(PyTokenType op, int leftTypeId, int rightTypeId)
 {
     auto opIt = binaryOps.find(op);
     if (opIt != binaryOps.end())
@@ -362,7 +442,7 @@ BinaryOpDescriptor* TypeOperationRegistry::getBinaryOpDescriptor(char op, int le
     return nullptr;
 }
 
-UnaryOpDescriptor* TypeOperationRegistry::getUnaryOpDescriptor(char op, int operandTypeId)
+UnaryOpDescriptor* TypeOperationRegistry::getUnaryOpDescriptor(PyTokenType op, int operandTypeId)
 {
     auto opIt = unaryOps.find(op);
     if (opIt != unaryOps.end())
@@ -417,7 +497,7 @@ bool TypeOperationRegistry::areTypesCompatible(int typeIdA, int typeIdB)
     return false;
 }
 
-int TypeOperationRegistry::getResultTypeId(int leftTypeId, int rightTypeId, char op)
+int TypeOperationRegistry::getResultTypeId(int leftTypeId, int rightTypeId, PyTokenType op)
 {
     // 如果类型相同，通常结果也是该类型 (除非特殊操作)
     if (leftTypeId == rightTypeId)
@@ -490,7 +570,7 @@ TypeConversionDescriptor* TypeOperationRegistry::findBestConversion(int fromType
     return bestConv;
 }
 
-std::pair<int, int> TypeOperationRegistry::findOperablePath(char op, int leftTypeId, int rightTypeId)
+std::pair<int, int> TypeOperationRegistry::findOperablePath(PyTokenType op, int leftTypeId, int rightTypeId)
 {
     // 检查是否已有直接的操作路径
     if (getBinaryOpDescriptor(op, leftTypeId, rightTypeId))
@@ -535,86 +615,6 @@ std::pair<int, int> TypeOperationRegistry::findOperablePath(char op, int leftTyp
 }
 
 //===----------------------------------------------------------------------===//
-// 操作符映射实现
-//===----------------------------------------------------------------------===//
-
-std::string OperatorMapper::getBinaryOpName(char op)
-{
-    switch (op)
-    {
-        case '+':
-            return "add";
-        case '-':
-            return "subtract";
-        case '*':
-            return "multiply";
-        case '/':
-            return "divide";
-        case '%':
-            return "modulo";
-        case '&':
-            return "and";
-        case '|':
-            return "or";
-        case '^':
-            return "xor";
-        case '<':
-            return "lt";
-        case '>':
-            return "gt";
-        case '=':
-            return "eq";
-        case '!':
-            return "ne";
-        default:
-            return "unknown";
-    }
-}
-
-std::string OperatorMapper::getUnaryOpName(char op)
-{
-    switch (op)
-    {
-        case '-':
-            return "neg";
-        case '~':
-            return "invert";
-        case '!':
-            return "not";
-        default:
-            return "unknown";
-    }
-}
-
-std::string OperatorMapper::getComparisonOpName(char op)
-{
-    switch (op)
-    {
-        case '<':
-            return "lt";
-        case '>':
-            return "gt";
-        case '=':
-            return "eq";  // ==
-        case '!':
-            return "ne";  // !=
-        case '[':
-            return "le";  // <=
-        case ']':
-            return "ge";  // >=
-        default:
-            return "unknown";
-    }
-}
-
-std::string OperatorMapper::getRuntimeFunctionName(const std::string& base, const std::string& opName)
-{
-    std::stringstream ss;
-    ss << "py_" << base << "_" << opName;
-    return ss.str();
-}
-
-//===----------------------------------------------------------------------===//
 // 操作代码生成器实现
 //===----------------------------------------------------------------------===//
 // filepath: [TypeOperations.cpp](http://_vscodecontentref_/1)
@@ -623,7 +623,7 @@ std::string OperatorMapper::getRuntimeFunctionName(const std::string& base, cons
 
 llvm::Value* OperationCodeGenerator::handleAnyTypeOperation(
         CodeGenBase& gen,
-        char op,
+        PyTokenType op,  // Already PyTokenType
         llvm::Value* left,
         llvm::Value* right,
         bool anyTypeIsLeft,
@@ -633,28 +633,36 @@ llvm::Value* OperationCodeGenerator::handleAnyTypeOperation(
     llvm::LLVMContext& context = gen.getContext();
 
     // 对于比较操作，使用 py_object_compare 函数
-    if (op == '<' || op == '>' || op == '=' || op == '!')
+    // Use PyTokenType constants for comparison
+    if (op == TOK_LT || op == TOK_GT || op == TOK_EQ || op == TOK_NEQ || op == TOK_LE || op == TOK_GE)
     {
         // 确定比较运算符类型
         int compareOp;
         switch (op)
         {
-            case '<':
+            case TOK_LT:
                 compareOp = 2;
                 break;  // PY_CMP_LT
-            case '>':
+            case TOK_GT:
                 compareOp = 4;
                 break;  // PY_CMP_GT
-            case '=':
+            case TOK_EQ:
                 compareOp = 0;
                 break;  // PY_CMP_EQ
-            case '!':
+            case TOK_NEQ:
                 compareOp = 1;
                 break;  // PY_CMP_NE
+            case TOK_LE:
+                compareOp = 3;
+                break;  // PY_CMP_LE (Assuming 3, adjust if needed)
+            case TOK_GE:
+                compareOp = 5;
+                break;  // PY_CMP_GE (Assuming 5, adjust if needed)
             default:
-                compareOp = 0;
+                compareOp = 0;  // Should not happen if check above is correct
         }
 
+        // ... (rest of the comparison logic remains the same) ...
         // 获取比较函数
         llvm::Function* compareFunc = gen.getOrCreateExternalFunction(
                 "py_object_compare",
@@ -697,27 +705,32 @@ llvm::Value* OperationCodeGenerator::handleAnyTypeOperation(
 
     // 对于其他二元操作，使用相应的运行时函数
     std::string opName;
-    switch (op)
+    switch (op)  // Use PyTokenType constants
     {
-        case '+':
+        case TOK_PLUS:
             opName = "add";
             break;
-        case '-':
+        case TOK_MINUS:
             opName = "subtract";
             break;
-        case '*':
+        case TOK_MUL:
             opName = "multiply";
             break;
-        case '/':
+        case TOK_DIV:
             opName = "divide";
             break;
-        case '%':
+        case TOK_MOD:
             opName = "modulo";
             break;
+        // Add other binary operators as needed (e.g., TOK_POWERER, TOK_FLOOR_DIV)
         default:
-            opName = "add";  // 默认操作
+            // Handle unsupported or unexpected operators for ANY type
+            std::cerr << "Unsupported binary operator " << op << " for ANY type in handleAnyTypeOperation" << std::endl;
+            // Consider returning a specific error object or nullptr
+            return nullptr;  // Or generate code to raise TypeError at runtime
     }
 
+    // ... (rest of the binary operation logic remains the same) ...
     std::string funcName = "py_object_" + opName;
     llvm::Function* opFunc = gen.getOrCreateExternalFunction(
             funcName,
@@ -756,7 +769,7 @@ llvm::Value* OperationCodeGenerator::handleAnyTypeOperation(
 
 llvm::Value* OperationCodeGenerator::handleBinaryOp(
         CodeGenBase& gen,
-        char op,
+        PyTokenType op,
         llvm::Value* left,
         llvm::Value* right,
         int leftTypeId,
@@ -836,7 +849,7 @@ llvm::Value* OperationCodeGenerator::handleBinaryOp(
 
 llvm::Value* OperationCodeGenerator::handleUnaryOp(
         CodeGenBase& gen,
-        char op,
+        PyTokenType op,
         llvm::Value* operand,
         int operandTypeId)
 {
@@ -1255,7 +1268,7 @@ llvm::Value* OperationResultHandler::prepareArgument(
 ObjectType* TypeInferencer::inferBinaryOpResultType(
         ObjectType* leftType,
         ObjectType* rightType,
-        char op)
+        PyTokenType op)
 {
     if (!leftType || !rightType)
     {
@@ -1298,7 +1311,7 @@ ObjectType* TypeInferencer::inferBinaryOpResultType(
             }
             // 默认为Object元素类型
             return TypeRegistry::getInstance().getListType(
-                    TypeRegistry::getInstance().getType("object"));
+                    TypeRegistry::getInstance().getType("object"));  // Consider returning list[any]
 
         case PY_TYPE_DICT:
             // 对于字典，保持键值类型
@@ -1308,14 +1321,27 @@ ObjectType* TypeInferencer::inferBinaryOpResultType(
                         const_cast<ObjectType*>(leftDict->getKeyType()),
                         const_cast<ObjectType*>(leftDict->getValueType()));
             }
+            else if (const DictType* rightDict = dynamic_cast<const DictType*>(rightType))  // Also check right operand
+            {
+                return TypeRegistry::getInstance().getDictType(
+                        const_cast<ObjectType*>(rightDict->getKeyType()),
+                        const_cast<ObjectType*>(rightDict->getValueType()));
+            }
             // 默认键为string，值为object
             return TypeRegistry::getInstance().getDictType(
-                    TypeRegistry::getInstance().getType("string"),
-                    TypeRegistry::getInstance().getType("object"));
+                    TypeRegistry::getInstance().getType("string"),   // Consider key type any
+                    TypeRegistry::getInstance().getType("object"));  // Consider value type any
+
+        // --- 添加 PY_TYPE_ANY 的处理 ---
+        case PY_TYPE_ANY:
+            return TypeRegistry::getInstance().getType("any");
+            // --- 结束添加 ---
 
         default:
-            // 对于未知类型ID，返回通用object类型
-            return TypeRegistry::getInstance().getType("object");
+            // 对于未知或未处理的类型ID，返回 Any 类型更合适
+            std::cerr << "Warning [inferBinaryOpResultType]: Unhandled resultTypeId " << resultTypeId
+                      << " for op " << op << ". Defaulting to Any." << std::endl;
+            return TypeRegistry::getInstance().getType("any");  // Changed from "object" to "any"
     }
 }
 
@@ -1482,7 +1508,7 @@ bool TypeInferencer::canIndexContainer(
 
 ObjectType* TypeInferencer::inferUnaryOpResultType(
         ObjectType* operandType,
-        char op)
+        PyTokenType op)  // Already PyTokenType
 {
     if (!operandType)
     {
@@ -1490,25 +1516,43 @@ ObjectType* TypeInferencer::inferUnaryOpResultType(
     }
 
     // 对于一元操作，结果类型通常与操作数类型相同，除了特殊情况
-    switch (op)
+    switch (op)  // Use PyTokenType constants
     {
-        case '-':
+        case TOK_MINUS:  // Use TOK_MINUS instead of '-'
             // 数值取负，类型保持不变
             if (TypeFeatureChecker::isNumeric(operandType))
             {
                 return operandType;
             }
-            // 如果不是数值类型，返回整型（默认行为）
-            return TypeRegistry::getInstance().getType("int");
+            // 如果不是数值类型，尝试在运行时处理，静态推断为 ANY 或引发错误
+            // For now, let's return ANY as a safe default, or consider error reporting
+            std::cerr << "Warning [inferUnaryOpResultType]: Unary minus applied to non-numeric type "
+                      << operandType->getName() << ". Inferring ANY." << std::endl;
+            return TypeRegistry::getInstance().getType("any");  // Or return nullptr for error
 
-        case '!':  // not 操作
-        case '~':  // 逻辑非
-            // 布尔操作通常返回布尔类型
+        case TOK_NOT:  // Use TOK_NOT instead of '!' or '~'
+            // Python's 'not' operator always returns bool
             return TypeRegistry::getInstance().getType("bool");
 
+            // Add cases for other unary operators like TOK_PLUS (unary plus), TOK_TILDE (bitwise not) if needed
+            // case TOK_PLUS:
+            //     if (TypeFeatureChecker::isNumeric(operandType)) {
+            //         return operandType;
+            //     }
+            //     // Handle non-numeric case
+            //     return TypeRegistry::getInstance().getType("any");
+            // case TOK_TILDE:
+            //     if (operandType->getTypeId() == PY_TYPE_INT || operandType->getTypeId() == PY_TYPE_BOOL) {
+            //         return TypeRegistry::getInstance().getType("int");
+            //     }
+            //     // Handle non-integer case
+            //     return TypeRegistry::getInstance().getType("any");
+
         default:
-            // 未知一元操作，返回与操作数相同的类型
-            return operandType;
+            // 未知或不支持的一元操作
+            std::cerr << "Warning [inferUnaryOpResultType]: Unknown or unsupported unary operator "
+                      << op << " for type " << operandType->getName() << ". Inferring operand type." << std::endl;
+            return operandType;  // Or return ANY or nullptr
     }
 }
 
@@ -1578,67 +1622,6 @@ ObjectType* TypeInferencer::getCommonSuperType(
 
     // 如果类型不兼容或者没有明确的共同类型，返回通用Object类型
     return TypeRegistry::getInstance().getType("object");
-}
-
-// 添加从PyTokenType到操作符字符的映射辅助函数
-char convertTokenTypeToOperator(PyTokenType tokenType)
-{
-    switch (tokenType)
-    {
-        case TOK_PLUS:
-            return '+';
-        case TOK_MINUS:
-            return '-';
-        case TOK_MUL:
-            return '*';
-        case TOK_DIV:
-            return '/';
-        case TOK_MOD:
-            return '%';
-        case TOK_LT:
-            return '<';
-        case TOK_GT:
-            return '>';
-        case TOK_LE:
-            return '[';  // 使用'['表示小于等于，与OperatorMapper::getComparisonOpName一致
-        case TOK_GE:
-            return ']';  // 使用']'表示大于等于，与OperatorMapper::getComparisonOpName一致
-        case TOK_EQ:
-            return '=';
-        case TOK_NEQ:
-            return '!';
-        default:
-            // 不支持的标记类型，返回空字符
-            return '\0';
-    }
-}
-// 添加支持PyTokenType的重载版本
-ObjectType* TypeInferencer::inferBinaryOpResultType(
-        ObjectType* leftType,
-        ObjectType* rightType,
-        PyTokenType opToken)
-{
-    char op = convertTokenTypeToOperator(opToken);
-    if (op == '\0')
-    {
-        // 不支持的操作符，返回默认类型
-        return TypeRegistry::getInstance().getType("object");
-    }
-    return inferBinaryOpResultType(leftType, rightType, op);
-}
-
-// 添加支持PyTokenType的重载版本
-ObjectType* TypeInferencer::inferUnaryOpResultType(
-        ObjectType* operandType,
-        PyTokenType opToken)
-{
-    char op = convertTokenTypeToOperator(opToken);
-    if (op == '\0')
-    {
-        // 不支持的操作符，返回与操作数相同的类型
-        return operandType;
-    }
-    return inferUnaryOpResultType(operandType, op);
 }
 
 }  // namespace llvmpy

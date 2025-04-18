@@ -20,6 +20,7 @@ namespace llvmpy {
 class PyCodeGen;
 
 // 哈希元组的辅助类
+// 目前是死代码，但是为了说不定可能会用
 struct TupleHash {
     template <typename... T>
     std::size_t operator()(const std::tuple<T...>& t) const {
@@ -31,11 +32,16 @@ struct TupleHash {
     }
     
 private:
-    // 组合哈希值的辅助函数
-    template <typename T>
-    static void hash_combine(std::size_t& seed, const T& val) {
-        seed ^= std::hash<T>{}(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    }
+       // 组合哈希值的辅助函数
+       template <typename T>
+       static void hash_combine(std::size_t& seed, const T& val) {
+           // std::hash should work for enums like PyTokenType
+           seed ^= std::hash<T>{}(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+       }
+       // Specialization for PyTokenType if needed, but likely not necessary
+       // static void hash_combine(std::size_t& seed, const PyTokenType& val) {
+       //     seed ^= std::hash<int>{}(static_cast<int>(val)) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+       // }
 };
 
 /**
@@ -93,6 +99,7 @@ struct TypeConversionDescriptor {
 /**
  * 索引操作描述符 - 描述容器和索引类型之间的规则 (新增)
  */
+ // 这一个似乎没怎么使用过
 struct IndexOpDescriptor {
     int containerTypeId;          // 容器类型ID
     int indexTypeId;              // 索引类型ID
@@ -106,6 +113,7 @@ struct IndexOpDescriptor {
 /**
  * 哈希函数，用于std::pair<int, int>
  */
+
 struct PairHash {
     template <class T1, class T2>
     std::size_t operator() (const std::pair<T1, T2>& pair) const {
@@ -120,7 +128,7 @@ class TypeOperationRegistry {
 private:
     // 二元操作映射: 操作符 -> (左类型ID, 右类型ID) -> 操作描述符
     std::unordered_map<
-        char, 
+    PyTokenType, 
         std::unordered_map<
             std::pair<int, int>, 
             BinaryOpDescriptor, 
@@ -130,7 +138,7 @@ private:
     
     // 一元操作映射: 操作符 -> 类型ID -> 操作描述符
     std::unordered_map<
-        char,
+    PyTokenType,
         std::unordered_map<int, UnaryOpDescriptor>
     > unaryOps;
     
@@ -155,7 +163,7 @@ private:
     
     // 类型提升规则: (类型A, 类型B, 操作符) -> 结果类型
     std::unordered_map<
-        std::tuple<int, int, char>,
+        std::tuple<int, int, PyTokenType>,
         int,
         TupleHash
     > typePromotions;
@@ -181,7 +189,7 @@ public:
      * @param customImpl 自定义实现函数 (可选)
      */
     void registerBinaryOp(
-        char op, 
+        PyTokenType op, 
         int leftTypeId, 
         int rightTypeId, 
         int resultTypeId, 
@@ -200,13 +208,13 @@ public:
      * @param customImpl 自定义实现函数 (可选)
      */
     void registerUnaryOp(
-        char op,
+        PyTokenType op,
         int operandTypeId,
         int resultTypeId,
         const std::string& runtimeFunc,
         bool needsWrap = true,
         std::function<llvm::Value*(PyCodeGen&, llvm::Value*)> customImpl = nullptr
-    );
+    );// 死代码？
     
     /**
      * 注册类型转换
@@ -238,7 +246,7 @@ public:
         int resultTypeId,
         const std::string& runtimeFunc,
         std::function<llvm::Value*(PyCodeGen&, llvm::Value*, llvm::Value*)> customImpl = nullptr
-    );
+    );// 死代码连实现都没有
     
     /**
      * 注册类型兼容性
@@ -255,7 +263,7 @@ public:
      * @param op 操作符
      * @param resultTypeId 结果类型ID
      */
-    void registerTypePromotion(int typeIdA, int typeIdB, char op, int resultTypeId);
+    void registerTypePromotion(int typeIdA, int typeIdB, PyTokenType op, int resultTypeId);
     
     /**
      * 获取二元操作描述符
@@ -264,7 +272,7 @@ public:
      * @param rightTypeId 右操作数类型ID
      * @return 操作描述符指针，如果不存在则返回nullptr
      */
-    BinaryOpDescriptor* getBinaryOpDescriptor(char op, int leftTypeId, int rightTypeId);
+    BinaryOpDescriptor* getBinaryOpDescriptor(PyTokenType op, int leftTypeId, int rightTypeId);
     
     /**
      * 获取一元操作描述符
@@ -272,7 +280,7 @@ public:
      * @param operandTypeId 操作数类型ID
      * @return 操作描述符指针，如果不存在则返回nullptr
      */
-    UnaryOpDescriptor* getUnaryOpDescriptor(char op, int operandTypeId);
+    UnaryOpDescriptor* getUnaryOpDescriptor(PyTokenType op, int operandTypeId);
     
     /**
      * 获取类型转换描述符
@@ -288,7 +296,7 @@ public:
      * @param indexTypeId 索引类型ID
      * @return 索引描述符指针，如果不存在则返回nullptr
      */
-    IndexOpDescriptor* getIndexOpDescriptor(int containerTypeId, int indexTypeId);
+    IndexOpDescriptor* getIndexOpDescriptor(int containerTypeId, int indexTypeId);// 死代码
     
     /**
      * 判断两种类型是否兼容
@@ -313,7 +321,7 @@ public:
      * @param op 操作符
      * @return 结果类型ID
      */
-    int getResultTypeId(int leftTypeId, int rightTypeId, char op);
+    int getResultTypeId(int leftTypeId, int rightTypeId, PyTokenType op);
     
     /**
      * 获取索引操作的结果类型ID (新增)
@@ -321,7 +329,7 @@ public:
      * @param indexTypeId 索引类型ID
      * @return 结果类型ID
      */
-    int getIndexResultTypeId(int containerTypeId, int indexTypeId);
+    int getIndexResultTypeId(int containerTypeId, int indexTypeId);// 死代码
     
     /**
      * 为操作数自动选择正确的类型转换
@@ -329,14 +337,14 @@ public:
      * @param toTypeId 目标类型ID
      * @return 转换描述符指针，如果不需要转换则返回nullptr
      */
-    TypeConversionDescriptor* findBestConversion(int fromTypeId, int toTypeId);
+    TypeConversionDescriptor* findBestConversion(int fromTypeId, int toTypeId);// 死代码有实现但是没有调用出
     
     /**
      * 为索引自动选择正确的类型转换 (新增)
      * @param indexTypeId 索引类型ID
      * @return 转换描述符指针，如果不需要转换则返回nullptr
      */
-    TypeConversionDescriptor* findBestIndexConversion(int indexTypeId);
+    TypeConversionDescriptor* findBestIndexConversion(int indexTypeId);// 死代码
     
     /**
      * 查找可行的二元操作路径
@@ -345,7 +353,7 @@ public:
      * @param rightTypeId 右操作数类型ID
      * @return 转换后的操作数类型对 (如果不需要转换则返回原始类型对)
      */
-    std::pair<int, int> findOperablePath(char op, int leftTypeId, int rightTypeId);
+    std::pair<int, int> findOperablePath(PyTokenType op, int leftTypeId, int rightTypeId);
     
     /**
      * 查找可行的索引操作路径 (新增)
@@ -353,26 +361,10 @@ public:
      * @param indexTypeId 索引类型ID
      * @return 转换后的索引类型 (如果不需要转换则返回原始索引类型)
      */
-    int findIndexablePath(int containerTypeId, int indexTypeId);
+    int findIndexablePath(int containerTypeId, int indexTypeId);// 死代码
 };
 
-/**
- * 操作码映射 - 将字符操作符映射到字符串名称
- */
-class OperatorMapper {
-public:
-    // 获取二元操作符对应的函数名后缀
-    static std::string getBinaryOpName(char op);
-    
-    // 获取一元操作符对应的函数名后缀
-    static std::string getUnaryOpName(char op);
-    
-    // 获取比较操作符对应的函数名后缀
-    static std::string getComparisonOpName(char op);
-    
-    // 生成完整的运行时函数名
-    static std::string getRuntimeFunctionName(const std::string& base, const std::string& opName);
-};
+
 
 /**
  * 操作代码生成器 - 生成类型操作的LLVM IR代码
@@ -391,7 +383,7 @@ public:
      */
     static llvm::Value* handleBinaryOp(
         CodeGenBase& gen,
-        char op,
+        PyTokenType op,
         llvm::Value* left,
         llvm::Value* right,
         int leftTypeId,
@@ -408,7 +400,7 @@ public:
      */
     static llvm::Value* handleUnaryOp(
         CodeGenBase& gen,
-        char op,
+        PyTokenType op,
         llvm::Value* operand,
         int operandTypeId
     );
@@ -443,7 +435,7 @@ public:
  */
 static llvm::Value* handleAnyTypeOperation(
     CodeGenBase& gen,
-    char op,
+    PyTokenType op,
     llvm::Value* left,
     llvm::Value* right,
     bool anyTypeIsLeft,
@@ -478,7 +470,7 @@ static llvm::Value* handleAnyTypeOperation(
         CodeGenBase& gen,
         llvm::Value* index,
         int indexTypeId
-    );
+    );// 死代码有实现没找到调用处
     
     /**
      * 从任何类型值中提取整数 (新增)
@@ -491,7 +483,7 @@ static llvm::Value* handleAnyTypeOperation(
         CodeGenBase& gen,
         llvm::Value* value,
         int typeId
-    );
+    );// 死代码
     
     /**
      * 从对象类型获取运行时类型ID
@@ -522,7 +514,7 @@ static llvm::Value* handleAnyTypeOperation(
         llvm::Value* container,
         llvm::Value* index,
         int indexTypeId
-    );
+    );// 死代码
 };
 
 /**
@@ -543,7 +535,7 @@ public:
         llvm::Value* result,
         int resultTypeId,
         int expectedTypeId
-    );
+    );// 死代码有实现没找到调用处
     
     /**
      * 处理函数返回值
@@ -588,7 +580,8 @@ public:
         llvm::Value* result,
         int containerTypeId,
         int indexTypeId
-    );
+    );// 死代码
+
 };
 
 /**
@@ -606,7 +599,7 @@ public:
     static ObjectType* inferBinaryOpResultType(
         ObjectType* leftType,
         ObjectType* rightType,
-        char op
+        PyTokenType op
     );
     
     /**
@@ -617,32 +610,10 @@ public:
      */
     static ObjectType* inferUnaryOpResultType(
         ObjectType* operandType,
-        char op
+        PyTokenType op
     );
     
-    /**
-     * 推断二元操作的结果类型 (Token版本)
-     * @param leftType 左操作数类型
-     * @param rightType 右操作数类型
-     * @param opToken 操作符Token
-     * @return 结果类型
-     */
-    static ObjectType* inferBinaryOpResultType(
-        ObjectType* leftType,
-        ObjectType* rightType,
-        PyTokenType opToken
-    );
-    
-    /**
-     * 推断一元操作的结果类型 (Token版本)
-     * @param operandType 操作数类型
-     * @param opToken 操作符Token
-     * @return 结果类型
-     */
-    static ObjectType* inferUnaryOpResultType(
-        ObjectType* operandType,
-        PyTokenType opToken
-    );
+
     
     /**
      * 推断索引操作的结果类型 (新增)
@@ -675,7 +646,7 @@ public:
     static bool canIndexContainer(
         ObjectType* containerType,
         ObjectType* indexType
-    );
+    );// 死代码有实现但是没有找到调用处
 };
 
 

@@ -113,9 +113,13 @@ enum PyTokenType
     TOK_DIV_ASSIGN = -74,    ///< /=
     TOK_MOD_ASSIGN = -75,    ///< %=
     TOK_POWER = -76,         ///< **
-    TOK_FLOOR_DIV = -77,     ///< ///<
+    TOK_FLOOR_DIV = -77,     ///< //
     TOK_ARROW = -78,         ///< ->
     TOK_AT = -79,            ///< @
+
+    TOK_POWER_ASSIGN = -80, ///< **=
+    TOK_FLOOR_DIV_ASSIGN = -81, ///< //=
+    
     // @note 缺少位运算符 (&, |, ^, ~, <<, >>), 矩阵乘法 (@) 等
     // === 标识符和字面量 (-100 到 -149) ===
     TOK_IDENTIFIER = -100,  ///< 标识符 (变量名, 函数名等)
@@ -295,6 +299,7 @@ public:
          * @brief 注册一个单字符操作符及其对应的 Token 类型。
          * @param op 操作符字符 (例如 '+')。
          * @param type 对应的 PyTokenType (例如 TOK_PLUS)。
+         * @note 由于是处理SimpleOperator所以这里使用char是正确的
          */
     static void registerSimpleOperator(char op, PyTokenType type);
 
@@ -325,6 +330,7 @@ public:
       * @brief 根据单字符操作符获取其对应的 Token 类型。
       * @param op 操作符字符。
       * @return PyTokenType 对应的 Token 类型。如果不是已注册的单字符操作符，则返回默认值。
+      * @note 由于是处理SimpleOperator所以这里使用char是正确的
       */
     static PyTokenType getSimpleOperatorType(char op);
 

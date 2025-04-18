@@ -65,142 +65,33 @@ public:
 // 操作符信息结构，扩展为支持类型推导
 struct PyOperatorInfo
 {
-    char symbol;
+    // char symbol; // 删除旧的 char 成员
+    PyTokenType opType; // 新增：使用 PyTokenType 表示操作符
     int precedence;
     bool rightAssoc;
-    
+
     // 增加对TypeOperations的支持
-    std::function<ObjectType*(ObjectType*, ObjectType*)> typeInferFunc;
+    std::function<ObjectType*(ObjectType*, ObjectType*)> typeInferFunc; // For binary ops
 
-    PyOperatorInfo(char s = '\0', int p = 0, bool r = false)
-        : symbol(s), precedence(p), rightAssoc(r) {}
-    
-    PyOperatorInfo(char s, int p, bool r,
+    // 新增：一元操作符的类型推导函数 (如果需要区分)
+    std::function<ObjectType*(ObjectType*)> unaryTypeInferFunc;
+
+    // 更新构造函数以接受 PyTokenType
+    PyOperatorInfo(PyTokenType t = TOK_ERROR, int p = -1, bool r = false) // Default precedence to -1
+        : opType(t), precedence(p), rightAssoc(r), typeInferFunc(nullptr), unaryTypeInferFunc(nullptr) {}
+
+    // 更新构造函数以接受 PyTokenType 和二元类型推导函数
+    PyOperatorInfo(PyTokenType t, int p, bool r,
                   std::function<ObjectType*(ObjectType*, ObjectType*)> inferFunc)
-        : symbol(s), precedence(p), rightAssoc(r), typeInferFunc(std::move(inferFunc)) {}
+        : opType(t), precedence(p), rightAssoc(r), typeInferFunc(std::move(inferFunc)), unaryTypeInferFunc(nullptr) {}
+
+     // 新增：构造函数以接受 PyTokenType 和一元类型推导函数 (如果需要)
+     PyOperatorInfo(PyTokenType t, int p, std::function<ObjectType*(ObjectType*)> unaryInferFunc)
+         : opType(t), precedence(p), rightAssoc(false), typeInferFunc(nullptr), unaryTypeInferFunc(std::move(unaryInferFunc)) {}
 };
 
-// 操作符优先级类，增强为支持类型推导
-class PyOperatorPrecedence
-{
-private:
-    std::map<char, int> precedenceMap;
-    // 新增：操作符到类型推导器的映射
-    std::map<char, std::function<ObjectType*(ObjectType*, ObjectType*)>> typeInferenceFuncs;
 
-public:
-    PyOperatorPrecedence() {}
 
-    // 添加操作符优先级
-    void addOperator(char op, int precedence) {
-        precedenceMap[op] = precedence;
-    }
-    
-    // 添加操作符优先级和类型推导函数
-    void addOperator(char op, int precedence, 
-                    std::function<ObjectType*(ObjectType*, ObjectType*)> inferFunc) {
-        precedenceMap[op] = precedence;
-        typeInferenceFuncs[op] = std::move(inferFunc);
-    }
-
-    // 获取Token的操作符优先级
-    int getTokenPrecedence(PyTokenType tokenType, const PyOperatorInfo& info) const {
-        auto it = precedenceMap.find(info.symbol);
-        if (it != precedenceMap.end()) {
-            return it->second;
-        }
-        return -1; // 未知优先级
-    }
-    
-    // 新增：使用TypeOperations推导结果类型
-    ObjectType* inferResultType(char op, ObjectType* leftType, ObjectType* rightType) const {
-        auto it = typeInferenceFuncs.find(op);
-        if (it != typeInferenceFuncs.end() && it->second) {
-            return it->second(leftType, rightType);
-        }
-        // 回退到默认推导方法
-        return TypeInferencer::inferBinaryOpResultType(leftType, rightType, op);
-    }
-};
-
-// ============================ 生命周期管理集成 ============================
-
-// 解析时类型安全器 - 防止类型不一致导致的错误
-/* class TypeSafetyChecker {
-public:
-    // 检查表达式类型与期望类型是否兼容
-    static bool isTypeCompatible(const std::shared_ptr<PyType>& exprType, 
-                                int expectedTypeId) {
-        if (!exprType) return false;
-        
-        ObjectType* objType = exprType->getObjectType();
-        if (!objType) return false;
-        
-        // 使用运行时类型ID进行比较
-        int runtimeTypeId = mapToRuntimeTypeId(objType->getTypeId());
-        return runtimeTypeId == expectedTypeId || 
-               areTypesCompatible(runtimeTypeId, expectedTypeId);
-    }
-    
-    // 检查索引操作的类型安全性
-    static bool checkIndexOperation(const std::shared_ptr<PyType>& targetType, 
-                                   const std::shared_ptr<PyType>& indexType) {
-        if (!targetType || !indexType) return false;
-        
-        // 检查目标是否为列表类型
-        if (targetType->isList()) {
-            // 列表索引必须是整数
-            return indexType->isInt();
-        }
-        
-        // 检查目标是否为字典类型
-        if (targetType->isDict()) {
-            // 获取字典键的类型
-            const DictType* dictType = dynamic_cast<const DictType*>(targetType->getObjectType());
-            if (dictType) {
-                const ObjectType* keyType = dictType->getKeyType();
-                // 检查键类型与索引类型是否兼容
-                return areTypesRelated(indexType->getObjectType(), keyType);
-            }
-        }
-        
-        return false;
-    }
-    
-    // 检查两个类型是否有关联（兼容或可转换）
-    static bool areTypesRelated(const ObjectType* typeA, const ObjectType* typeB) {
-        if (!typeA || !typeB) return false;
-        
-        // 使用TypeOperations中的机制检查类型兼容性
-        int typeIdA = typeA->getTypeId();
-        int typeIdB = typeB->getTypeId();
-        
-        return TypeOperationRegistry::getInstance().areTypesCompatible(typeIdA, typeIdB);
-    }
-    
-    // 使用TypeIDs.h中的函数检查运行时类型兼容性
-    static bool areTypesCompatible(int typeIdA, int typeIdB) {
-        // 相同类型总是兼容的
-        if (typeIdA == typeIdB) return true;
-        
-        // 获取基础类型ID
-        int baseTypeA = getBaseTypeId(typeIdA);
-        int baseTypeB = getBaseTypeId(typeIdB);
-        
-        // 类型相同则兼容
-        if (baseTypeA == baseTypeB) return true;
-        
-        // 检查数值类型兼容性（int和double可互相转换）
-        bool aIsNumeric = (baseTypeA == PY_TYPE_INT || baseTypeA == PY_TYPE_DOUBLE);
-        bool bIsNumeric = (baseTypeB == PY_TYPE_INT || baseTypeB == PY_TYPE_DOUBLE);
-        
-        if (aIsNumeric && bIsNumeric) return true;
-        
-        // TODO: 未来可能添加更多兼容性规则
-        
-        return false;
-    }
-}; */
 
 // ============================ 解析错误 ============================
 
@@ -237,6 +128,8 @@ public:
     PyLexer& getLexer() { return lexer; }
     const PyToken& getCurrentToken() const { return currentToken; }
     
+    // 优先级爬升处理（为了处理-2**4这种）
+    std::unique_ptr<ExprAST> parseExpressionPrecedence(int minPrecedence);
     // 调试辅助
     void dumpCurrentToken() const;
     bool logTypeBoolError(const std::string& message) const;
@@ -250,7 +143,7 @@ bool expectStatementEnd(const std::string& errorMessage );
 private:
     PyLexer& lexer;
     PyToken currentToken;
-    PyOperatorPrecedence opPrecedence;
+    //PyOperatorPrecedence opPrecedence;
 
     // 解析器注册表
     static PyParserRegistry<PyTokenType, ExprAST> exprRegistry;
@@ -271,7 +164,7 @@ private:
     static void initializeRegistries();
     static void registerExprParser(PyTokenType type, PyExprParserFunc parser);
     static void registerStmtParser(PyTokenType type, PyStmtParserFunc parser);
-    static void registerOperator(PyTokenType type, char symbol, int precedence, bool rightAssoc = false);
+    static void registerOperator(PyTokenType type, int precedence, bool rightAssoc = false);
     static bool isInitialized;
 
     // 错误处理
@@ -308,15 +201,15 @@ private:
     std::unique_ptr<ExprAST> parsePrimary();
     std::unique_ptr<ExprAST> parseBinOpRHS(int exprPrec, std::unique_ptr<ExprAST> LHS);
     std::unique_ptr<ExprAST> parseExpression();
-    std::unique_ptr<ExprAST> parseUnaryExpr();
+    //std::unique_ptr<ExprAST> parseUnaryExpr();
     std::unique_ptr<ExprAST> parseListExpr();
     std::unique_ptr<ExprAST> parseIndexExpr(std::unique_ptr<ExprAST> target);
     std::unique_ptr<ExprAST> parseDictExpr(); 
 
     // 新增：类型检查辅助方法
-    bool validateBinaryOp(char op, const std::shared_ptr<PyType>& leftType, 
-                         const std::shared_ptr<PyType>& rightType);
-    bool validateUnaryOp(char op, const std::shared_ptr<PyType>& operandType);
+    bool validateBinaryOp(PyTokenType opType, const std::shared_ptr<PyType>& leftType,
+        const std::shared_ptr<PyType>& rightType);
+        bool validateUnaryOp(PyTokenType opType, const std::shared_ptr<PyType>& operandType);
     bool validateIndexOperation(const std::shared_ptr<PyType>& targetType, 
                                const std::shared_ptr<PyType>& indexType);
     
@@ -430,9 +323,9 @@ public:
 class ExpressionTypeInferer {
 public:
     // 推导二元操作表达式类型
-    static std::shared_ptr<PyType> inferBinaryExprType(char op, 
-                                                     const std::shared_ptr<PyType>& leftType,
-                                                     const std::shared_ptr<PyType>& rightType) {
+    static std::shared_ptr<PyType> inferBinaryExprType(PyTokenType opType, // 使用 PyTokenType
+        const std::shared_ptr<PyType>& leftType,
+        const std::shared_ptr<PyType>& rightType) {
         if (!leftType || !rightType) return PyType::getAny();
         
         ObjectType* leftObjType = leftType->getObjectType();
@@ -442,23 +335,23 @@ public:
         
         // 使用TypeOperations中的类型推导器
         ObjectType* resultType = TypeInferencer::inferBinaryOpResultType(
-            leftObjType, rightObjType, op);
-        
+            leftObjType, rightObjType, opType); // 传递 opType
+
         if (!resultType) return PyType::getAny();
-        
+
         return std::make_shared<PyType>(resultType);
     }
     
     // 推导一元操作表达式类型
-    static std::shared_ptr<PyType> inferUnaryExprType(char op, 
-                                                    const std::shared_ptr<PyType>& operandType) {
+    static std::shared_ptr<PyType> inferUnaryExprType(PyTokenType opType, // 使用 PyTokenType
+        const std::shared_ptr<PyType>& operandType){
         if (!operandType) return PyType::getAny();
         
         ObjectType* objType = operandType->getObjectType();
         if (!objType) return PyType::getAny();
         
         // 使用TypeOperations中的类型推导器
-        ObjectType* resultType = TypeInferencer::inferUnaryOpResultType(objType, op);
+        ObjectType* resultType = TypeInferencer::inferUnaryOpResultType(objType, opType);
         
         if (!resultType) return PyType::getAny();
         

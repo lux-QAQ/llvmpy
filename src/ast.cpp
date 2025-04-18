@@ -1,9 +1,11 @@
 #include "ast.h"
-#include "CodeGen/codegen.h"  // 添加这一行，引入CodeGen完整定义
+#include "parser.h"
+
 #include "ObjectType.h"
 #include "TypeIDs.h"
 #include "TypeOperations.h"  // Include for TypeInferencer
 #include "ObjectLifecycle.h" // Include for ObjectLifecycleManager
+#include "CodeGen/PyCodeGen.h" // <--- 添加这一行，包含 PyCodeGen 的完整定义
 //#include "ObjectRuntime.h"   // Include for ObjectRuntime
 
 
@@ -394,36 +396,53 @@ std::shared_ptr<PyType> BinaryExprAST::getType() const
         return cachedType;
     }
 
-    // 对于比较操作符，返回布尔值
-    if (op == '<' || op == '>' || op == 'l' || op == 'g' || op == 'e' || op == 'n')
+    // 对于比较操作符，直接返回布尔值
+    if (opType == TOK_LT || opType == TOK_GT || opType == TOK_LE || opType == TOK_GE ||
+        opType == TOK_EQ || opType == TOK_NEQ || opType == TOK_IS || opType == TOK_IS_NOT ||
+        opType == TOK_IN || opType == TOK_NOT_IN)
     {
         cachedType = PyType::getBool();
         return cachedType;
     }
 
-    // 对于加减乘除，返回操作数的共同类型
+    // 对于其他二元操作，使用类型推导器
     auto lhsType = lhs->getType();
     auto rhsType = rhs->getType();
 
-    // 字符串连接
-    if (op == '+' && (lhsType->isString() || rhsType->isString()))
-    {
-        cachedType = PyType::getString();
+    if (!lhsType || !rhsType) {
+        cachedType = PyType::getAny(); // Fallback if operand types are unknown
         return cachedType;
     }
 
-    // 列表加法
-    if (op == '+' && lhsType->isList() && rhsType->isList())
-    {
-        cachedType = getCommonType(lhsType, rhsType);
+    ObjectType* lhsObjType = lhsType->getObjectType();
+    ObjectType* rhsObjType = rhsType->getObjectType();
+
+    if (!lhsObjType || !rhsObjType) {
+        cachedType = PyType::getAny(); // Fallback if ObjectTypes are invalid
         return cachedType;
     }
 
-    // 数值运算
-    cachedType = getCommonType(lhsType, rhsType);
+    // --- 修改：直接使用 TypeInferencer ---
+    // 使用 TypeInferencer 进行推导，它返回 ObjectType*
+    ObjectType* resultObjType = TypeInferencer::inferBinaryOpResultType(lhsObjType, rhsObjType, opType);
+
+    if (!resultObjType) {
+         // 如果 TypeInferencer 推断失败，返回 Any
+         cachedType = PyType::getAny();
+         std::cerr << "Warning [BinaryExprAST::getType]: Type inference failed for binary operator "
+                   << opType << ". Defaulting to Any." << std::endl;
+    } else {
+         // 从推断出的 ObjectType 创建 PyType
+         cachedType = PyType::fromObjectType(resultObjType);
+         if (!cachedType) { // Double check in case fromObjectType fails
+             cachedType = PyType::getAny();
+             std::cerr << "Warning [BinaryExprAST::getType]: Failed to create PyType from inferred ObjectType. Defaulting to Any." << std::endl;
+         }
+    }
+    // --- 结束修改 ---
+
     return cachedType;
 }
-
 
 
 
@@ -453,31 +472,7 @@ std::shared_ptr<PyType> NoneExprAST::getType() const
 {
     return PyType::getVoid();
 }
-/* std::shared_ptr<PyType> UnaryExprAST::getType() const
-{
-    if (cachedType)
-    {
-        return cachedType;
-    }
 
-    // 布尔取反操作
-    if (opCode == '!')
-    {
-        cachedType = PyType::getBool();
-        return cachedType;
-    }
-
-    // 数值取反操作
-    if (opCode == '-')
-    {
-        cachedType = operand->getType();
-        return cachedType;
-    }
-
-    // 默认情况：保持操作数类型不变
-    cachedType = operand->getType();
-    return cachedType;
-} */
 
 
 std::shared_ptr<PyType> UnaryExprAST::getType() const
@@ -494,7 +489,7 @@ std::shared_ptr<PyType> UnaryExprAST::getType() const
     }
 
     // Use TypeInferencer for consistency
-    ObjectType* resultObjType = TypeInferencer::inferUnaryOpResultType(operandType->getObjectType(), opCode);
+    ObjectType* resultObjType = TypeInferencer::inferUnaryOpResultType(operandType->getObjectType(), opType);
     if (!resultObjType) {
          cachedType = PyType::getAny(); // Fallback if inference fails
          return cachedType;
@@ -618,81 +613,6 @@ std::shared_ptr<PyType> ListExprAST::getType() const
 
 
 
-/* std::shared_ptr<PyType> IndexExprAST::getType() const
-{
-    if (cachedType)
-        return cachedType;
-
-    auto targetTypePtr = target->getType();
-    if (!targetTypePtr)
-        return PyType::getAny();
-
-    // 尝试从符号表获取更精确的类型
-    const VariableExprAST* varExpr = dynamic_cast<const VariableExprAST*>(target.get());
-    if (varExpr)
-    {
-        std::string varName = varExpr->getName();
-
-        // 使用TypeRegistry获取符号类型
-        ObjectType* symbolType = TypeRegistry::getInstance().getSymbolType(varName);
-        if (symbolType)
-        {
-            // 优先使用符号表中的类型
-            if (symbolType->getTypeId() == PY_TYPE_LIST)
-            {
-                // 如果是列表类型，获取元素类型
-                const ListType* listType = dynamic_cast<const ListType*>(symbolType);
-                if (listType)
-                {
-                    cachedType = std::make_shared<PyType>(
-                        const_cast<ObjectType*>(listType->getElementType()));
-                    return cachedType;
-                }
-            }
-        }
-    }
-
-    // 无法从符号表获取更精确信息，使用标准处理逻辑
-    ObjectType* targetType = targetTypePtr->getObjectType();
-    if (!targetType)
-        return PyType::getAny();
-
-    // 使用类型ID而不是类型名称判断
-    int typeId = targetType->getTypeId();
-
-    // 如果是列表，返回列表元素类型
-    if (typeId == PY_TYPE_LIST)
-    {
-        // 修复这里 - 直接对targetType进行类型转换，而不是调用不存在的getObjectType()方法
-        auto listType = dynamic_cast<ListType*>(targetType);
-        if (listType)
-        {
-            cachedType = std::make_shared<PyType>(const_cast<ObjectType*>(listType->getElementType()));
-            return cachedType;
-        }
-    }
-    else if (typeId == PY_TYPE_DICT)
-    {
-        // 同样修复这里
-        auto dictType = dynamic_cast<DictType*>(targetType);
-        if (dictType)
-        {
-            cachedType = std::make_shared<PyType>(const_cast<ObjectType*>(dictType->getValueType()));
-            return cachedType;
-        }
-    }
-    else if (typeId == PY_TYPE_STRING)
-    {
-        cachedType = PyType::getString();
-        return cachedType;
-    }
-    else
-    {
-        cachedType = PyType::getAny();
-    }
-
-    return cachedType;
-} */
 std::shared_ptr<PyType> IndexExprAST::getType() const
 {
     if (cachedType)
@@ -749,15 +669,7 @@ std::shared_ptr<PyType> IndexExprAST::getType() const
 
 
 
-/* void IfStmtAST::beginScope(PyCodeGen& codegen)
-{
-    codegen.pushScope();
-}
 
-void IfStmtAST::endScope(PyCodeGen& codegen)
-{
-    codegen.popScope();
-} */
 
 
 
