@@ -950,100 +950,31 @@ void CodeGenStmt::handlePrintStmt(PrintStmtAST* stmt)
     auto& builder = codeGen.getBuilder();
     auto* exprGen = codeGen.getExprGen();
     auto* runtime = codeGen.getRuntimeGen();
+    auto& context = codeGen.getContext();
 
-    // 生成打印值的代码
+    // 1. 生成要打印的值的 LLVM Value (PyObject*)
     llvm::Value* value = exprGen->handleExpr(stmt->getValue());
     if (!value) return;
 
-    // 获取值的类型
-    std::shared_ptr<PyType> valueType = stmt->getValue()->getType();
+    // 2. 获取通用的对象打印运行时函数 py_print_object
+    llvm::Function* printObjectFunc = codeGen.getOrCreateExternalFunction(
+            "py_print_object",
+            llvm::Type::getVoidTy(context),
+            {llvm::PointerType::get(context, 0)} // 参数是 PyObject*
+    );
 
-    // 根据值的类型调用不同的打印函数
-    if (valueType->isInt())
-    {
-        // 从Python对象提取整数
-        llvm::Function* extractIntFunc = codeGen.getOrCreateExternalFunction(
-                "py_extract_int",
-                llvm::Type::getInt32Ty(codeGen.getContext()),
-                {llvm::PointerType::get(codeGen.getContext(), 0)});
-
-        llvm::Value* intValue = builder.CreateCall(extractIntFunc, {value}, "int_value");
-
-        // 调用打印整数函数
-        llvm::Function* printIntFunc = codeGen.getOrCreateExternalFunction(
-                "py_print_int",
-                llvm::Type::getVoidTy(codeGen.getContext()),
-                {llvm::Type::getInt32Ty(codeGen.getContext())});
-
-        builder.CreateCall(printIntFunc, {intValue});
+    // 3. 调用 py_print_object 函数
+    //    确保 value 是 PyObject* 类型 (exprGen->handleExpr 应该返回 PyObject*)
+    if (!value->getType()->isPointerTy()) {
+         // 如果 exprGen 可能返回非指针类型，这里需要包装
+         // 但根据现有代码，它似乎总是返回 PyObject*
+         codeGen.logError("Internal error: Value for print is not a PyObject*", stmt->line.value_or(0), stmt->column.value_or(0));
+         runtime->cleanupTemporaryObjects(); // 清理可能已生成的 value
+         return;
     }
-    else if (valueType->isDouble())
-    {
-        // 从Python对象提取浮点数
-        llvm::Function* extractDoubleFunc = codeGen.getOrCreateExternalFunction(
-                "py_extract_double",
-                llvm::Type::getDoubleTy(codeGen.getContext()),
-                {llvm::PointerType::get(codeGen.getContext(), 0)});
+    builder.CreateCall(printObjectFunc, {value});
 
-        llvm::Value* doubleValue = builder.CreateCall(extractDoubleFunc, {value}, "double_value");
-
-        // 调用打印浮点数函数
-        llvm::Function* printDoubleFunc = codeGen.getOrCreateExternalFunction(
-                "py_print_double",
-                llvm::Type::getVoidTy(codeGen.getContext()),
-                {llvm::Type::getDoubleTy(codeGen.getContext())});
-
-        builder.CreateCall(printDoubleFunc, {doubleValue});
-    }
-    else if (valueType->isString())
-    {
-        // 从Python对象提取字符串
-        llvm::Function* extractStringFunc = codeGen.getOrCreateExternalFunction(
-                "py_extract_string",
-                llvm::PointerType::get(codeGen.getContext(), 0),
-                {llvm::PointerType::get(codeGen.getContext(), 0)});
-
-        llvm::Value* strPtr = builder.CreateCall(extractStringFunc, {value}, "str_ptr");
-
-        // 调用打印字符串函数
-        llvm::Function* printStringFunc = codeGen.getOrCreateExternalFunction(
-                "py_print_string",
-                llvm::Type::getVoidTy(codeGen.getContext()),
-                {llvm::PointerType::get(codeGen.getContext(), 0)});
-
-        builder.CreateCall(printStringFunc, {strPtr});
-    }
-    else
-    {
-        // 对于其他类型，先转换为字符串再打印
-        llvm::Function* toStringFunc = codeGen.getOrCreateExternalFunction(
-                "py_convert_to_string",
-                llvm::PointerType::get(codeGen.getContext(), 0),
-                {llvm::PointerType::get(codeGen.getContext(), 0)});
-
-        llvm::Value* strObj = builder.CreateCall(toStringFunc, {value}, "str_obj");
-
-        // 从字符串对象提取C字符串
-        llvm::Function* extractStringFunc = codeGen.getOrCreateExternalFunction(
-                "py_extract_string",
-                llvm::PointerType::get(codeGen.getContext(), 0),
-                {llvm::PointerType::get(codeGen.getContext(), 0)});
-
-        llvm::Value* strPtr = builder.CreateCall(extractStringFunc, {strObj}, "str_ptr");
-
-        // 调用打印字符串函数
-        llvm::Function* printStringFunc = codeGen.getOrCreateExternalFunction(
-                "py_print_string",
-                llvm::Type::getVoidTy(codeGen.getContext()),
-                {llvm::PointerType::get(codeGen.getContext(), 0)});
-
-        builder.CreateCall(printStringFunc, {strPtr});
-
-        // 处理临时字符串对象的生命周期
-        runtime->decRef(strObj);
-    }
-
-    // 清理临时对象
+    // 4. 清理生成 value 时可能产生的临时对象
     runtime->cleanupTemporaryObjects();
 }
 

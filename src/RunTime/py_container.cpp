@@ -1,5 +1,5 @@
 #include "RunTime/runtime.h"
-#include "Debugdefine.h"
+
 #include <cstring>
 #include <cstdlib>
 #include <cctype>
@@ -72,13 +72,14 @@ void py_list_set_item(PyObject* obj, int index, PyObject* item)
         return;
     }
 
-    // 类型兼容性检查
-    if (list->elemTypeId != 0 && item && !py_are_types_compatible(item->typeId, list->elemTypeId))
+   /*  // 类型兼容性检查
+    if (list->elemTypeId != 0 && list->elemTypeId != llvmpy::PY_TYPE_ANY && item )
     {
+        
         fprintf(stderr, "TypeError: Cannot add type %s to list of %s\n",
                 py_type_name(item->typeId), py_type_name(list->elemTypeId));
         return;
-    }
+    } */
 
     // 替换项目前先减少旧项目的引用计数
     if (list->data[index])
@@ -111,13 +112,17 @@ PyObject* py_list_append(PyObject* obj, PyObject* item)
 
     PyListObject* list = (PyListObject*)obj;
 
-    // 类型兼容性检查
-    if (list->elemTypeId != 0 && item && !py_are_types_compatible(item->typeId, list->elemTypeId))
-    {
-        fprintf(stderr, "TypeError: Cannot append type %s to list of %s\n",
-                py_type_name(item->typeId), py_type_name(list->elemTypeId));
-        return obj;
-    }
+    /*  // 类型兼容性检查
+     if (list->elemTypeId != 0 && list->elemTypeId != llvmpy::PY_TYPE_ANY && item && !py_are_types_compatible(item->typeId, list->elemTypeId))
+     {
+        
+         fprintf(stderr, "TypeError: Cannot append type %s to list of %s\n",
+                 py_type_name(item ? item->typeId : llvmpy::PY_TYPE_NONE), py_type_name(list->elemTypeId));
+     
+         // Return NULL on type error
+         //return NULL; // <--- 修改这里
+         return obj; //old behavior
+     } */
 
     // 检查是否需要扩展容量
     if (list->length >= list->capacity)

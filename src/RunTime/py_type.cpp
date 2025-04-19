@@ -58,6 +58,13 @@ PyObject* py_ensure_type(PyObject* obj, int expectedTypeId)
 // 检查两个类型是否兼容（可相互转换或赋值）
 bool py_are_types_compatible(int typeIdA, int typeIdB)
 {
+#ifdef DEBUG_RUNTIME_py_are_types_compatible
+    fprintf(stderr, "DEBUG: Checking compatibility between type %d and %d\n", typeIdA, typeIdB);
+    int baseTypeIdA = getBaseTypeId(typeIdA);
+    int baseTypeIdB = getBaseTypeId(typeIdB);
+    fprintf(stderr, "DEBUG: Base type A: %d, Base type B: %d\n", baseTypeIdA, baseTypeIdB);
+
+#endif
     // 如果两个类型相同，当然兼容
     if (getBaseTypeId(typeIdA) == getBaseTypeId(typeIdB))
         return true;

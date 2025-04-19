@@ -5,7 +5,8 @@
 #include <cstdio>
 #include <climits>
 
-
+#include "Debugdefine.h"
+#include "runtime_level.h"
 #include "runtime_common.h"
 #include "py_type_dispatch.h"
 #include "py_object.h"

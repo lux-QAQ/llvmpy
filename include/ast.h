@@ -591,7 +591,6 @@ public:
 
 /**
  * @brief 一元操作表达式节点 (例如 -x, not y)。
- * @bug 这个地方有很大的问题，甚至连最基础的-和not都无法正常工作
  */
 class UnaryExprAST : public ExprASTBase<UnaryExprAST, ASTKind::UnaryExpr>
 {

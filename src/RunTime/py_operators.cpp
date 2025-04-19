@@ -133,14 +133,14 @@ PyObject* py_object_add(PyObject* a, PyObject* b)
         PyListObject* listA = (PyListObject*)a;
         PyListObject* listB = (PyListObject*)b;
         
-        // 检查元素类型兼容性
+        /* // 检查元素类型兼容性
         if (listA->elemTypeId != 0 && listB->elemTypeId != 0 && 
             listA->elemTypeId != listB->elemTypeId && 
             !py_are_types_compatible(listA->elemTypeId, listB->elemTypeId))
         {
             fprintf(stderr, "TypeError: Cannot concatenate lists with incompatible element types\n");
             return NULL;
-        }
+        } */
         
         // 创建一个新列表，容量为两个列表长度之和
         int newCapacity = listA->length + listB->length;

@@ -133,6 +133,8 @@ public:
     // 调试辅助
     void dumpCurrentToken() const;
     bool logTypeBoolError(const std::string& message) const;
+    std::unique_ptr<ExprAST> parseCallSuffix(std::unique_ptr<ExprAST> callee);
+    std::unique_ptr<ExprAST> parseIndexSuffix(std::unique_ptr<ExprAST> target) ;
     // 类定义私有部分
 bool expectStatementEnd(const std::string& errorMessage );
     // 类型系统集成

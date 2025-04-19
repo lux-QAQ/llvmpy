@@ -21,7 +21,7 @@ bool PyParser::isInitialized = false;
 const int POWER_PRECEDENCE = 60;
 const int UNARY_PLUS_MINUS_PRECEDENCE = 55; // 低于 **
 const int NOT_PRECEDENCE = 8;
-
+const int POSTFIX_PRECEDENCE = 70; // Precedence for call (), index [], attribute .
 //===----------------------------------------------------------------------===//
 // PyParseError 类实现
 //===----------------------------------------------------------------------===//
@@ -87,109 +87,169 @@ void PyParser::initializeRegistries()
 
     //    标识符启动的语句 (复杂情况：赋值、复合赋值、索引赋值、表达式语句)
     registerStmtParser(TOK_IDENTIFIER, [](PyParser& p) -> std::unique_ptr<StmtAST> {
-        // --- Existing complex logic for TOK_IDENTIFIER ---
-        // (Handles simple assignment, compound assignment, index assignment,
-        // and expression statements starting with an identifier like func() or var)
-        // --- Keep the multi-case logic from the previous example ---
-        auto state = p.saveState();
-        std::string idName = p.getCurrentToken().value;
-        int line = p.getCurrentToken().line;
-        int column = p.getCurrentToken().column;
-        p.nextToken(); // Consume identifier
-
-        // Case 1: Indexing involved? id[...]
-        if (p.getCurrentToken().type == TOK_LBRACK) {
-            auto stateBeforeLBracket = p.saveState();
-            p.nextToken(); // Consume '['
-            auto indexExpr = p.parseExpression();
-            if (!indexExpr) { p.restoreState(state); return p.parseExpressionStmt(); }
-            if (p.getCurrentToken().type != TOK_RBRACK) { p.restoreState(state); return p.parseExpressionStmt(); } // Simplified error handling, assume expr stmt
-            p.nextToken(); // Consume ']'
-
-            if (p.getCurrentToken().type == TOK_ASSIGN) { // Index Assignment: id[index] = value
-                p.nextToken(); // Consume '='
-                auto valueExpr = p.parseExpression();
-                if (!valueExpr) { p.restoreState(state); return p.parseExpressionStmt(); } // Simplified error handling
-
-                auto varExpr = std::make_unique<VariableExprAST>(idName);
-                varExpr->setLocation(line, column);
-
+        // 1. Parse the potential Left-Hand Side (LHS) expression first.
+        //    This leverages parseExpressionPrecedence to handle complex targets
+        //    like simple variables, indexing (nested or not), attribute access etc.
+        //    We don't save/restore state here; if parseExpression fails, it's an error.
+        auto lhsExpr = p.parseExpression();
+        if (!lhsExpr) {
+            // If parsing the expression itself failed, it's an error.
+            // Error should have been logged by parseExpression/parsePrimary.
+            return nullptr;
+        }
+    
+        // Capture location info from the start of the LHS expression if possible
+        int lhsLine = lhsExpr->line.value_or(p.getCurrentToken().line);
+        int lhsCol = lhsExpr->column.value_or(p.getCurrentToken().column);
+    
+        // 2. Check the token *after* the parsed LHS expression.
+        PyTokenType currentType = p.getCurrentToken().type;
+    
+        // Case A: Simple Assignment (LHS = RHS)
+        if (currentType == TOK_ASSIGN) {
+            p.nextToken(); // Consume '='
+    
+            // Parse the Right-Hand Side (RHS)
+            auto rhsExpr = p.parseExpression();
+            if (!rhsExpr) {
+                // Error should have been logged by parseExpression
+                // Return specific error message for context
+                return p.logParseError<StmtAST>("Expected expression after '=' in assignment");
+            }
+    
+            // Validate LHS is assignable and create appropriate AST node
+            // Check the runtime type of lhsExpr
+            if (auto* var = dynamic_cast<VariableExprAST*>(lhsExpr.get())) {
+                // Simple variable assignment: var = value
+                std::string varName = var->getName();
+                auto assignStmt = std::make_unique<AssignStmtAST>(varName, std::move(rhsExpr));
+                assignStmt->setLocation(lhsLine, lhsCol); // Location of the variable
+    
                 // Ensure statement ends correctly
-                 if (!p.expectStatementEnd("index assignment")) {
-                     // If expectStatementEnd logs/throws, we might not need to return here.
-                     // If it returns false, we might restore and parse as expr stmt, or return nullptr.
-                     p.restoreState(state); // Example: Restore and try as expression statement on error
-                     return p.parseExpressionStmt();
-                 }
-
-                return std::make_unique<IndexAssignStmtAST>(std::move(varExpr), std::move(indexExpr), std::move(valueExpr));
-            } else { // Index Expression Statement: id[index]
-                p.restoreState(state);
-                return p.parseExpressionStmt();
+                if (!p.expectStatementEnd("assignment")) {
+                    return nullptr; // Error logged by expectStatementEnd
+                }
+                return assignStmt;
+    
+            } else if (dynamic_cast<IndexExprAST*>(lhsExpr.get())) {
+                // Index assignment: target[index] = value
+                // Use the constructor: IndexAssignStmtAST(std::unique_ptr<ExprAST> targetExpr, std::unique_ptr<ExprAST> valueExpr)
+                // Here, targetExpr *is* the IndexExprAST we parsed as lhsExpr.
+                auto indexAssignStmt = std::make_unique<IndexAssignStmtAST>(std::move(lhsExpr), std::move(rhsExpr));
+                indexAssignStmt->setLocation(lhsLine, lhsCol); // Location of the start of the index expression
+    
+                // Ensure statement ends correctly
+                if (!p.expectStatementEnd("index assignment")) {
+                    return nullptr; // Error logged by expectStatementEnd
+                }
+                return indexAssignStmt;
+    
+            }
+            // TODO: Add case for Attribute Assignment (e.g., obj.attr = value) if/when supported
+            // else if (auto* attr = dynamic_cast<AttributeExprAST*>(lhsExpr.get())) { ... }
+            else {
+                // LHS is not a valid target for assignment (e.g., literal, function call result)
+                // Check if the AST node itself reports !isLValue()
+                if (!lhsExpr->isLValue()) {
+                     return p.logParseError<StmtAST>("Expression is not assignable (not an l-value)");
+                } else {
+                     // It claims to be an l-value, but we don't have a specific handler (e.g., attribute access)
+                     return p.logParseError<StmtAST>("Assignment target type not supported yet");
+                }
             }
         }
-        // Case 2: Compound assignment? id op= value
-        else if (p.getCurrentToken().type == TOK_PLUS_ASSIGN || p.getCurrentToken().type == TOK_MINUS_ASSIGN ||
-                 p.getCurrentToken().type == TOK_MUL_ASSIGN || p.getCurrentToken().type == TOK_DIV_ASSIGN ||
-                 p.getCurrentToken().type == TOK_MOD_ASSIGN || p.getCurrentToken().type == TOK_POWER_ASSIGN ||
-                 p.getCurrentToken().type == TOK_FLOOR_DIV_ASSIGN)
+        // Case B: Compound Assignment (LHS op= RHS)
+        else if (currentType == TOK_PLUS_ASSIGN || currentType == TOK_MINUS_ASSIGN ||
+                 currentType == TOK_MUL_ASSIGN || currentType == TOK_DIV_ASSIGN ||
+                 currentType == TOK_MOD_ASSIGN || currentType == TOK_POWER_ASSIGN ||
+                 currentType == TOK_FLOOR_DIV_ASSIGN)
         {
-            PyTokenType compoundOpType = p.getCurrentToken().type;
+            PyTokenType compoundOpType = currentType;
             int opLine = p.getCurrentToken().line;
             int opCol = p.getCurrentToken().column;
-            PyTokenType binaryOpType = TOK_ERROR;
-            switch (compoundOpType) { // Map compound op to binary op
-                case TOK_PLUS_ASSIGN: binaryOpType = TOK_PLUS; break;
-                case TOK_MINUS_ASSIGN: binaryOpType = TOK_MINUS; break;
-                case TOK_MUL_ASSIGN: binaryOpType = TOK_MUL; break;
-                case TOK_DIV_ASSIGN: binaryOpType = TOK_DIV; break;
-                case TOK_MOD_ASSIGN: binaryOpType = TOK_MOD; break;
-                case TOK_POWER_ASSIGN: binaryOpType = TOK_POWER; break;
-                case TOK_FLOOR_DIV_ASSIGN: binaryOpType = TOK_FLOOR_DIV; break;
-                default: return p.logParseError<StmtAST>("Internal error: Unhandled compound assignment operator");
+            p.nextToken(); // Consume op=
+    
+            // Parse RHS
+            auto rhsExpr = p.parseExpression();
+            if (!rhsExpr) {
+                 return p.logParseError<StmtAST>("Expected expression after compound assignment operator");
             }
-            p.nextToken(); // Consume compound assignment operator
-
-            auto rightExpr = p.parseExpression();
-            if (!rightExpr) { p.restoreState(state); return p.parseExpressionStmt(); } // Simplified error handling
-
-            // Desugar: id op= val   =>   id = id op val
-            auto varExprLeft = std::make_unique<VariableExprAST>(idName);
-            varExprLeft->setLocation(line, column);
-            auto varExprRight = std::make_unique<VariableExprAST>(idName);
-            varExprRight->setLocation(line, column);
-            auto binExpr = std::make_unique<BinaryExprAST>(binaryOpType, std::move(varExprRight), std::move(rightExpr));
-            binExpr->setLocation(opLine, opCol);
-
-            // Ensure statement ends correctly
-            if (!p.expectStatementEnd("compound assignment")) {
-                 p.restoreState(state);
-                 return p.parseExpressionStmt();
+    
+            // Validate LHS is assignable (similar checks as simple assignment)
+            if (auto* var = dynamic_cast<VariableExprAST*>(lhsExpr.get())) {
+                std::string varName = var->getName();
+    
+                // Desugar: id op= val   =>   id = id op val
+                PyTokenType binaryOpType = TOK_ERROR; // Map compound op to binary op
+                switch (compoundOpType) {
+                    case TOK_PLUS_ASSIGN: binaryOpType = TOK_PLUS; break;
+                    case TOK_MINUS_ASSIGN: binaryOpType = TOK_MINUS; break;
+                    case TOK_MUL_ASSIGN: binaryOpType = TOK_MUL; break;
+                    case TOK_DIV_ASSIGN: binaryOpType = TOK_DIV; break;
+                    case TOK_MOD_ASSIGN: binaryOpType = TOK_MOD; break;
+                    case TOK_POWER_ASSIGN: binaryOpType = TOK_POWER; break;
+                    case TOK_FLOOR_DIV_ASSIGN: binaryOpType = TOK_FLOOR_DIV; break;
+                    default:
+                        // Should not happen if the if condition is correct
+                        return p.logParseError<StmtAST>("Internal error: Unhandled compound assignment operator");
+                }
+    
+                // Create the 'id op val' expression
+                // Need a *new* VariableExprAST representing the 'id' on the right side
+                auto varExprForRHS = std::make_unique<VariableExprAST>(varName);
+                // Set location for the variable reference within the binary operation
+                varExprForRHS->setLocation(lhsLine, lhsCol);
+    
+                auto binExpr = std::make_unique<BinaryExprAST>(binaryOpType, std::move(varExprForRHS), std::move(rhsExpr));
+                binExpr->setLocation(opLine, opCol); // Location of the operator
+    
+                // Create the final assignment statement: id = (id op val)
+                auto assignStmt = std::make_unique<AssignStmtAST>(varName, std::move(binExpr));
+                assignStmt->setLocation(lhsLine, lhsCol); // Location of the variable being assigned
+    
+                // Ensure statement ends correctly
+                if (!p.expectStatementEnd("compound assignment")) {
+                    return nullptr; // Error logged by expectStatementEnd
+                }
+                return assignStmt;
+    
             }
-
-            auto assignStmt = std::make_unique<AssignStmtAST>(idName, std::move(binExpr));
-            assignStmt->setLocation(line, column); // AssignStmt location is the variable's location
-            return assignStmt;
+            // TODO: Add support for compound assignment to index/attributes later
+            // This is more complex as it often requires reading the value, performing
+            // the operation, and then writing the result back using the index/attribute mechanism.
+            // else if (dynamic_cast<IndexExprAST*>(lhsExpr.get())) { ... }
+            // else if (dynamic_cast<AttributeExprAST*>(lhsExpr.get())) { ... }
+            else {
+                 // Check if the AST node itself reports !isLValue()
+                if (!lhsExpr->isLValue()) {
+                     return p.logParseError<StmtAST>("Expression is not assignable (not an l-value) for compound assignment");
+                } else {
+                     // It claims to be an l-value, but we don't have a specific handler
+                     return p.logParseError<StmtAST>("Compound assignment target type not supported yet");
+                }
+            }
         }
-        // Case 3: Simple assignment? id = value
-        else if (p.getCurrentToken().type == TOK_ASSIGN) {
-            // Delegate to parseAssignStmt, passing the idName and its location
-            // parseAssignStmt expects current token to be '='
-            auto assignStmt = p.parseAssignStmt(idName); // parseAssignStmt should handle location
-             // Check if the location was set by parseAssignStmt, otherwise set it here.
-             // Use the line member which is std::optional<int>.
-             if (assignStmt && !assignStmt->line.has_value()) {
-                 // If parseAssignStmt didn't set location, set it here
-                 assignStmt->setLocation(line, column);
-             }
-            return assignStmt; // parseAssignStmt handles consuming '=', value, and trailing newline
+        // Case C: Expression Statement (LHS followed by newline, EOF, or dedent)
+        // This means the parsed lhsExpr is the entire statement.
+        else if (currentType == TOK_NEWLINE || currentType == TOK_EOF || currentType == TOK_DEDENT) {
+            // The parsed LHS is just an expression statement.
+            if (currentType == TOK_NEWLINE) {
+                p.nextToken(); // Consume newline
+            }
+            // Don't consume EOF or DEDENT, they mark the end but belong to the structure.
+    
+            // Wrap the expression in an ExprStmtAST
+            auto exprStmt = std::make_unique<ExprStmtAST>(std::move(lhsExpr));
+            // Location is implicitly the start of the expression (already set in lhsExpr)
+            // We could explicitly set it again if needed: exprStmt->setLocation(lhsLine, lhsCol);
+            return exprStmt;
         }
-        // Case 4: Must be an expression statement (func(), var, etc.)
+        // Case D: Unexpected token after LHS
         else {
-            p.restoreState(state); // Restore to before 'id'
-            return p.parseExpressionStmt(); // Let parseExpressionStmt handle it
+            // We successfully parsed an expression (lhsExpr), but the token
+            // that follows it doesn't form a valid statement continuation.
+            return p.logParseError<StmtAST>("Unexpected token '" + p.getCurrentToken().value + "' (" + p.getLexer().getTokenName(currentType) + ") after expression");
         }
-        // --- End of complex logic for TOK_IDENTIFIER ---
     });
 
     //    Tokens that can start an expression statement (delegate to parseExpressionStmt)
@@ -338,7 +398,7 @@ void PyParser::nextToken()
 #endif
 #ifdef DEBUG_PARSER_NextToken
     // 原始调试输出保持不变
-    std::cerr << "Debug: Next token: '" << currentToken.value
+    std::cerr << "Debug: [Next token]: '" << currentToken.value
               << "' type: " << lexer.getTokenName(currentToken.type)
               << " at line " << currentToken.line
               << ", col " << currentToken.column << std::endl;
@@ -434,7 +494,7 @@ std::unique_ptr<ExprAST> PyParser::parseParenExpr()
     return expr;
 }
 
-std::unique_ptr<ExprAST> PyParser::parseIdentifierExpr()
+/* std::unique_ptr<ExprAST> PyParser::parseIdentifierExpr()
 {
     std::string idName = currentToken.value;
     int line = currentToken.line;
@@ -547,6 +607,109 @@ std::unique_ptr<ExprAST> PyParser::parseIdentifierExpr()
     auto varExpr = makeExpr<VariableExprAST>(idName);
     varExpr->setLocation(line, column);  // 设置位置信息
     return varExpr;
+} */
+
+
+
+
+std::unique_ptr<ExprAST> PyParser::parseIndexSuffix(std::unique_ptr<ExprAST> target) {
+    int line = currentToken.line;
+    int column = currentToken.column;
+    nextToken(); // Consume '['
+
+    auto index = parseExpression();
+    if (!index) {
+        // Error already logged by parseExpression
+        return nullptr;
+    }
+
+    if (!expectToken(TOK_RBRACK, "Expected ']' after index expression")) {
+        return nullptr;
+    }
+
+    auto indexExpr = makeExpr<IndexExprAST>(std::move(target), std::move(index));
+    indexExpr->setLocation(line, column); // Location of the '[' token
+    return indexExpr;
+}
+
+// Helper to parse call suffix: consumes '(', args, ')'
+std::unique_ptr<ExprAST> PyParser::parseCallSuffix(std::unique_ptr<ExprAST> callee) {
+    int line = currentToken.line;
+    int column = currentToken.column;
+    nextToken(); // Consume '('
+
+    std::vector<std::unique_ptr<ExprAST>> args;
+    if (currentToken.type != TOK_RPAREN) {
+        while (true) {
+            auto arg = parseExpression();
+            if (!arg) return nullptr;
+            args.push_back(std::move(arg));
+
+            if (currentToken.type == TOK_RPAREN) break;
+            if (!expectToken(TOK_COMMA, "Expected ',' or ')' in argument list")) return nullptr;
+            if (currentToken.type == TOK_RPAREN) { // Handle trailing comma
+                 std::cerr << "Warning: Trailing comma detected in argument list at line "
+                           << currentToken.line << ", col " << currentToken.column << std::endl;
+                 break;
+            }
+        }
+    }
+
+    if (!expectToken(TOK_RPAREN, "Expected ')' after arguments")) {
+        return nullptr;
+    }
+
+    // Need to get the callee name if it was a simple variable
+    std::string calleeName;
+    if (auto* var = dynamic_cast<VariableExprAST*>(callee.get())) {
+         calleeName = var->getName();
+    } else {
+         // Handle calls on complex expressions like (lambda x: x+1)(5) or obj.method() later
+         // For now, assume simple function name for CallExprAST constructor
+         // A better CallExprAST might store the callee expression directly.
+         // Let's assume CallExprAST can take an ExprAST* callee for now, or adjust CallExprAST.
+         // If CallExprAST requires a string name, this needs more work.
+         // For simplicity, let's log an error if it's not a simple name for now.
+         logParseError<ExprAST>("Calling complex expressions not fully supported yet.");
+         // Fallback: create a CallExprAST with an empty name or handle differently
+         calleeName = "<complex_callee>"; // Placeholder
+    }
+
+
+    // Assuming CallExprAST constructor takes name and args
+    // This matches the provided CallExprAST definition
+    auto callExpr = makeExpr<CallExprAST>(calleeName, std::move(args));
+    // The TODO below is relevant if CallExprAST were changed to store the expression directly
+    // // TODO: If CallExprAST should store the callee expression:
+    // // auto callExpr = makeExpr<CallExprAST>(std::move(callee), std::move(args));
+    callExpr->setLocation(line, column); // Location of the '(' token
+    return callExpr;
+}
+
+
+std::unique_ptr<ExprAST> PyParser::parseIdentifierExpr()
+{
+    std::string idName = currentToken.value;
+    int line = currentToken.line;
+    int column = currentToken.column;
+    PyToken idToken = currentToken;  // 保存标识符 token 信息
+
+    nextToken();  // 消费标识符
+
+    // --- REMOVE Call and Index parsing logic from here ---
+    // // 函数调用
+    // if (currentToken.type == TOK_LPAREN) { ... }
+    // // 索引操作
+    // if (currentToken.type == TOK_LBRACK) { ... }
+    // --- END REMOVAL ---
+
+    // 简单变量引用
+#ifdef DEBUG_PARSER_Expr
+    std::cerr << "Debug [parseIdentifierExpr]: Parsed simple variable '" << idName << "'." << std::endl;
+#endif
+    auto varExpr = makeExpr<VariableExprAST>(idName);
+    varExpr->setLocation(line, column);  // 设置位置信息
+    return varExpr;
 }
 
 std::unique_ptr<ExprAST> PyParser::parseStringExpr()
@@ -620,6 +783,7 @@ std::unique_ptr<ExprAST> PyParser::parsePrimary()
 
 
 // 新的 parseExpressionPrecedence 函数，实现 Pratt 解析器的核心逻辑
+// filepath: /home/ljs/code/llvmpy/src/parser.cpp
 std::unique_ptr<ExprAST> PyParser::parseExpressionPrecedence(int minPrecedence)
 {
     // 1. 解析左侧表达式 (原子或前缀表达式)
@@ -628,12 +792,26 @@ std::unique_ptr<ExprAST> PyParser::parseExpressionPrecedence(int minPrecedence)
         return nullptr; // 如果 primary 解析失败，则表达式无效
     }
 
-    // 2. 循环处理优先级 >= minPrecedence 的二元运算符
+    // 2. 循环处理优先级 >= minPrecedence 的后缀和二元运算符
     while (true) {
-        // 查看当前 token 是否是已注册的二元运算符
+        // --- ADDED: Check for postfix operators first ---
+        if (currentToken.type == TOK_LBRACK && POSTFIX_PRECEDENCE >= minPrecedence) {
+            // Handle index operator []
+            lhs = parseIndexSuffix(std::move(lhs));
+            if (!lhs) return nullptr; // Propagate error
+            continue; // Continue checking for more operators on the new lhs
+        } else if (currentToken.type == TOK_LPAREN && POSTFIX_PRECEDENCE >= minPrecedence) {
+            // Handle call operator ()
+            lhs = parseCallSuffix(std::move(lhs));
+            if (!lhs) return nullptr; // Propagate error
+            continue; // Continue checking for more operators on the new lhs
+        }
+        // --- END ADDED ---
+
+        // Check for binary operators (existing logic)
         auto it = operatorRegistry.find(currentToken.type);
         if (it == operatorRegistry.end()) {
-            break; // 不是二元运算符，循环结束
+            break; // Not a known binary operator
         }
 
         const PyOperatorInfo& opInfo = it->second;
@@ -652,18 +830,19 @@ std::unique_ptr<ExprAST> PyParser::parseExpressionPrecedence(int minPrecedence)
         nextToken(); // 消费二元运算符
 
         // 3. 解析右侧表达式
-        // 对于左结合运算符，右侧需要解析比当前运算符优先级更高的表达式 (currentPrec + 1)
-        // 对于右结合运算符，右侧需要解析优先级等于或高于当前运算符的表达式 (currentPrec)
         int nextMinPrecedence = currentPrec + (isRightAssoc ? 0 : 1);
         auto rhs = parseExpressionPrecedence(nextMinPrecedence);
         if (!rhs) {
-            return logParseError<ExprAST>("Expected expression after binary operator '" + lexer.getTokenName(opType) + "'");
+            // Error logged by recursive call
+            return nullptr;
+            // return logParseError<ExprAST>("Expected expression after binary operator '" + lexer.getTokenName(opType) + "'");
         }
 
         // 4. 合并 LHS 和 RHS
         auto newLhs = makeExpr<BinaryExprAST>(opType, std::move(lhs), std::move(rhs));
         newLhs->setLocation(opLine, opCol); // 位置是操作符的位置
         lhs = std::move(newLhs); // 将新构建的二元表达式作为下一次循环的 LHS
+        // No continue here, the loop condition handles the next iteration
     }
 
     return lhs; // 返回最终构建的表达式树
