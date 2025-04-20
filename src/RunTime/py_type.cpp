@@ -6,6 +6,7 @@
 #include <cmath>
 #include <climits>
 #include <cctype>
+#include <iostream> // For errors
 
 using namespace llvmpy;
 //===----------------------------------------------------------------------===//
@@ -778,3 +779,30 @@ PyObject* py_smart_convert(PyObject* obj, int targetTypeId)
     // fprintf(stderr, "TypeError: Cannot convert type %s to %s\n", py_type_name(sourceTypeId), py_type_name(targetTypeId));
     return NULL;
 }
+
+
+int py_object_to_exit_code(PyObject* obj) {
+    if (!obj) {
+        std::cerr << "Runtime Warning: Converting null object to exit code, returning 1." << std::endl;
+        return 1; // Error case
+    }
+
+    int typeId = py_get_type_id(obj);
+
+    if (typeId == PY_TYPE_NONE) {
+        return 0; // None maps to exit code 0
+    } else if (typeId == PY_TYPE_INT) {
+        // Need a safe way to extract int value
+        // Assuming py_extract_int exists and handles potential errors/conversions
+        // It should not decref the object.
+        return py_extract_constant_int(obj); // Use the constant extraction
+    } else {
+        // Handle other types? Booleans?
+        // For now, non-None/non-Int result in error code 1
+        std::cerr << "Runtime Warning: Converting object of type " << py_type_name(typeId)
+                  << " to exit code, returning 1." << std::endl;
+        return 1;
+    }
+    // Note: We don't decref 'obj' here. The caller manages its lifecycle.
+}
+

@@ -391,6 +391,25 @@ std::shared_ptr<PyType> CodeGenType::inferIndexExprType(
     return PyType::getAny();
 }
 
+std::shared_ptr<PyType> CodeGenType::inferCallReturnType(
+    std::shared_ptr<PyType> callableType,
+    const std::vector<std::shared_ptr<PyType>>& argTypes)
+{
+    // TODO: Implement more sophisticated type inference based on callableType signature
+    // For now, if the callable is a function (or Any), assume it can return Any.
+    if (callableType && (callableType->isFunction() || callableType->isAny())) {
+         // In the future, if callableType holds FunctionType info, return its return type.
+         // e.g., if (auto* funcType = dynamic_cast<FunctionObjectType*>(callableType->getObjectType())) {
+         //          return PyType::fromObjectType(funcType->getReturnType());
+         //      }
+         return PyType::getAny();
+    }
+
+    // If the callable type is not a function or Any, it's an error handled elsewhere.
+    // Return Any as a fallback, though ideally an error type might be better.
+    return PyType::getAny();
+}
+
 std::shared_ptr<PyType> CodeGenType::inferCallExprType(
         const std::string& funcName,
         const std::vector<std::shared_ptr<PyType>>& argTypes)
@@ -437,7 +456,7 @@ std::shared_ptr<PyType> CodeGenType::inferCallExprType(
     }
 
     // 通用函数类型推导 - 根据函数体分析
-    auto* funcAST = getFunctionAST(funcName);
+    const FunctionAST* funcAST = getFunctionAST(funcName); 
     if (funcAST)
     {
         // 如果能找到函数定义，分析函数体内的返回语句
@@ -449,64 +468,104 @@ std::shared_ptr<PyType> CodeGenType::inferCallExprType(
 }
 
 // 根据函数名查找函数AST定义
-FunctionAST* CodeGenType::getFunctionAST(const std::string& funcName)
+const FunctionAST* CodeGenType::getFunctionAST(const std::string& funcName) // <--- 改为 const FunctionAST*
 {
-    // 从模块或全局作用域中查找函数定义
-    // 从模块获取函数定义
-    auto* moduleGen = codeGen.getModuleGen();
-    if (!moduleGen) return nullptr;
-
-    ModuleAST* module = moduleGen->getCurrentModule();
-    if (!module) return nullptr;
-
-    // 遍历模块中的函数查找匹配项
-    for (const auto& func : module->getFunctions())
-    {
-        if (func->name == funcName)
-        {
-            return func.get();
-        }
+    // --- 1. 优先从符号表查找当前及父作用域 ---
+    const FunctionAST* funcFromScope = codeGen.getSymbolTable().findFunctionAST(funcName);
+    if (funcFromScope) {
+        #ifdef DEBUG_CODEGEN_TYPE
+        std::cerr << "Debug [CodeGenType]: Found FunctionAST for '" << funcName << "' in symbol table scope." << std::endl;
+        #endif
+        return funcFromScope;
     }
 
+    // --- 2. 如果作用域中未找到，再查找顶层模块 ---
+    #ifdef DEBUG_CODEGEN_TYPE
+    std::cerr << "Debug [CodeGenType]: FunctionAST for '" << funcName << "' not found in scope, searching module top-level..." << std::endl;
+    #endif
+
+    auto* moduleGen = codeGen.getModuleGen();
+    if (!moduleGen) {
+        codeGen.logError("Module generator is not available in CodeGenType::getFunctionAST");
+        return nullptr;
+    }
+
+    ModuleAST* module = moduleGen->getCurrentModule();
+    if (!module) {
+        // 在非模块顶层查找时，如果符号表里没有，这里找不到是正常的
+        // codeGen.logWarning("Current module is not set in CodeGenType::getFunctionAST when searching top-level for: " + funcName);
+        return nullptr;
+    }
+
+    // 遍历模块的顶层语句列表
+    for (const auto& stmt : module->getStatements())
+    {
+        if (stmt->kind() == ASTKind::FunctionDefStmt)
+        {
+            // 强制转换为 FunctionDefStmtAST
+            auto* funcDefStmt = static_cast<const FunctionDefStmtAST*>(stmt.get()); // <--- 使用 const*
+            // 获取底层的 FunctionAST (现在是 const*)
+            const FunctionAST* funcAST = funcDefStmt->getFunctionAST(); // <--- 改为 const FunctionAST*
+
+            if (funcAST && funcAST->getName() == funcName)
+            {
+                #ifdef DEBUG_CODEGEN_TYPE
+                std::cerr << "Debug [CodeGenType]: Found FunctionAST for '" << funcName << "' in module top-level." << std::endl;
+                #endif
+                return funcAST; // <--- 直接返回 const*
+            }
+        }
+        // TODO: 查找类中的方法
+    }
+
+    #ifdef DEBUG_CODEGEN_TYPE
+    std::cerr << "Debug [CodeGenType]: FunctionAST for '" << funcName << "' not found anywhere." << std::endl;
+    #endif
+    // 在模块顶层也未找到
     return nullptr;
 }
 
 // 分析函数体中的返回语句，确定返回类型
 std::shared_ptr<PyType> CodeGenType::analyzeFunctionReturnType(
-        FunctionAST* func,
-        const std::vector<std::shared_ptr<PyType>>& argTypes)
+    const FunctionAST* func, // <--- 改为 const FunctionAST*
+    const std::vector<std::shared_ptr<PyType>>& argTypes)
 {
-    // 如果函数定义了返回类型注解，使用注解类型
-    if (!func->returnTypeName.empty())
-    {
-        return PyType::fromString(func->returnTypeName);
-    }
+// 如果函数定义了返回类型注解，使用注解类型
+if (!func->returnTypeName.empty())
+{
+    // PyType::fromString 应该接受 const string&
+    return PyType::fromString(func->getReturnTypeName()); // 使用 getter
+}
 
-    // 从函数中推断返回类型
-    std::shared_ptr<PyType> inferredType = func->inferReturnType();
-    if (inferredType)
-    {
-        return inferredType;
-    }
+// 从函数中推断返回类型 (inferReturnType 应该是 const 方法)
+std::shared_ptr<PyType> inferredType = func->inferReturnType();
+if (inferredType)
+{
+    return inferredType;
+}
 
-    // 分析函数体中的返回语句
-    // 这需要更复杂的控制流分析逻辑，这里简化处理
-    for (const auto& stmt : func->body)
+// 分析函数体中的返回语句
+for (const auto& stmt : func->getBody()) // 使用 getter
+{
+    if (stmt->kind() == ASTKind::ReturnStmt)
     {
-        if (stmt->kind() == ASTKind::ReturnStmt)
+        // static_cast 可以用于 const 指针
+        auto returnStmt = static_cast<const ReturnStmtAST*>(stmt.get()); // <--- 使用 const*
+        if (returnStmt->getValue())
         {
-            auto returnStmt = static_cast<ReturnStmtAST*>(stmt.get());
-            if (returnStmt->getValue())
-            {
-                // 假设有函数体分析能力，分析返回值表达式
-                // 以下是简化版本，真实实现需要考虑更复杂的表达式和控制流
-                return analyzeReturnExpr(returnStmt->getValue(), argTypes);
-            }
+            // analyzeReturnExpr 应该接受 const ExprAST*
+            return analyzeReturnExpr(returnStmt->getValue(), argTypes);
+        }
+        else
+        {
+             // 如果是 'return' 或 'return None'
+             return PyType::getAny(); // 或者 PyType::getNone()，取决于你的语义
         }
     }
+}
 
-    // 如果无法从返回语句确定类型，使用函数签名和参数类型推导
-    return inferReturnTypeFromContext(func->name, argTypes);
+// 如果无法从返回语句确定类型，使用函数签名和参数类型推导
+return inferReturnTypeFromContext(func->getName(), argTypes); // 使用 getter
 }
 
 // 分析返回表达式类型

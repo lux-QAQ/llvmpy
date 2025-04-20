@@ -18,3 +18,9 @@
 3. std::shared_ptr<PyType> BinaryExprAST::getType() 中说明了getCommonType可能无法处理list[int] + list[float] -> list[float]
  // 使用 ExpressionTypeInferer 进行推导（已经修改了）（ExpressionTypeInferer似乎没什么用）
     cachedType = ExpressionTypeInferer::inferBinaryExprType(opType, lhsType, rhsType);
+
+4. 函数对象
+5. 函数内定义函数
+6. stmt里面的函数作用域管理这个和第五条挂钩
+
+7. FunctionAST* CodeGenType::getFunctionAST(const std::string& funcName)  TODO: 需要一种方法来访问当前作用域或父作用域的函数定义。

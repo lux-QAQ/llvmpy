@@ -35,6 +35,8 @@ int py_object_len(PyObject* obj);
 // 添加函数创建声明
 PyObject* py_create_function(void* func_ptr, int signature_type_id);
 
+PyObject* py_call_function_noargs(PyObject* func_obj);
+PyObject* py_call_function(PyObject* callable, int num_args, PyObject** args_array);
 #ifdef __cplusplus
 }  // extern "C"
 #endif

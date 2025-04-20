@@ -2,8 +2,10 @@
 #ifndef PY_RUNTIME_COMMON_H
 #define PY_RUNTIME_COMMON_H
 
+#include <ffi.h> // 包含 libffi 头文件
 #include "TypeIDs.h"
 #include <cstddef>
+#include <vector>
 
 #ifdef __cplusplus
 extern "C" {

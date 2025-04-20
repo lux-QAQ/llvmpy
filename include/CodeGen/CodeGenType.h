@@ -35,6 +35,16 @@ public:
     // 获取类实例类型
     std::shared_ptr<PyType> getClassInstanceType(const std::string& className);
 
+    /**
+     * @brief 推断函数调用的返回类型。
+     *
+     * @param callableType 被调用者的类型。
+     * @param argTypes 实际参数的类型列表。
+     * @return std::shared_ptr<PyType> 推断出的返回类型。目前简单返回 Any。
+     */
+    std::shared_ptr<PyType> inferCallReturnType(
+            std::shared_ptr<PyType> callableType,
+            const std::vector<std::shared_ptr<PyType>>& argTypes);
     // 尝试获取函数对象类型
     ObjectType* getFunctionObjectType(const FunctionAST* funcAST);
 
@@ -42,13 +52,13 @@ public:
     std::shared_ptr<PyType> inferExprType(const ExprAST* expr);
 
     // 推导二元操作表达式类型
-    std::shared_ptr<PyType> inferBinaryExprType(PyTokenType op, // Changed: char -> PyTokenType
-        std::shared_ptr<PyType> leftType,
-        std::shared_ptr<PyType> rightType);
+    std::shared_ptr<PyType> inferBinaryExprType(PyTokenType op,  // Changed: char -> PyTokenType
+                                                std::shared_ptr<PyType> leftType,
+                                                std::shared_ptr<PyType> rightType);
 
     // 推导一元操作表达式类型
-    std::shared_ptr<PyType> inferUnaryExprType(PyTokenType op, // Changed: char -> PyTokenType
-        std::shared_ptr<PyType> operandType);
+    std::shared_ptr<PyType> inferUnaryExprType(PyTokenType op,  // Changed: char -> PyTokenType
+                                               std::shared_ptr<PyType> operandType);
 
     // 推导索引表达式类型
     std::shared_ptr<PyType> inferIndexExprType(
@@ -89,10 +99,10 @@ public:
             llvm::Value* value,
             std::shared_ptr<PyType> expectedType);
 
-    FunctionAST* getFunctionAST(const std::string& funcName);
+    const FunctionAST* getFunctionAST(const std::string& funcName);
 
     std::shared_ptr<PyType> analyzeFunctionReturnType(
-            FunctionAST* func,
+            const FunctionAST* func,
             const std::vector<std::shared_ptr<PyType>>& argTypes);
 
     std::shared_ptr<PyType> analyzeReturnExpr(

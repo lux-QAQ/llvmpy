@@ -1803,7 +1803,7 @@ std::unique_ptr<ModuleAST> PyParser::parseModule()
 {
     std::string moduleName = "main";  // 默认模块名
     std::vector<std::unique_ptr<StmtAST>> topLevelStmts;
-    std::vector<std::unique_ptr<FunctionAST>> functions;
+    // std::vector<std::unique_ptr<FunctionAST>> functions; // REMOVE or comment out
 
     // 解析文件中的所有语句
     while (currentToken.type != TOK_EOF)
@@ -1815,12 +1815,14 @@ std::unique_ptr<ModuleAST> PyParser::parseModule()
             continue;
         }
 
-        // 解析函数定义
+        // 解析函数定义 (现在作为普通语句处理)
         if (currentToken.type == TOK_DEF)
         {
-            auto func = parseFunction();
-            if (func)
-                functions.push_back(std::move(func));
+            // 调用注册的语句解析器来获取 FunctionDefStmtAST
+            auto stmt = parseStatement(); // This should call the TOK_DEF handler
+            if (stmt)
+                topLevelStmts.push_back(std::move(stmt));
+            // else: error already logged by parseStatement/parseFunction
         }
         // 解析类定义（类也是顶级语句）
         else if (currentToken.type == TOK_CLASS)
@@ -1828,6 +1830,7 @@ std::unique_ptr<ModuleAST> PyParser::parseModule()
             auto classStmt = parseClassDefinition();
             if (classStmt)
                 topLevelStmts.push_back(std::move(classStmt));
+            // else: error already logged
         }
         // 解析其他顶级语句
         else
@@ -1835,13 +1838,14 @@ std::unique_ptr<ModuleAST> PyParser::parseModule()
             auto stmt = parseStatement();
             if (stmt)
                 topLevelStmts.push_back(std::move(stmt));
+            // else: error already logged
         }
     }
 
-    // 创建模块AST
+    // 创建模块AST (移除 functions 参数)
     auto module = std::make_unique<ModuleAST>(moduleName,
-                                              std::move(topLevelStmts),
-                                              std::move(functions));
+                                              std::move(topLevelStmts));
+                                              // std::move(functions)); // REMOVE
     return module;
 }
 std::shared_ptr<PyType> PyParser::tryParseTypeAnnotation()

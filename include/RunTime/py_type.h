@@ -52,6 +52,19 @@ PyObject* py_smart_convert(PyObject* obj, int targetTypeId);
 // 类型错误报告
 void py_type_error(PyObject* obj, int expectedTypeId);
 
+
+
+/**
+* @brief 将 Python 对象转换为整数退出代码。
+*
+* 处理 None (-> 0)、PyInt (-> 其值) 以及其他可能的类型。
+* 对于未处理的类型或错误，返回 1。
+*
+* @param obj 要转换的 Python 对象。
+* @return 整数退出代码（通常 0 表示成功，非零表示错误）。
+*/
+ int py_object_to_exit_code(PyObject* obj);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

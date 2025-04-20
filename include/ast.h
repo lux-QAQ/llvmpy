@@ -145,8 +145,6 @@ private:
     std::unordered_map<KeyType, CreatorFunc> creators;
 };
 
-
-
 /**
  * @brief 所有 AST 节点的基类。
  *
@@ -290,7 +288,7 @@ public:
      * @param codegen 代码生成器引用。
      * @note 目前为空实现，子类可以覆盖以添加特定逻辑。
      */
-     // TODO?
+    // TODO?
     virtual void cleanup(PyCodeGen& codegen)
     {
     }
@@ -442,7 +440,6 @@ public:
     }
     /** @brief 获取表达式类型（int 或 double）。*/
     std::shared_ptr<PyType> getType() const override;
-
 };
 
 /**
@@ -465,7 +462,6 @@ public:
     }
     /** @brief 获取表达式类型 (string)。*/
     std::shared_ptr<PyType> getType() const override;
-
 };
 
 /**
@@ -488,7 +484,6 @@ public:
     }
     /** @brief 获取表达式类型 (bool)。*/
     std::shared_ptr<PyType> getType() const override;
-
 };
 
 /**
@@ -504,7 +499,6 @@ public:
 
     /** @brief 获取表达式类型 (None)。*/
     std::shared_ptr<PyType> getType() const override;
-
 };
 
 /**
@@ -540,8 +534,11 @@ public:
     {
         return true;
     }
-
-
+    /** @brief 设置推断出的变量类型（由类型检查器或代码生成器调用）。*/
+    void setType(const std::shared_ptr<PyType>& type) const  // 使用 const 以匹配 mutable cachedType
+    {
+        cachedType = type;
+    }
 };
 
 /**
@@ -549,8 +546,7 @@ public:
  */
 class BinaryExprAST : public ExprASTBase<BinaryExprAST, ASTKind::BinaryExpr>
 {
-    
-    PyTokenType opType; // 新增：使用 PyTokenType 表示操作符
+    PyTokenType opType;                 // 新增：使用 PyTokenType 表示操作符
     std::unique_ptr<ExprAST> lhs, rhs;  ///< 左操作数。
     /** @brief 缓存推断出的结果类型。*/
     mutable std::shared_ptr<PyType> cachedType;  ///< 右操作数。
@@ -586,7 +582,6 @@ public:
     }
     /** @brief 获取表达式结果类型。*/
     std::shared_ptr<PyType> getType() const override;
-
 };
 
 /**
@@ -595,22 +590,21 @@ public:
 class UnaryExprAST : public ExprASTBase<UnaryExprAST, ASTKind::UnaryExpr>
 {
 private:
-  
-    PyTokenType opType; // 新增：使用 PyTokenType 表示操作符
+    PyTokenType opType;                // 新增：使用 PyTokenType 表示操作符
     std::unique_ptr<ExprAST> operand;  ///< 操作数。
     /** @brief 缓存推断出的结果类型。*/
     mutable std::shared_ptr<PyType> cachedType;
 
 public:
-     /** @brief 构造函数。*/
-   
+    /** @brief 构造函数。*/
+
     // 更新构造函数以接受 PyTokenType
     UnaryExprAST(PyTokenType opcode, std::unique_ptr<ExprAST> operand)
         : opType(opcode), operand(std::move(operand))
     {
     }
 
-     /** @brief 获取操作符。*/
+    /** @brief 获取操作符。*/
     // char getOpCode() const // 删除旧 getter
     // {
     //     return opCode;
@@ -627,7 +621,6 @@ public:
     }
     /** @brief 获取表达式结果类型。*/
     std::shared_ptr<PyType> getType() const override;
-
 };
 
 /**
@@ -670,8 +663,6 @@ public:
     {
         return true;
     }
-
-
 };
 
 /**
@@ -709,8 +700,6 @@ public:
     {
         return false;
     }
-
-
 };
 
 /**
@@ -751,8 +740,6 @@ public:
     {
         cachedType = type;
     }
-
-
 };
 
 /**
@@ -795,8 +782,6 @@ public:
     {
         return true;
     }
-
-
 };
 
 // ======================== 具体语句类 ========================
@@ -820,7 +805,6 @@ public:
     {
         return expr.get();
     }
-
 };
 
 /**
@@ -911,8 +895,6 @@ public:
         if (value) return value.get();
         return valueExpr.get();
     }
-
-
 };
 
 /**
@@ -937,8 +919,6 @@ public:
 
     /** @brief return 语句可能需要特殊的清理逻辑（例如，确保返回值被正确处理）。*/
     //void cleanup(PyCodeGen& codegen) override;
-
-
 };
 
 /**
@@ -980,10 +960,10 @@ public:
 //     /** @brief if 语句块结束时需要销毁作用域。*/
 //     void endScope(PyCodeGen& codegen) override;
 
-
 // };
 
-class IfStmtAST : public StmtASTBase<IfStmtAST, ASTKind::IfStmt> { // <--- 新代码
+class IfStmtAST : public StmtASTBase<IfStmtAST, ASTKind::IfStmt>
+{  // <--- 新代码
     std::unique_ptr<ExprAST> condition;
     std::vector<std::unique_ptr<StmtAST>> thenBody;
     std::unique_ptr<StmtAST> elseStmt;
@@ -994,27 +974,42 @@ public:
               std::unique_ptr<StmtAST> ElseStmt)
         : condition(std::move(Condition)),
           thenBody(std::move(ThenBody)),
-          elseStmt(std::move(ElseStmt)) {}
+          elseStmt(std::move(ElseStmt))
+    {
+    }
 
     // kind() 方法现在由 StmtASTBase 提供
 
-    ExprAST* getCondition() const { return condition.get(); }
-    const std::vector<std::unique_ptr<StmtAST>>& getThenBody() const { return thenBody; }
-    StmtAST* getElseStmt() const { return elseStmt.get(); }
-
+    ExprAST* getCondition() const
+    {
+        return condition.get();
+    }
+    const std::vector<std::unique_ptr<StmtAST>>& getThenBody() const
+    {
+        return thenBody;
+    }
+    StmtAST* getElseStmt() const
+    {
+        return elseStmt.get();
+    }
 };
 
-
-class BlockStmtAST : public StmtASTBase<BlockStmtAST, ASTKind::BlockStmt> { // <--- 新代码
+class BlockStmtAST : public StmtASTBase<BlockStmtAST, ASTKind::BlockStmt>
+{  // <--- 新代码
     std::vector<std::unique_ptr<StmtAST>> statements;
+
 public:
     BlockStmtAST(std::vector<std::unique_ptr<StmtAST>> Stmts)
-        : statements(std::move(Stmts)) {}
+        : statements(std::move(Stmts))
+    {
+    }
 
     // kind() 方法现在由 StmtASTBase 提供，不需要手动实现
 
-    const std::vector<std::unique_ptr<StmtAST>>& getStatements() const { return statements; }
-
+    const std::vector<std::unique_ptr<StmtAST>>& getStatements() const
+    {
+        return statements;
+    }
 };
 
 /**
@@ -1049,8 +1044,6 @@ public:
     void beginScope(PyCodeGen& codegen) override;
     /** @brief while 循环体结束时需要销毁作用域。*/
     void endScope(PyCodeGen& codegen) override;
-
-
 };
 
 /**
@@ -1073,9 +1066,6 @@ public:
     {
         return value.get();
     }
-
-
-
 };
 
 /**
@@ -1108,7 +1098,6 @@ public:
     {
         return value.get();
     }
-
 };
 
 /**
@@ -1122,7 +1111,6 @@ public:
     PassStmtAST()
     {
     }
-
 };
 
 /**
@@ -1152,7 +1140,6 @@ public:
     {
         return alias;
     }
-
 };
 
 // ======================== 函数和模块 ========================
@@ -1180,10 +1167,6 @@ struct ParamAST
     {
     }  // typeName 为空表示无注解
 };
-
-
-
-
 
 /**
  * @brief 函数定义节点 (def func(...): ...)。
@@ -1281,8 +1264,6 @@ public:
      */
     void resolveParamTypes();
 
-
-
     /**
      * @brief 设置函数所属的类上下文。
      * @param className 类名。
@@ -1306,11 +1287,7 @@ public:
     {
         return !classContext.empty();
     }
-
-
 };
-
-
 
 /**
  * @brief 函数定义语句节点。
@@ -1318,29 +1295,27 @@ public:
  * 这个节点包装了一个 FunctionAST，表示一个 'def' 语句。
  * 代码生成器会处理这个节点，在运行时创建函数对象并将其绑定到作用域。
  */
- class FunctionDefStmtAST : public StmtASTBase<FunctionDefStmtAST, ASTKind::FunctionDefStmt> // 需要在 ASTKind 中添加 FunctionDefStmt
- {
-     std::unique_ptr<FunctionAST> funcAST;
- 
- public:
-     /** @brief 构造函数。*/
-     FunctionDefStmtAST(std::unique_ptr<FunctionAST> func) : funcAST(std::move(func))
-     {
-         // 继承 FunctionAST 的位置信息
-         if (funcAST && funcAST->line.has_value() && funcAST->column.has_value()) {
-              this->setLocation(funcAST->line.value(), funcAST->column.value());
-         }
-     }
- 
-     /** @brief 获取包含的 FunctionAST。*/
-     const FunctionAST* getFunctionAST() const
-     {
-         return funcAST.get();
-     }
- 
-  
- };
+class FunctionDefStmtAST : public StmtASTBase<FunctionDefStmtAST, ASTKind::FunctionDefStmt>  // 需要在 ASTKind 中添加 FunctionDefStmt
+{
+    std::unique_ptr<FunctionAST> funcAST;
 
+public:
+    /** @brief 构造函数。*/
+    FunctionDefStmtAST(std::unique_ptr<FunctionAST> func) : funcAST(std::move(func))
+    {
+        // 继承 FunctionAST 的位置信息
+        if (funcAST && funcAST->line.has_value() && funcAST->column.has_value())
+        {
+            this->setLocation(funcAST->line.value(), funcAST->column.value());
+        }
+    }
+
+    /** @brief 获取包含的 FunctionAST。*/
+    const FunctionAST* getFunctionAST() const
+    {
+        return funcAST.get();
+    }
+};
 
 /**
  * @brief 类定义语句节点 (class MyClass(Base1, Base2): ...)。
@@ -1386,7 +1361,6 @@ public:
     {
         return methods;
     }
-
 };
 
 /**
@@ -1395,60 +1369,71 @@ public:
 class ModuleAST : public ASTNodeBase<ModuleAST, ASTKind::Module>
 {
     std::string moduleName;  ///< 模块名称（通常是文件名）。
-    /** @brief 模块中定义的函数列表。*/
-    std::vector<std::unique_ptr<FunctionAST>> functions;
-    /** @brief 模块顶层的语句列表（包括类定义、import、赋值等）。*/
+    // /** @brief 模块中定义的函数列表。*/ // REMOVED: 函数现在通过 FunctionDefStmt 包含在 statements 中
+    // std::vector<std::unique_ptr<FunctionAST>> functions;
+    /** @brief 模块顶层的语句列表（包括函数定义、类定义、import、赋值等）。*/
     std::vector<std::unique_ptr<StmtAST>> statements;
-    /// @note functions 列表可能冗余，因为 FunctionAST 也是 StmtAST 的子类（通过 FunctionDefStmt?）。
-    /// @note     可以考虑只保留 statements 列表。
+    // @note functions 列表已移除，所有顶级定义都应在 statements 中。
 
 public:
     /** @brief 构造函数。*/
     ModuleAST(const std::string& name,
-              std::vector<std::unique_ptr<StmtAST>> stmts,
-              std::vector<std::unique_ptr<FunctionAST>> funcs)
-        : moduleName(name), functions(std::move(funcs)), statements(std::move(stmts))
+              std::vector<std::unique_ptr<StmtAST>> stmts)
+        // std::vector<std::unique_ptr<FunctionAST>> funcs) // REMOVED funcs parameter
+        : moduleName(name), statements(std::move(stmts))  // REMOVED functions initialization
     {
     }
 
     /** @brief 默认构造函数。*/
     ModuleAST() : moduleName("main") {};
 
-    /**
-      * @brief 向模块添加一个函数定义。
-      * @param func 函数 AST 节点的 unique_ptr。
-      * @note 可能需要更新 statements 列表。
-      */
-    void addFunction(std::unique_ptr<FunctionAST> func);
+    // /** // REMOVED addFunction method
+    //   * @brief 向模块添加一个函数定义。
+    //   * @param func 函数 AST 节点的 unique_ptr。
+    //   * @note 可能需要更新 statements 列表。
+    //   */
+    // void addFunction(std::unique_ptr<FunctionAST> func);
 
     /**
-      * @brief 向模块添加一个顶层语句。
-      * @param stmt 语句 AST 节点的 unique_ptr。
-      */
-    void addStatement(std::unique_ptr<StmtAST> stmt);
+       * @brief 向模块添加一个顶层语句。
+       * @param stmt 语句 AST 节点的 unique_ptr。
+       */
+    void addStatement(std::unique_ptr<StmtAST> stmt)
+    {
+        statements.push_back(std::move(stmt));
+    }
 
     /** @brief 获取模块名称。*/
     const std::string& getModuleName() const
     {
         return moduleName;
     }
-    /** @brief 获取函数列表。*/
-    const std::vector<std::unique_ptr<FunctionAST>>& getFunctions() const
-    {
-        return functions;
-    }
+    // /** @brief 获取函数列表。*/ // REMOVED getFunctions method
+    // const std::vector<std::unique_ptr<FunctionAST>>& getFunctions() const
+    // {
+    //     return functions;
+    // }
     /** @brief 获取顶层语句列表。*/
     const std::vector<std::unique_ptr<StmtAST>>& getStatements() const
     {
         return statements;
     }
-
-
 };
 
+// --- 实现 addStatement (如果之前没有实现的话) ---
+// void ModuleAST::addStatement(std::unique_ptr<StmtAST> stmt) {
+//     statements.push_back(std::move(stmt));
+// }
+
+// --- 移除 addFunction 的实现 (如果之前有实现的话) ---
+// void ModuleAST::addFunction(std::unique_ptr<FunctionAST> func) {
+//     // 旧逻辑可能直接添加到 functions 列表
+//     // functions.push_back(std::move(func));
+//     // 新逻辑应该将 FunctionAST 包装成 FunctionDefStmtAST 并添加到 statements
+//     // addStatement(std::make_unique<FunctionDefStmtAST>(std::move(func)));
+// }
+
 // ======================== AST工厂和注册器 ========================
-
-
 
 // ======================== 类型系统接口 ========================
 
@@ -1502,6 +1487,7 @@ public:
     bool isDict() const;       ///< 是否为字典类型 (泛型基础)
     bool isAny() const;        ///< 是否为 Any 类型
     bool isReference() const;  ///< 是否为引用类型 (需要引用计数)
+    bool isFunction() const;   ///< 是否为函数类型
 
     /**
      * @brief 比较两个 PyType 是否相等。
@@ -1578,8 +1564,6 @@ std::shared_ptr<PyType> inferListElementType(const std::vector<std::unique_ptr<E
   * @note 需要类型继承关系的支持。
   */
 std::shared_ptr<PyType> getCommonType(const std::shared_ptr<PyType>& t1, const std::shared_ptr<PyType>& t2);
-
-
 
 }  // namespace llvmpy
 

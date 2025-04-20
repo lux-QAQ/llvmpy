@@ -4,8 +4,15 @@
 #include "CodeGen/CodeGenModule.h"
 #include "CodeGen/CodeGenType.h"
 #include "CodeGen/CodeGenRuntime.h"
+#include "CodeGen/CodeGenUtil.h"
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
+
+#include <llvm/IR/Function.h>
+#include <llvm/IR/Module.h>
+#include <llvm/Support/Casting.h> // For llvm::dyn_cast
+#include <llvm/Support/raw_ostream.h>
+
 #include <iostream>
 #include <sstream>
 
@@ -15,6 +22,27 @@ namespace llvmpy
 //===----------------------------------------------------------------------===//
 // PyScope 实现
 //===----------------------------------------------------------------------===//
+// --- PyScope 函数 AST 方法实现 ---
+void PyScope::defineFunctionAST(const std::string& name, const FunctionAST* ast)
+{
+    // 允许覆盖，以便处理内部函数覆盖外部同名函数的情况
+    functionDefinitions[name] = ast;
+    #ifdef DEBUG_SYMBOL_TABLE // 假设有这样的宏
+    std::cerr << "Debug [PyScope]: Defined FunctionAST '" << name << "' in this scope." << std::endl;
+    #endif
+}
+
+const FunctionAST* PyScope::findFunctionAST(const std::string& name) const
+{
+    // 在当前作用域查找
+    auto it = functionDefinitions.find(name);
+    if (it != functionDefinitions.end())
+    {
+        return it->second;
+    }
+    // 在父作用域中递归查找
+    return parent ? parent->findFunctionAST(name) : nullptr;
+}
 
 bool PyScope::hasVariable(const std::string& name) const
 {
@@ -69,7 +97,32 @@ ObjectType* PyScope::getVariableType(const std::string& name)
 //===----------------------------------------------------------------------===//
 // PySymbolTable 实现
 //===----------------------------------------------------------------------===//
+// --- PySymbolTable 函数 AST 方法实现 ---
+// (这些方法直接委托给当前的 PyScope)
 
+/**
+ * @brief 在当前作用域定义一个函数 AST。
+ */
+ void PySymbolTable::defineFunctionAST(const std::string& name, const FunctionAST* ast)
+ {
+     if (!scopes.empty())
+     {
+         scopes.top()->defineFunctionAST(name, ast);
+     }
+     else
+     {
+         // 应该总是有作用域，记录错误
+         std::cerr << "Error: Cannot define function AST '" << name << "': No active scope in symbol table." << std::endl;
+     }
+ }
+ 
+ /**
+  * @brief 从当前作用域开始向上查找函数 AST 定义。
+  */
+ const FunctionAST* PySymbolTable::findFunctionAST(const std::string& name) const
+ {
+     return scopes.empty() ? nullptr : scopes.top()->findFunctionAST(name);
+ }
 PyScope* PySymbolTable::currentScope()
 {
     // 确保至少有一个作用域
@@ -86,12 +139,24 @@ void PySymbolTable::pushScope()
     PyScope* parent = scopes.empty() ? nullptr : scopes.top().get();
     scopes.push(std::make_unique<PyScope>(parent));
 }
-
+size_t PySymbolTable::getCurrentScopeDepth() const
+{
+    return scopes.size(); // 直接返回栈的大小即可
+}
 void PySymbolTable::popScope()
 {
     // 删除当前作用域
     if (!scopes.empty())
     {
+        // 在弹出作用域前，可以添加逻辑来处理作用域内变量的生命周期（例如 decref）
+        // PyScope* scopeToPop = scopes.top().get();
+        // for (auto const& [name, val] : scopeToPop->getVariables()) {
+        //     ObjectType* type = scopeToPop->getVariableType(name);
+        //     if (type && type->isReference()) {
+        //         // 需要 CodeGenRuntime 的引用来调用 decref
+        //         // codeGen.getRuntimeGen()->decRef(val);
+        //     }
+        // }
         scopes.pop();
     }
 }
@@ -409,6 +474,46 @@ bool CodeGenBase::verifyModule()
     }
 
     return true;
+}
+
+llvm::Function* CodeGenBase::getOrCreateFunction(
+    const std::string& name,
+    llvm::FunctionType* funcType,
+    llvm::GlobalValue::LinkageTypes linkage,
+    const llvm::AttributeList& attributes)
+{
+    // 尝试获取或插入函数
+    // getOrInsertFunction 返回一个 Constant*，需要转换
+    llvm::FunctionCallee funcCallee = module->getOrInsertFunction(name, funcType, attributes);
+
+    // 尝试将 Constant* 转换为 Function*
+    llvm::Function* func = llvm::dyn_cast<llvm::Function>(funcCallee.getCallee());
+
+    if (!func) {
+        // 如果转换失败，可能是因为已存在同名但类型不兼容的全局对象 (例如全局变量)
+        logError("Failed to get or create function '" + name + "'. A global object with the same name but incompatible type might exist.", 0, 0);
+        return nullptr;
+    }
+
+    // 检查返回的函数类型是否与请求的类型完全匹配
+    // getOrInsertFunction 会处理类型转换，但最好还是显式检查以防万一
+    if (func->getFunctionType() != funcType) {
+        // 这通常发生在函数已存在但签名不匹配的情况下
+        logError("Function '" + name + "' already exists with a different signature. Requested: " + llvmObjToString(funcType) + ", Found: " + llvmObjToString(func->getFunctionType()), 0, 0);
+        // 打印现有函数的 IR 以帮助调试
+        // func->print(llvm::errs());
+        return nullptr; // 返回 nullptr 表示失败
+    }
+
+    // 如果函数是新创建的，设置链接类型 (getOrInsertFunction 默认使用 ExternalLinkage)
+    if (func->empty()) { // 新创建的函数没有基本块
+        func->setLinkage(linkage);
+        // 可以设置其他属性，如 UnnamedAddr 等
+        // func->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+    }
+    // 如果函数已存在，我们通常不应该更改其链接类型或属性
+
+    return func;
 }
 
 llvm::Function* CodeGenBase::getOrCreateExternalFunction(

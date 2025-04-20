@@ -4,7 +4,8 @@
 #include "CodeGen/CodeGenType.h"
 #include "CodeGen/CodeGenRuntime.h"
 #include "CodeGen/CodeGenModule.h"  // 添加这一行
-#include "CodeGen/PyCodeGen.h"      // 添加这一行，确保 PyCodeGen 完整定义
+#include "CodeGen/CodeGenUtil.h"
+#include "CodeGen/PyCodeGen.h"  // 添加这一行，确保 PyCodeGen 完整定义
 
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
@@ -111,10 +112,11 @@ void CodeGenStmt::initializeHandlers()
     {
         static_cast<CodeGenStmt*>(cg.getStmtGen())->handleClassStmt(static_cast<ClassStmtAST*>(stmt));
     };
-        // 注册 FunctionDefStmt 的处理器
-        stmtHandlers[ASTKind::FunctionDefStmt] = [](CodeGenBase& cg, StmtAST* s) {
-            static_cast<CodeGenStmt*>(cg.getStmtGen())->handleFunctionDefStmt(static_cast<FunctionDefStmtAST*>(s));
-        };
+    // 注册 FunctionDefStmt 的处理器
+    stmtHandlers[ASTKind::FunctionDefStmt] = [](CodeGenBase& cg, StmtAST* s)
+    {
+        static_cast<CodeGenStmt*>(cg.getStmtGen())->handleFunctionDefStmt(static_cast<FunctionDefStmtAST*>(s));
+    };
 
     handlersInitialized = true;
 }
@@ -172,42 +174,163 @@ void CodeGenStmt::endScope()
     codeGen.getSymbolTable().popScope();
 }
 
-
 // --- 实现 handleFunctionDefStmt ---
-void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt) {
+// --- 实现 handleFunctionDefStmt ---
+void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
+{
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    const FunctionAST* dbgFuncAST = stmt->getFunctionAST();
+    std::string dbgFuncName = dbgFuncAST ? dbgFuncAST->getName() : "<null AST>";
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Entering handleFunctionDefStmt for '" + dbgFuncName + "'");
+#endif
     // --- 获取 AST 信息 ---
-    const FunctionAST* funcAST = stmt->getFunctionAST();
-    if (!funcAST) { /* log error */ return; }
+    const FunctionAST* funcAST = stmt->getFunctionAST();  // 获取 const*
+    if (!funcAST)
+    {
+        codeGen.logError("Null FunctionAST in FunctionDefStmt", stmt->line.value_or(0), stmt->column.value_or(0));
+        return;
+    }
     std::string funcName = funcAST->getName();
     int line = stmt->line.value_or(0);
     int col = stmt->column.value_or(0);
 
-    // --- 步骤 2.1: 调用 CodeGenModule 生成 LLVM 函数 ---
-    // CodeGenModule::handleFunctionDef 会负责生成函数签名和函数体 IR
-    llvm::Function* llvmFunc = codeGen.getModuleGen()->handleFunctionDef(const_cast<FunctionAST*>(funcAST));
-    if (!llvmFunc) { /* 错误已在 handleFunctionDef 中记录 */ return; }
+// --- 步骤 2.0: 在符号表中注册 AST (用于后续查找) ---
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Registering FunctionAST for '" + funcName + "' in symbol table.");
+#endif
+    // 注意：这里传递的是 const FunctionAST*
+    codeGen.getSymbolTable().defineFunctionAST(funcName, funcAST);  // <--- 新增调用
 
-    // --- 步骤 2.2: 调用 CodeGenType 获取 Python 函数类型 ---
-    // CodeGenType::getFunctionObjectType 会解析参数/返回类型提示或推断
-    ObjectType* funcObjectType = codeGen.getTypeGen()->getFunctionObjectType(funcAST);
-    if (!funcObjectType || funcObjectType->getCategory() != ObjectType::Function) {
-        /* log error */ return;
+// --- 步骤 2.1: 调用 CodeGenModule 生成 LLVM 函数 ---
+// CodeGenModule::handleFunctionDef 会负责生成函数签名和函数体 IR
+// 理想情况下 handleFunctionDef 应该接受 const FunctionAST*
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling ModuleGen->handleFunctionDef for '" + funcName + "'...");
+#endif
+    llvm::Function* llvmFunc = codeGen.getModuleGen()->handleFunctionDef(funcAST);  // <--- 修改这里
+    if (!llvmFunc)
+    { /* 错误已在 handleFunctionDef 中记录 */
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "ModuleGen->handleFunctionDef FAILED for '" + funcName + "'.");
+#endif
+        return;
+    }
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "ModuleGen->handleFunctionDef SUCCEEDED for '" + funcName + "'. LLVM Func: " + llvmObjToString(llvmFunc));
+#endif
+// --- 步骤 2.2: 调用 CodeGenType 获取 Python 函数类型 ---
+// CodeGenType::getFunctionObjectType 会解析参数/返回类型提示或推断
+// 确保 getFunctionObjectType 接受 const FunctionAST*
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling TypeGen->getFunctionObjectType for '" + funcName + "'...");
+#endif
+    ObjectType* funcObjectType = codeGen.getTypeGen()->getFunctionObjectType(funcAST);  // 传递 const*
+    if (!funcObjectType || funcObjectType->getCategory() != ObjectType::Function)
+    {
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "TypeGen->getFunctionObjectType FAILED for '" + funcName + "'.");
+#endif
+        codeGen.logError("Failed to get valid FunctionType for function: " + funcName, line, col);
+        // 可能需要清理已生成的 llvmFunc?
+        return;
+    }
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "TypeGen->getFunctionObjectType SUCCEEDED for '" + funcName + "'. Type: " + funcObjectType->getName());
+#endif
+// --- 步骤 2.3: 调用 CodeGenRuntime 创建 Python 函数对象 ---
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling RuntimeGen->createFunctionObject for '" + funcName + "'...");
+#endif
+    llvm::Value* pyFuncObj = codeGen.getRuntimeGen()->createFunctionObject(llvmFunc, funcObjectType);
+    if (!pyFuncObj)
+    {
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "RuntimeGen->createFunctionObject FAILED for '" + funcName + "'.");
+#endif
+        codeGen.logError("Failed to create Python function object for: " + funcName, line, col);
+        // 可能需要清理已生成的 llvmFunc?
+        return;
+    }
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "RuntimeGen->createFunctionObject SUCCEEDED for '" + funcName + "'. Value: " + llvmObjToString(pyFuncObj));
+#endif
+
+    // --- 新增：为顶层函数创建全局变量来存储函数对象 ---
+    // 检查当前是否在全局作用域（或 __llvmpy_entry 的顶层）
+    // 简单的检查：如果当前函数是 __llvmpy_entry 或者 nullptr (对于非入口点模块的顶层)
+    // 或者更准确地，检查符号表的当前作用域深度
+    llvm::Function* currentCodeGenFunction = codeGen.getCurrentFunction();
+    bool isTopLevel = !currentCodeGenFunction || currentCodeGenFunction->getName() == "__llvmpy_entry"; // 假设 0 是全局, 1 是模块顶层
+    llvm::Value* valueToStoreInSymbolTable = pyFuncObj; // 默认存储原始对象 (用于嵌套函数)
+
+    if (isTopLevel) {
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Function '" + funcName + "' is top-level (Scope Depth: " + std::to_string(codeGen.getSymbolTable().getCurrentScopeDepth()) + "). Creating GlobalVariable.");
+#endif
+        llvm::GlobalVariable* funcObjGV = new llvm::GlobalVariable(
+            *codeGen.getModule(),                             // Module
+            pyFuncObj->getType(),                             // Type (ptr)
+            false,                                            // isConstant
+            llvm::GlobalValue::InternalLinkage,               // Linkage (Internal is fine for now)
+            llvm::Constant::getNullValue(pyFuncObj->getType()), // Initializer (nullptr)
+            funcName + "_obj_gv"                              // Name
+        );
+        funcObjGV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global); // Optional optimization
+
+        // --- 新增：在当前函数 (e.g., __llvmpy_entry) 中存储对象到全局变量 ---
+        // 确保 Builder 在正确的位置 (应该还在 __llvmpy_entry 或全局初始化函数中)
+        if (codeGen.getBuilder().GetInsertBlock()) {
+             codeGen.getBuilder().CreateStore(pyFuncObj, funcObjGV);
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+             DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* into GlobalVariable: " + llvmObjToString(funcObjGV));
+#endif
+             valueToStoreInSymbolTable = funcObjGV; // <--- 符号表将存储全局变量
+        } else {
+             // 如果在顶层但没有插入块，这通常发生在非入口点模块的全局初始化阶段
+             // 此时应该将存储指令添加到全局构造函数中
+             llvm::Function* globalCtor = codeGen.getModule()->getFunction("__llvmpy_global_ctor_func"); // 假设有这样一个函数
+             if (globalCtor && !globalCtor->empty()) {
+                 llvm::IRBuilder<> ctorBuilder(&globalCtor->getEntryBlock(), globalCtor->getEntryBlock().getFirstInsertionPt());
+                 ctorBuilder.CreateStore(pyFuncObj, funcObjGV);
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+                 DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* into GlobalVariable (in global ctor): " + llvmObjToString(funcObjGV));
+#endif
+                 valueToStoreInSymbolTable = funcObjGV;
+             } else {
+                 codeGen.logError("Cannot find insert block or global constructor to store GlobalVariable for top-level function " + funcName, line, col);
+                 // 回退到存储原始对象，但这可能导致后续错误
+                 valueToStoreInSymbolTable = pyFuncObj;
+             }
+        }
+    } else {
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Function '" + funcName + "' is nested (Scope Depth: " + std::to_string(codeGen.getSymbolTable().getCurrentScopeDepth()) + "). Storing PyObject* directly.");
+#endif
+        // 对于嵌套函数，我们暂时还是直接存储 PyObject*。
+        // 正确处理闭包需要更复杂的机制（例如，创建 cell 对象或传递环境）。
+        valueToStoreInSymbolTable = pyFuncObj;
     }
 
-    // --- 步骤 2.3: 调用 CodeGenRuntime 创建 Python 函数对象 ---
-    // CodeGenRuntime::createFunctionObject 会调用 C 运行时函数 (如 py_create_function)
-    llvm::Value* pyFuncObj = codeGen.getRuntimeGen()->createFunctionObject(llvmFunc, funcObjectType);
-    if (!pyFuncObj) { /* log error */ return; }
 
-    // --- 步骤 2.4: 调用 PySymbolTable 绑定名称 ---
-    // 将函数名 funcName 绑定到运行时对象 pyFuncObj
-    codeGen.getSymbolTable().setVariable(funcName, pyFuncObj, funcObjectType);
-    // 可能需要处理引用计数 (如果 setVariable 不处理)
-    // codeGen.getRuntimeGen()->incRef(pyFuncObj); // 取决于 setVariable 的实现
+// --- 步骤 2.4: 调用 PySymbolTable 绑定运行时对象 ---
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling SymbolTable->setVariable for '" + funcName + "' with value: " + llvmObjToString(valueToStoreInSymbolTable));
+#endif
+    // 将函数名 funcName 绑定到 全局变量 (顶层) 或 PyObject* (嵌套层)
+    codeGen.getSymbolTable().setVariable(funcName, valueToStoreInSymbolTable, funcObjectType); // <--- 使用 valueToStoreInSymbolTable
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "SymbolTable->setVariable SUCCEEDED for '" + funcName + "'.");
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Leaving handleFunctionDefStmt for '" + funcName + "'");
+#endif
+    // 引用计数:
+    // - py_create_function 返回的对象引用计数为 1。
+    // - 如果是顶层函数，存储到全局变量中，全局变量持有这个引用，不需要额外 incref。
+    // - 如果是嵌套函数，直接存储 PyObject* 到符号表，符号表持有这个引用，也不需要额外 incref。
+    // - 当变量被覆盖或作用域结束时，需要 decref。这由 SymbolTable::popScope 或 updateVariable 处理。
 
-    #ifdef DEBUG_CODEGEN_STMT
-    std::cerr << "Debug [CodeGenStmt]: Defined function '" << funcName << "'..." << std::endl;
-    #endif
+#ifdef DEBUG_CODEGEN_STMT
+    std::cerr << "Debug [CodeGenStmt]: Defined function '" << funcName << "' (AST registered, LLVM generated, PyObject created, bound in symbol table)." << std::endl;
+#endif
 }
 
 llvm::Value* CodeGenStmt::handleCondition(const ExprAST* condition)
@@ -335,7 +458,7 @@ void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* final
 #endif
 
     auto& builder = codeGen.getBuilder();
-    llvm::Function* func = codeGen.getCurrentFunction(); // 获取当前函数
+    llvm::Function* func = codeGen.getCurrentFunction();  // 获取当前函数
 
     // 1. 处理当前 if/elif 的条件
 #ifdef DEBUG_IfStmt
@@ -346,10 +469,10 @@ void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* final
     {
 #ifdef DEBUG_IfStmt
         DEBUG_LOG(indent + "   [1] Condition generation FAILED. Returning.");
-        indentLevel--; // Decrement on early exit
+        indentLevel--;  // Decrement on early exit
         DEBUG_LOG(indent + "<- Leaving handleIfStmtRecursive (condition failed)");
 #endif
-        return; // 条件生成失败
+        return;  // 条件生成失败
     }
 #ifdef DEBUG_IfStmt
     DEBUG_LOG(indent + "   [1] Condition Value: " + llvmObjToString(condValue));
@@ -403,7 +526,7 @@ void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* final
 #ifdef DEBUG_IfStmt
     DEBUG_LOG(indent + "   [5] Handling 'else'/'elif' part (Entry Block: " + llvmObjToString(elseEntryBB) + ")");
 #endif
-    builder.SetInsertPoint(elseEntryBB); // Start generating code for the else part here
+    builder.SetInsertPoint(elseEntryBB);  // Start generating code for the else part here
 #ifdef DEBUG_IfStmt
     DEBUG_LOG(indent + "       Set insert point to: " + llvmObjToString(elseEntryBB));
 #endif
@@ -411,7 +534,7 @@ void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* final
     // --- FIX: Use getElseStmt() ---
     StmtAST* elseStmt = stmt->getElseStmt();
 
-    if (elseStmt) // 检查是否有 else 或 elif 部分
+    if (elseStmt)  // 检查是否有 else 或 elif 部分
     {
 #ifdef DEBUG_IfStmt
         DEBUG_LOG(indent + "       Else statement exists (not null). Kind: " + std::to_string(static_cast<int>(elseStmt->kind())));
@@ -428,10 +551,10 @@ void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* final
             // 递归调用会处理后续的跳转，这里不需要额外操作
 #ifdef DEBUG_IfStmt
             DEBUG_LOG(indent + "       Returned from recursive call for elif.");
-            indentLevel--; // Decrement before returning from this path
+            indentLevel--;  // Decrement before returning from this path
             DEBUG_LOG(indent + "<- Leaving handleIfStmtRecursive (elif handled)");
 #endif
-            return; // 从当前递归层返回, crucial!
+            return;  // 从当前递归层返回, crucial!
         }
         else
         {
@@ -446,7 +569,7 @@ void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* final
 #ifdef DEBUG_IfStmt
                 DEBUG_LOG(indent + "           Else statement is BlockStmtAST. Calling handleBlock...");
 #endif
-                handleBlock(elseBlock->getStatements()); // 处理 BlockStmt 的语句列表
+                handleBlock(elseBlock->getStatements());  // 处理 BlockStmt 的语句列表
 #ifdef DEBUG_IfStmt
                 DEBUG_LOG(indent + "           Returned from handleBlock for else block. Current block: " + llvmObjToString(builder.GetInsertBlock()));
 #endif
@@ -460,7 +583,7 @@ void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* final
 #ifdef DEBUG_IfStmt
                 DEBUG_LOG(indent + "           Else statement is a single statement. Calling handleStmt...");
 #endif
-                handleStmt(elseStmt); // 处理单个 else 语句
+                handleStmt(elseStmt);  // 处理单个 else 语句
 #ifdef DEBUG_IfStmt
                 DEBUG_LOG(indent + "           Returned from handleStmt for else statement. Current block: " + llvmObjToString(builder.GetInsertBlock()));
 #endif
@@ -489,11 +612,11 @@ void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* final
 #ifdef DEBUG_IfStmt
         DEBUG_LOG(indent + "       Else statement is null (no else/elif). Creating direct Br from elseEntryBB (" + llvmObjToString(elseEntryBB) + ") to finalMergeBB (" + llvmObjToString(finalMergeBB) + ")");
 #endif
-        builder.CreateBr(finalMergeBB); // else 分支直接跳到最终合并块
+        builder.CreateBr(finalMergeBB);  // else 分支直接跳到最终合并块
     }
 
 #ifdef DEBUG_IfStmt
-    indentLevel--; // Decrement on normal exit from this level
+    indentLevel--;  // Decrement on normal exit from this level
     DEBUG_LOG(indent + "<- Leaving handleIfStmtRecursive (normal exit)");
 #endif
 }
@@ -583,7 +706,7 @@ void CodeGenStmt::handleIfStmt(IfStmtAST* stmt)
 // 辅助函数：递归查找在给定语句列表（或单个语句）中被赋值的变量名
 void CodeGenStmt::findAssignedVariablesInStmt(StmtAST* stmt, std::set<std::string>& assignedVars)
 {
-    if (!stmt) return; // Base case: null statement
+    if (!stmt) return;  // Base case: null statement
 
     if (auto* assignStmt = dynamic_cast<AssignStmtAST*>(stmt))
     {
@@ -609,7 +732,7 @@ void CodeGenStmt::findAssignedVariablesInStmt(StmtAST* stmt, std::set<std::strin
         }
         // Recurse into the 'else' statement (which is a single StmtAST*)
         // The recursive call handles if it's null, another IfStmt, a BlockStmt, etc.
-        findAssignedVariablesInStmt(ifStmt->getElseStmt(), assignedVars); // <--- FIX: Use getElseStmt()
+        findAssignedVariablesInStmt(ifStmt->getElseStmt(), assignedVars);  // <--- FIX: Use getElseStmt()
     }
     else if (auto* whileStmt = dynamic_cast<WhileStmtAST*>(stmt))
     {
@@ -681,7 +804,6 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
     std::set<std::string> assignedInBody;
     for (const auto& bodyStmt : stmt->getBody())
     {
-        
         findAssignedVariablesInStmt(bodyStmt.get(), assignedInBody);  // <- 改为调用静态函数
     }
 #ifdef DEBUG_WhileSTmt
@@ -960,17 +1082,18 @@ void CodeGenStmt::handlePrintStmt(PrintStmtAST* stmt)
     llvm::Function* printObjectFunc = codeGen.getOrCreateExternalFunction(
             "py_print_object",
             llvm::Type::getVoidTy(context),
-            {llvm::PointerType::get(context, 0)} // 参数是 PyObject*
+            {llvm::PointerType::get(context, 0)}  // 参数是 PyObject*
     );
 
     // 3. 调用 py_print_object 函数
     //    确保 value 是 PyObject* 类型 (exprGen->handleExpr 应该返回 PyObject*)
-    if (!value->getType()->isPointerTy()) {
-         // 如果 exprGen 可能返回非指针类型，这里需要包装
-         // 但根据现有代码，它似乎总是返回 PyObject*
-         codeGen.logError("Internal error: Value for print is not a PyObject*", stmt->line.value_or(0), stmt->column.value_or(0));
-         runtime->cleanupTemporaryObjects(); // 清理可能已生成的 value
-         return;
+    if (!value->getType()->isPointerTy())
+    {
+        // 如果 exprGen 可能返回非指针类型，这里需要包装
+        // 但根据现有代码，它似乎总是返回 PyObject*
+        codeGen.logError("Internal error: Value for print is not a PyObject*", stmt->line.value_or(0), stmt->column.value_or(0));
+        runtime->cleanupTemporaryObjects();  // 清理可能已生成的 value
+        return;
     }
     builder.CreateCall(printObjectFunc, {value});
 

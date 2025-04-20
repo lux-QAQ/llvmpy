@@ -39,6 +39,8 @@ class PyScope
 private:
     std::map<std::string, llvm::Value*> variables;
     std::map<std::string, ObjectType*> variableTypes;
+    // 储存 函数 AST 定义
+    std::unordered_map<std::string, const FunctionAST*> functionDefinitions;
 
 public:
     PyScope(PyScope* p = nullptr) : parent(p)
@@ -53,6 +55,20 @@ public:
     {
         return variables;
     }
+
+    /**
+     * @brief 在当前作用域定义一个函数 AST。
+     * @param name 函数名。
+     * @param ast 指向函数 FunctionAST 的指针 (const)。
+     */
+    void defineFunctionAST(const std::string& name, const FunctionAST* ast);
+
+    /**
+      * @brief 从当前作用域开始向上查找函数 AST 定义。
+      * @param name 函数名。
+      * @return const FunctionAST* 如果找到则返回指针，否则返回 nullptr。
+      */
+    const FunctionAST* findFunctionAST(const std::string& name) const;
 };
 
 // 符号表 - 管理嵌套作用域
@@ -88,6 +104,31 @@ public:
     llvm::Value* getVariable(const std::string& name);
     void setVariable(const std::string& name, llvm::Value* value, ObjectType* type = nullptr);
     ObjectType* getVariableType(const std::string& name);
+
+    // --- 新增：获取当前作用域深度 ---
+    /**
+     * @brief 获取当前作用域栈的深度。
+     *
+     * 0 通常表示无效状态（不应该发生），1 表示全局/模块顶层作用域，
+     * 2 表示第一个嵌套作用域（如函数体），依此类推。
+     *
+     * @return size_t 当前作用域的深度。
+     */
+    size_t getCurrentScopeDepth() const;  // <--- 添加声明
+    // --- 函数 AST 定义相关 ---
+    /**
+     * @brief 在当前作用域定义一个函数 AST。
+     * @param name 函数名。
+     * @param ast 指向函数 FunctionAST 的指针 (const)。
+     */
+    void defineFunctionAST(const std::string& name, const FunctionAST* ast);
+
+    /**
+      * @brief 从当前作用域开始向上查找函数 AST 定义。
+      * @param name 函数名。
+      * @return const FunctionAST* 如果找到则返回指针，否则返回 nullptr。
+      */
+    const FunctionAST* findFunctionAST(const std::string& name) const;
 };
 
 // 代码生成错误
@@ -299,7 +340,7 @@ public:
         savedBlock = block;
     }
 
-/*     // 获取/设置最后生成的表达式信息
+    /*     // 获取/设置最后生成的表达式信息
     llvm::Value* getLastExprValue() const
     {
         return lastExprValue;
@@ -323,6 +364,24 @@ public:
             llvm::Type* returnType,
             std::vector<llvm::Type*> paramTypes,
             bool isVarArg = false);
+
+    /**
+     * @brief 获取或在模块中创建（插入）一个函数。
+     *
+     * 如果函数已存在，会检查函数类型是否匹配。如果不匹配，会记录错误并返回 nullptr。
+     * 如果函数不存在，会创建它。
+     *
+     * @param name 函数的名称。
+     * @param funcType 函数的 LLVM 类型。
+     * @param linkage 函数的链接类型 (默认为 ExternalLinkage，但对于内部函数应使用 InternalLinkage 或其他)。
+     * @param attributes 函数属性列表 (可选)。
+     * @return llvm::Function* 指向获取或创建的函数，如果类型不匹配则返回 nullptr。
+     */
+    llvm::Function* getOrCreateFunction(
+            const std::string& name,
+            llvm::FunctionType* funcType,
+            llvm::GlobalValue::LinkageTypes linkage = llvm::GlobalValue::ExternalLinkage,
+            const llvm::AttributeList& attributes = llvm::AttributeList());
 };
 
 }  // namespace llvmpy

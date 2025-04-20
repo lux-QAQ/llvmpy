@@ -8,6 +8,8 @@
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/MDBuilder.h>
+#include <llvm/IR/Instructions.h> 
+
 #include <iostream>
 
 namespace llvmpy
@@ -25,6 +27,89 @@ namespace llvmpy
 // 运行时函数管理
 //===----------------------------------------------------------------------===//
 
+
+
+llvm::Value* CodeGenRuntime::createCallFunction(
+    llvm::Value* callableObj,
+    const std::vector<llvm::Value*>& preparedArgs)
+{
+    auto& context = codeGen.getContext();
+    auto& builder = codeGen.getBuilder();
+    llvm::Module* module = codeGen.getModule();
+
+    // 1. 获取运行时函数 py_call_function 的声明
+    llvm::Type* pyObjectType = llvm::PointerType::get(context, 0); // PyObject* is ptr
+    llvm::Type* pyObjectPtrPtrType = llvm::PointerType::get(pyObjectType, 0); // PyObject**
+    llvm::Type* int32Type = llvm::Type::getInt32Ty(context);
+
+    llvm::FunctionType* funcType = llvm::FunctionType::get(
+        pyObjectType, // Return type: PyObject*
+        { pyObjectType, int32Type, pyObjectPtrPtrType }, // Args: PyObject*, int, PyObject**
+        false);
+    llvm::FunctionCallee funcCallee = module->getOrInsertFunction("py_call_function", funcType);
+    llvm::Function* pyCallFunc = llvm::dyn_cast<llvm::Function>(funcCallee.getCallee());
+    if (!pyCallFunc) {
+        codeGen.logError("Failed to get or insert runtime function 'py_call_function'.");
+        return nullptr;
+    }
+
+    // 2. 准备参数数组 (PyObject**)
+    llvm::Value* argsArray = nullptr;
+    llvm::Value* numArgs = llvm::ConstantInt::get(int32Type, preparedArgs.size());
+
+    if (!preparedArgs.empty()) {
+        // 2.1 在栈上分配 PyObject* 数组
+        //     注意：在入口块分配 alloca 是推荐做法
+        llvm::Function* currentFunc = builder.GetInsertBlock()->getParent();
+        llvm::IRBuilder<> entryBuilder(&currentFunc->getEntryBlock(),
+                                       currentFunc->getEntryBlock().getFirstInsertionPt());
+        argsArray = entryBuilder.CreateAlloca(pyObjectType, numArgs, "callargs_array");
+
+        // 2.2 将 preparedArgs 存入数组
+        for (size_t i = 0; i < preparedArgs.size(); ++i) {
+            llvm::Value* index = llvm::ConstantInt::get(int32Type, i);
+            // 获取数组元素的地址
+            llvm::Value* elemPtr = builder.CreateGEP(pyObjectType, argsArray, index, "arg_ptr_" + std::to_string(i));
+            // 存储参数值
+            builder.CreateStore(preparedArgs[i], elemPtr);
+        }
+    } else {
+        // 如果没有参数，传递一个空指针
+        argsArray = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(pyObjectPtrPtrType));
+    }
+
+
+    // 3. 创建对 py_call_function 的调用指令
+    llvm::Value* callResult = builder.CreateCall(pyCallFunc, { callableObj, numArgs, argsArray }, "call_result");
+
+    return callResult;
+}
+
+llvm::Value* CodeGenRuntime::createCallFunctionNoArgs(llvm::Value* funcObj)
+{
+#ifdef DEBUG_CODEGEN_RUNTIME
+    DEBUG_LOG_DETAIL("RuntimeGen", "Creating call to py_call_function_noargs for: " + llvmObjToString(funcObj));
+#endif
+    llvm::Function* callFunc = codeGen.getOrCreateExternalFunction(
+            "py_call_function_noargs",
+            llvm::PointerType::get(codeGen.getContext(), 0), // Returns PyObject*
+            {llvm::PointerType::get(codeGen.getContext(), 0)}  // Takes PyObject*
+    );
+    return codeGen.getBuilder().CreateCall(callFunc, {funcObj}, "call_result");
+}
+
+llvm::Value* CodeGenRuntime::createObjectToExitCode(llvm::Value* pyObj)
+{
+#ifdef DEBUG_CODEGEN_RUNTIME
+    DEBUG_LOG_DETAIL("RuntimeGen", "Creating call to py_object_to_exit_code for: " + llvmObjToString(pyObj));
+#endif
+    llvm::Function* convertFunc = codeGen.getOrCreateExternalFunction(
+            "py_object_to_exit_code",
+            llvm::Type::getInt32Ty(codeGen.getContext()),   // Returns i32
+            {llvm::PointerType::get(codeGen.getContext(), 0)}  // Takes PyObject*
+    );
+    return codeGen.getBuilder().CreateCall(convertFunc, {pyObj}, "exit_code");
+}
 
 
 llvm::Value* CodeGenRuntime::createFunctionObject(llvm::Function* llvmFunc, ObjectType* funcObjectType) {

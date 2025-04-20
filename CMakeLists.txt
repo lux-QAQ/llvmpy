@@ -3,9 +3,6 @@ project(llvmpy VERSION 0.1.0 LANGUAGES C CXX)
 
 cmake_policy(SET CMP0074 NEW)
 
-
-
-
 # 设置 RPATH 策略
 set(CMAKE_SKIP_BUILD_RPATH FALSE)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
@@ -16,17 +13,18 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE) # 改为FALSE防止自动添加其�
 list(REMOVE_ITEM CMAKE_SYSTEM_PREFIX_PATH "/home/ljs/miniconda3")
 list(INSERT CMAKE_SYSTEM_LIBRARY_PATH 0 "/usr/lib/x86_64-linux-gnu")
 
-# 静态链接标准库
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+# 静态链接标准库 (可选，根据需要保留或移除)
+# set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
 # 查找依赖库，明确指定系统库路径
 set(ZLIB_ROOT "/usr") # 优先查找系统zlib
 set(CMAKE_PREFIX_PATH "/usr" ${CMAKE_PREFIX_PATH})
 find_package(ZLIB REQUIRED)
 find_package(zstd QUIET)
+find_package(PkgConfig REQUIRED)
 
-# 显式设置 LLVM_DIR 路径 (将 /path/to/your/llvm/lib/cmake/llvm 替换为你的实际路径)
-
+# --- 查找 libffi ---
+pkg_check_modules(LIBFFI REQUIRED libffi>=3.0) # 检查 libffi 是否存在且版本足够
 
 # 显式设置 LLVM_DIR 路径
 set(LLVM_DIR "/home/ljs/llvmall/lib/cmake/llvm")
@@ -58,7 +56,7 @@ file(GLOB RUNTIME_SOURCES
 # 添加源文件
 add_executable(llvmpy
     main.cpp
-    #src/runtime.cpp
+    #src/runtime.cpp # 假设这些是旧文件或不需要了
     src/lexer.cpp
     src/parser.cpp
     src/ast.cpp
@@ -67,23 +65,37 @@ add_executable(llvmpy
     src/TypeOperations.cpp
     src/ObjectLifecycle.cpp
     ${CODEGEN_SOURCES}
-    ${RUNTIME_SOURCES}
+    # ${RUNTIME_SOURCES} # RunTime 源文件现在编译到 llvmpy_runtime 库中
 )
 
 # 运行时支持库 (编译为静态库)
 add_library(llvmpy_runtime STATIC
-    #src/runtime.cpp
+    #src/runtime.cpp # 假设这个文件不需要了
+    src/entry.c
     ${RUNTIME_SOURCES}
 )
+
+# --- 添加 libffi 头文件目录到运行时库 ---
+target_include_directories(llvmpy_runtime PUBLIC ${LIBFFI_INCLUDE_DIRS})
+
+# --- 链接 libffi 到运行时库 ---
+target_link_libraries(llvmpy_runtime PUBLIC ${LIBFFI_LIBRARIES})
 
 # 链接LLVM库
 llvm_map_components_to_libnames(llvm_libs support core irreader analysis instcombine
     scalaropts passes ipo transformutils)
-target_link_libraries(llvmpy ${llvm_libs} ZLIB::ZLIB llvmpy_runtime)
 
-# 如果找到zstd，也链接它
+# 链接主程序依赖项
+target_link_libraries(llvmpy
+    PRIVATE # 或者 PUBLIC/INTERFACE 取决于你的项目结构
+    ${llvm_libs}
+    ZLIB::ZLIB
+    llvmpy_runtime # 链接我们自己的运行时库
+)
+
+# 如果找到zstd，也链接它 (链接到主程序)
 if(zstd_FOUND)
-    target_link_libraries(llvmpy zstd::libzstd_shared)
+    target_link_libraries(llvmpy PRIVATE zstd::libzstd_shared) # 假设是私有依赖
 endif()
 
 # 设置C++标准
@@ -91,3 +103,12 @@ set_target_properties(llvmpy PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
 )
+set_target_properties(llvmpy_runtime PROPERTIES
+    CXX_STANDARD 20 # 运行时库也使用 C++20
+    CXX_STANDARD_REQUIRED ON
+)
+
+# 可选：添加安装规则
+# install(TARGETS llvmpy DESTINATION bin)
+# install(TARGETS llvmpy_runtime DESTINATION lib)
+# install(DIRECTORY include/ DESTINATION include)

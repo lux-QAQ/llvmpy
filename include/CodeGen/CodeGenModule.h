@@ -61,7 +61,7 @@ public:
   
 
     // 处理函数定义
-    llvm::Function* handleFunctionDef(FunctionAST* funcAST);
+    llvm::Function* handleFunctionDef(const FunctionAST* funcAST);
 
     // 为函数创建类型
     llvm::FunctionType* createFunctionType(
@@ -74,7 +74,7 @@ public:
                               std::vector<std::shared_ptr<PyType>>& paramTypes);
 
     // 设置函数返回类型
-    std::shared_ptr<PyType> resolveReturnType(FunctionAST* funcAST);
+    std::shared_ptr<PyType> resolveReturnType(const FunctionAST* funcAST);
 
     // 创建函数入口基本块
     llvm::BasicBlock* createFunctionEntry(llvm::Function* function);

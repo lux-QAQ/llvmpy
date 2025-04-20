@@ -146,56 +146,18 @@ llvm::Value* CodeGenExpr::handleNoneExpr(NoneExprAST* expr)
 // 处理变量引用表达式
 llvm::Value* CodeGenExpr::handleVariableExpr(VariableExprAST* expr)
 {
+    // 在符号表中查找变量
     const std::string& name = expr->getName();
     llvm::Value* value = codeGen.getSymbolTable().getVariable(name);
-    ObjectType* type = codeGen.getSymbolTable().getVariableType(name); // 获取类型信息
 
     if (!value)
     {
         return codeGen.logError("Unknown variable '" + name + "'",
-                                expr->line.value_or(0),
-                                expr->column.value_or(0));
+                                expr->line ? *expr->line : 0,
+                                expr->column ? *expr->column : 0);
     }
 
-    // --- FIX: Load from GlobalVariable if necessary ---
-    if (llvm::GlobalVariable* gv = llvm::dyn_cast<llvm::GlobalVariable>(value))
-    {
-        // 这是一个全局变量 (很可能是顶层函数对象)。加载实际的 PyObject*。
-        llvm::Type* expectedPtrType = llvm::PointerType::get(codeGen.getContext(), 0); // 假设 PyObject* 是 ptr
-        if (gv->getValueType() != expectedPtrType) {
-             return codeGen.logError("Global variable '" + name + "' does not hold expected pointer type.",
-                                     expr->line.value_or(0), expr->column.value_or(0));
-        }
-        // 创建 load 指令
-        llvm::Value* loadedValue = codeGen.getBuilder().CreateLoad(expectedPtrType, gv, name + "_loaded");
-#ifdef DEBUG_CODEGEN_handleVariableExpr
-        DEBUG_LOG_DETAIL("HdlVarExpr", "Loaded value from GlobalVariable '" + name + "': " + llvmObjToString(loadedValue));
-#endif
-        // 设置表达式的类型 (应该与符号表中的类型匹配)
-        if (type) {
-            expr->setType(PyType::fromObjectType(type));
-        } else {
-             expr->setType(PyType::getAny()); // 回退
-             codeGen.logWarning("Type information missing for global variable '" + name + "'. Assuming Any.", expr->line.value_or(0), expr->column.value_or(0));
-        }
-        return loadedValue; // 返回加载后的值 (PyObject*)
-    }
-    else
-    {
-        // 这可能是局部变量 (alloca) 或直接值 (嵌套函数 PyObject*)。
-        // 这里不需要 load。后续使用（如赋值源）会自动处理 alloca 的 load。
-#ifdef DEBUG_CODEGEN_handleVariableExpr
-        DEBUG_LOG_DETAIL("HdlVarExpr", "Using direct value/local for variable '" + name + "': " + llvmObjToString(value));
-#endif
-         // 设置表达式的类型
-        if (type) {
-            expr->setType(PyType::fromObjectType(type));
-        } else {
-             expr->setType(PyType::getAny()); // 回退
-             codeGen.logWarning("Type information missing for variable '" + name + "'. Assuming Any.", expr->line.value_or(0), expr->column.value_or(0));
-        }
-        return value; // 返回原始值 (alloca* 或 PyObject*)
-    }
+    return value;
 }
 
 // 处理二元操作表达式
@@ -235,100 +197,56 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
     auto& builder = codeGen.getBuilder();
     auto* runtime = codeGen.getRuntimeGen();
     auto* typeGen = codeGen.getTypeGen();
-    auto& symTable = codeGen.getSymbolTable(); // Get symbol table
 
-    // --- MODIFICATION START ---
+    const std::string& callee = expr->getCallee();
 
-    // 1. 获取被调用者的表达式 (假设 CallExprAST 存储了 callee 表达式)
-    //    如果 CallExprAST 只存了名字，我们需要先处理名字
-    const std::string& calleeName = expr->getCallee(); // Get the name as string
-
-    llvm::Value* callableObj = nullptr;
-    std::shared_ptr<PyType> callableType = nullptr;
-
-    // 2. 检查 calleeName 是否是符号表中的变量
-    if (symTable.hasVariable(calleeName)) {
-        llvm::Value* varValue = symTable.getVariable(calleeName);
-        ObjectType* objType = symTable.getVariableType(calleeName);
-        callableType = objType ? PyType::fromObjectType(objType) : PyType::getAny();
-
-        // 2.1. 加载变量的值 (可能是全局变量或局部变量)
-        if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(varValue)) {
-            // Load from global variable (like top-level function objects)
-            callableObj = builder.CreateLoad(gv->getValueType(), gv, calleeName + "_callable_loaded");
-        } else if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(varValue)) {
-            // Load from local variable (alloca)
-            callableObj = builder.CreateLoad(allocaInst->getAllocatedType(), allocaInst, calleeName + "_callable_loaded");
-        } else {
-            // Assume it's already a direct value (e.g., PyObject* for nested funcs, though less common here)
-            callableObj = varValue;
-        }
-
-        // 2.2. 检查类型是否可调用
-        if (!callableType->isFunction() && !callableType->isAny()) {
-            return codeGen.logTypeError("Variable '" + calleeName + "' is not callable.",
-                                        expr->line.value_or(0), expr->column.value_or(0));
-        }
-    } else {
-        // 3. 如果不是变量，尝试查找是否为已知函数 (例如内置函数)
-        //    当前的错误 "Unknown function: b" 表明这里查找失败了，这是预期的，因为 'b' 是变量。
-        //    对于真正的未知函数/变量，这里应该报错。
-        //    TODO: 未来可以扩展这里以支持内置函数等。
-        return codeGen.logError("Unknown function or variable: " + calleeName,
-                                expr->line.value_or(0), expr->column.value_or(0));
-    }
-
-    if (!callableObj) {
-         // 如果前面的逻辑未能解析 callableObj，则报错
-         return codeGen.logError("Could not resolve callable expression: " + calleeName,
-                                 expr->line.value_or(0), expr->column.value_or(0));
-    }
-
-    // --- MODIFICATION END ---
-
-    // 4. 生成参数的代码 (与之前类似)
+    // 生成参数的代码，同时收集参数类型
     std::vector<llvm::Value*> args;
     std::vector<std::shared_ptr<PyType>> argTypes;
+
     for (const auto& arg : expr->getArgs())
     {
         llvm::Value* argValue = handleExpr(arg.get());
         if (!argValue) return nullptr;
+
+        // 收集参数的值和类型
         args.push_back(argValue);
-        argTypes.push_back(arg->getType()); // 获取参数表达式的类型
+        argTypes.push_back(arg->getType());
     }
 
-    // 5. 准备参数 (与之前类似, 但可能需要从 callableType 获取预期类型)
-    std::vector<llvm::Value*> preparedArgs;
-    // TODO: 如果 callableType 是具体的 FunctionType，获取参数类型列表
-    std::vector<std::shared_ptr<PyType>> expectedParamTypes; // = callableType->getParamTypes();
-    for (size_t i = 0; i < args.size(); ++i)
+    // 获取函数声明
+    llvm::Function* func = codeGen.getModule()->getFunction(callee);
+    if (!func)
     {
-        std::shared_ptr<PyType> expectedType = (i < expectedParamTypes.size()) ? expectedParamTypes[i] : nullptr;
-        llvm::Value* preparedArg = runtime->prepareArgument(args[i], argTypes[i], expectedType);
-        if (!preparedArg) {
-             return codeGen.logError("Failed to prepare argument " + std::to_string(i + 1) + " for call.",
-                                     expr->line.value_or(0), expr->column.value_or(0));
+        return codeGen.logError("Unknown function: " + callee,
+                                expr->line ? *expr->line : 0,
+                                expr->column ? *expr->column : 0);
+    }
+
+    // 执行函数调用前的参数准备
+    std::vector<llvm::Value*> preparedArgs;
+    for (size_t i = 0; i < args.size(); i++)
+    {
+        llvm::Value* preparedArg = runtime->prepareArgument(
+                args[i], argTypes[i], nullptr);
+
+        if (!preparedArg)
+        {
+            return codeGen.logError("Failed to prepare argument " + std::to_string(i + 1) + " for function " + callee);
         }
+
         preparedArgs.push_back(preparedArg);
     }
 
-    // 6. 生成对运行时函数调用的代码
-    //    你需要一个 CodeGenRuntime 方法来创建这个调用
-    //    例如: llvm::Value* createCallFunction(llvm::Value* callableObj, const std::vector<llvm::Value*>& preparedArgs);
-    llvm::Value* callResult = runtime->createCallFunction(callableObj, preparedArgs); // <--- 调用新的 Runtime 方法
-    if (!callResult) {
-         // createCallFunction 内部应记录详细错误
-         return codeGen.logError("Failed to generate code for function call.",
-                                 expr->line.value_or(0), expr->column.value_or(0));
-    }
+    // 调用函数
+    llvm::Value* callResult = builder.CreateCall(func, preparedArgs, "calltmp");
 
-    // 7. 标记返回值的来源 (与之前相同)
+    // 标记返回值为函数返回，便于生命周期管理
     runtime->markObjectSource(callResult, ObjectLifecycleManager::ObjectSource::FUNCTION_RETURN);
 
-    // 8. 推导并设置表达式的返回类型
-    //    需要 CodeGenType 中的一个新方法，根据 callableType 和 argTypes 推断
-    std::shared_ptr<PyType> returnType = typeGen->inferCallReturnType(callableType, argTypes); // <--- 调用新的 TypeGen 方法
-    expr->setType(returnType); // 设置 CallExprAST 节点的类型
+    // 推导返回类型
+    std::shared_ptr<PyType> returnType = typeGen->inferCallExprType(callee, argTypes);
+    expr->setType(returnType);
 
     return callResult;
 }
@@ -660,10 +578,10 @@ llvm::Value* CodeGenExpr::handleIndexOperation(llvm::Value* target, llvm::Value*
     // 对于列表索引，我们可以直接使用运行时函数
     if (targetType->isList())
     {
-        // 确保索引是 Python 整数或布尔类型 (这部分逻辑保持)
+        // 确保索引是整数
         if (!indexType->isInt() && !indexType->isBool())
         {
-            // 尝试将 Python 对象转换为整数对象
+            // 尝试转换
             auto& registry = TypeOperationRegistry::getInstance();
             TypeConversionDescriptor* convDesc =
                     registry.getTypeConversionDescriptor(indexTypeId, PY_TYPE_INT);
@@ -673,36 +591,27 @@ llvm::Value* CodeGenExpr::handleIndexOperation(llvm::Value* target, llvm::Value*
                 index = OperationCodeGenerator::handleTypeConversion(
                         codeGen, index, indexTypeId, PY_TYPE_INT);
                 indexTypeId = PY_TYPE_INT;
-                // 更新 indexType shared_ptr
-                indexType = PyType::getInt();
             }
             else
             {
-                // 如果不能转换为 int，并且原始类型不是 bool，则报错
-                return codeGen.logError("List indices must be integers or booleans");
+                return codeGen.logError("List indices must be integers");
             }
         }
 
-        // --- 修改：使用 py_extract_constant_int ---
-        // 获取运行时函数 py_extract_constant_int
-        llvm::Function* extractIntFunc = codeGen.getOrCreateExternalFunction(
-                "py_extract_constant_int", // <--- 使用现有函数
-                llvm::Type::getInt32Ty(codeGen.getContext()), // 返回 i32
-                {llvm::PointerType::get(codeGen.getContext(), 0)}); // 参数: PyObject*
-
-        // 'index' 是指向 Python 整数或布尔对象的 PyObject*
-        llvm::Value* cIntValue = builder.CreateCall(extractIntFunc, {index}, "index_cint");
-        // --- 修改结束 ---
-
-        // 获取 py_list_get_item 函数 (保持不变)
+        // 调用运行时函数获取列表元素
         llvm::Function* getItemFunc = codeGen.getOrCreateExternalFunction(
                 "py_list_get_item",
                 llvm::PointerType::get(codeGen.getContext(), 0),
                 {llvm::PointerType::get(codeGen.getContext(), 0),
                  llvm::Type::getInt32Ty(codeGen.getContext())});
 
-        // 使用提取出的 C int 值调用 py_list_get_item
-        return builder.CreateCall(getItemFunc, {target, cIntValue}, "list_item"); // <--- 使用 cIntValue
+        // 我们需要确保索引是32位整数
+        if (index->getType() != llvm::Type::getInt32Ty(codeGen.getContext()))
+        {
+            index = builder.CreateIntCast(index, llvm::Type::getInt32Ty(codeGen.getContext()), true, "idxcast");
+        }
+
+        return builder.CreateCall(getItemFunc, {target, index}, "list_item");
     }
 
     // 对于字典索引
@@ -721,10 +630,10 @@ llvm::Value* CodeGenExpr::handleIndexOperation(llvm::Value* target, llvm::Value*
     // 对于字符串索引
     if (targetType->isString())
     {
-        // 确保索引是 Python 整数或布尔类型 (这部分逻辑保持)
+        // 确保索引是整数
         if (!indexType->isInt() && !indexType->isBool())
         {
-             // 尝试将 Python 对象转换为整数对象
+            // 尝试转换
             auto& registry = TypeOperationRegistry::getInstance();
             TypeConversionDescriptor* convDesc =
                     registry.getTypeConversionDescriptor(indexTypeId, PY_TYPE_INT);
@@ -734,37 +643,27 @@ llvm::Value* CodeGenExpr::handleIndexOperation(llvm::Value* target, llvm::Value*
                 index = OperationCodeGenerator::handleTypeConversion(
                         codeGen, index, indexTypeId, PY_TYPE_INT);
                 indexTypeId = PY_TYPE_INT;
-                 // 更新 indexType shared_ptr
-                indexType = PyType::getInt();
             }
             else
             {
-                // 如果不能转换为 int，并且原始类型不是 bool，则报错
-                return codeGen.logError("String indices must be integers or booleans");
+                return codeGen.logError("String indices must be integers");
             }
         }
 
-        // --- 修改：使用 py_extract_constant_int ---
-        // 获取运行时函数 py_extract_constant_int
-        llvm::Function* extractIntFunc = codeGen.getOrCreateExternalFunction(
-                "py_extract_constant_int", // <--- 使用现有函数
-                llvm::Type::getInt32Ty(codeGen.getContext()), // 返回 i32
-                {llvm::PointerType::get(codeGen.getContext(), 0)}); // 参数: PyObject*
-
-        // 'index' 是指向 Python 整数或布尔对象的 PyObject*
-        llvm::Value* cIntValue = builder.CreateCall(extractIntFunc, {index}, "index_cint_str");
-         // --- 修改结束 ---
-
-        // 获取 py_string_get_char 函数 (保持不变)
+        // 调用运行时函数获取字符串字符（作为新字符串）
         llvm::Function* getCharFunc = codeGen.getOrCreateExternalFunction(
                 "py_string_get_char",
                 llvm::PointerType::get(codeGen.getContext(), 0),
                 {llvm::PointerType::get(codeGen.getContext(), 0),
                  llvm::Type::getInt32Ty(codeGen.getContext())});
 
+        // 我们需要确保索引是32位整数
+        if (index->getType() != llvm::Type::getInt32Ty(codeGen.getContext()))
+        {
+            index = builder.CreateIntCast(index, llvm::Type::getInt32Ty(codeGen.getContext()), true, "idxcast");
+        }
 
-        // 使用提取出的 C int 值调用 py_string_get_char
-        return builder.CreateCall(getCharFunc, {target, cIntValue}, "str_char"); // <--- 使用 cIntValue
+        return builder.CreateCall(getCharFunc, {target, index}, "str_char");
     }
 
     // 使用通用索引操作

@@ -70,6 +70,30 @@ public:
             std::shared_ptr<PyType> valueType,
             std::shared_ptr<PyType> returnType);
 
+    /**
+     * @brief 生成对运行时函数 py_call_function 的调用。
+     *
+     * @param callableObj 代表 Python 可调用对象 (PyObject*) 的 LLVM 值。
+     * @param preparedArgs 代表已准备好的参数 (PyObject*) 的 LLVM 值列表。
+     * @return llvm::Value* 表示调用返回的 Python 对象 (PyObject*)。
+     */
+    llvm::Value* createCallFunction(
+            llvm::Value* callableObj,
+            const std::vector<llvm::Value*>& preparedArgs);
+    /**
+     * @brief 生成了对运行时函数py_call_function_noargs的调用。
+     *代表Python函数对象（PyObject*）的@param funcobj llvm值。
+     * @return llvm值表示返回的Python对象（PyObject*）。
+     */
+    llvm::Value* createCallFunctionNoArgs(llvm::Value* funcObj);
+
+    /**
+     * @brief生成对运行时函数py_object_to_exit_code的调用。
+     *代表Python对象（PyObject*）的@param PyoBj llvm值。
+     * @return llvm值表示整数退出代码（i32）。
+     */
+    llvm::Value* createObjectToExitCode(llvm::Value* pyObj);
+
     // 准备参数
     llvm::Value* prepareArgument(
             llvm::Value* value,

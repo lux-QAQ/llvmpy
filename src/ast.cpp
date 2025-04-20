@@ -24,6 +24,16 @@ PyType::PyType(ObjectType* objType) : objectType(objType)
 {
 }
 
+bool PyType::isFunction() const {
+    // 检查 objectType 是否有效，并且其类型 ID 是 PY_TYPE_FUNC
+    // 或者如果函数有更具体的类型 ID (>= PY_TYPE_FUNC_BASE)，也应视为函数
+    return objectType &&
+           (objectType->getTypeId() == PY_TYPE_FUNC ||
+            objectType->getTypeId() >= PY_TYPE_FUNC_BASE);
+    // 或者更简单地，如果 ObjectType 有 category() 方法:
+    // return objectType && objectType->category() == ObjectType::Function;
+}
+
 bool PyType::isVoid() const
 {
     return objectType && objectType->getName() == "void";
@@ -887,7 +897,7 @@ void FunctionAST::resolveParamTypes()
 
 // 模块
 
-// 为ModuleAST添加必要的方法
+/* // 为ModuleAST添加必要的方法
 void ModuleAST::addFunction(std::unique_ptr<FunctionAST> func)
 {
     if (func)
@@ -901,7 +911,7 @@ void ModuleAST::addStatement(std::unique_ptr<StmtAST> stmt)
     if (stmt) {
         statements.push_back(std::move(stmt));
     }
-}
+} */
 
 
 
