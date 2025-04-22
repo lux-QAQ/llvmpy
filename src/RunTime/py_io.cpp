@@ -9,32 +9,7 @@ using namespace llvmpy;
 // 前向声明内部使用的辅助函数
 static void py_print_object_inline(PyObject* obj);
 
-// 打印字符串函数实现
-void print(char* str)
-{
-    if (str)
-    {
-        printf("%s\n", str);
-    }
-    else
-    {
-        printf("None\n");
-    }
-}
 
-// 打印数字函数实现
-void print_number(double num)
-{
-    // 检查数字是否为整数
-    if (num == (int)num)
-    {
-        printf("%d\n", (int)num);
-    }
-    else
-    {
-        printf("%g\n", num);
-    }
-}
 
 // 打印Python对象函数实现
 void py_print_object(PyObject* obj)
@@ -46,53 +21,53 @@ void py_print_object(PyObject* obj)
     }
 
     // 根据类型打印不同形式
-    switch (obj->typeId)
+    int typeId = py_get_safe_type_id(obj); // 使用安全获取类型ID的函数
+    switch (typeId)
     {
-        case PY_TYPE_INT:
-            printf("%d\n", ((PyPrimitiveObject*)obj)->value.intValue);
+        case llvmpy::PY_TYPE_INT:
+            // 使用 GMP 打印整数
+            gmp_printf("%Zd\n", ((PyPrimitiveObject*)obj)->value.intValue);
             break;
 
-        case PY_TYPE_DOUBLE:
-            printf("%g\n", ((PyPrimitiveObject*)obj)->value.doubleValue);
+        case llvmpy::PY_TYPE_DOUBLE:
+            // 使用 GMP 打印浮点数 (使用 %Fg 模拟 Python 的默认行为)
+            gmp_printf("%Fg\n", ((PyPrimitiveObject*)obj)->value.doubleValue);
             break;
 
-        case PY_TYPE_BOOL:
+        case llvmpy::PY_TYPE_BOOL:
+            // bool 类型保持不变
             printf("%s\n", ((PyPrimitiveObject*)obj)->value.boolValue ? "True" : "False");
             break;
 
-        case PY_TYPE_STRING:
+        case llvmpy::PY_TYPE_STRING:
+            // 字符串打印时不带引号
             printf("%s\n", ((PyPrimitiveObject*)obj)->value.stringValue ? ((PyPrimitiveObject*)obj)->value.stringValue : "");
             break;
 
-        case PY_TYPE_LIST:
+        case llvmpy::PY_TYPE_LIST:
         {
             PyListObject* list = (PyListObject*)obj;
             printf("[");
             for (int i = 0; i < list->length; i++)
             {
-                // 递归打印元素
                 if (i > 0) printf(", ");
-                py_print_object_inline(list->data[i]);
+                py_print_object_inline(list->data[i]); // 递归调用内联打印
             }
             printf("]\n");
             break;
         }
 
-        case PY_TYPE_DICT:
+        case llvmpy::PY_TYPE_DICT:
         {
             PyDictObject* dict = (PyDictObject*)obj;
             printf("{");
             bool first = true;
-
-            // 遍历字典中的所有项
             for (int i = 0; i < dict->capacity; i++)
             {
                 if (dict->entries[i].used && dict->entries[i].key)
                 {
                     if (!first) printf(", ");
                     first = false;
-
-                    // 打印键值对
                     py_print_object_inline(dict->entries[i].key);
                     printf(": ");
                     py_print_object_inline(dict->entries[i].value);
@@ -102,19 +77,25 @@ void py_print_object(PyObject* obj)
             break;
         }
 
-        case PY_TYPE_NONE:
+        case llvmpy::PY_TYPE_NONE:
             printf("None\n");
             break;
 
-        case PY_TYPE_FUNC:  // <--- Add this case
-            // TODO: Ideally print function name if available
+        case llvmpy::PY_TYPE_FUNC:
+            // TODO: 打印更详细的函数信息 (如名称)
             printf("<function object at %p>\n", (void*)obj);
             break;
 
+        // 可以添加对 Class 和 Instance 的处理
+        case llvmpy::PY_TYPE_CLASS:
+             printf("<class '%s'>\n", ((PyClassObject*)obj)->name ? ((PyClassObject*)obj)->name : "unknown");
+             break;
+        // case llvmpy::PY_TYPE_INSTANCE: // 实例的打印通常调用 __repr__ 或 __str__
+
         default:
-            // 处理派生类型
-            int baseTypeId = py_get_base_type_id(obj->typeId);
-            if (baseTypeId == PY_TYPE_LIST)
+            // 尝试获取基类类型
+            int baseTypeId = py_get_base_type_id(typeId);
+            if (baseTypeId == llvmpy::PY_TYPE_LIST) // 处理派生列表类型
             {
                 PyListObject* list = (PyListObject*)obj;
                 printf("[");
@@ -125,7 +106,7 @@ void py_print_object(PyObject* obj)
                 }
                 printf("]\n");
             }
-            else if (baseTypeId == PY_TYPE_DICT)
+            else if (baseTypeId == llvmpy::PY_TYPE_DICT) // 处理派生字典类型
             {
                 PyDictObject* dict = (PyDictObject*)obj;
                 printf("{");
@@ -143,9 +124,19 @@ void py_print_object(PyObject* obj)
                 }
                 printf("}\n");
             }
+            else if (baseTypeId == llvmpy::PY_TYPE_INSTANCE) // 处理实例类型
+            {
+                 // 尝试调用 __repr__ 或 __str__ (如果实现了方法调用)
+                 // PyObject* repr_str = py_call_method(obj, "__repr__", 0, NULL);
+                 // if (repr_str) { ... print repr_str ...; py_decref(repr_str); } else { ... fallback ... }
+                 // Fallback:
+                 PyClassObject* cls = ((PyInstanceObject*)obj)->cls;
+                 printf("<%s object at %p>\n", cls && cls->name ? cls->name : "object", (void*)obj);
+            }
             else
             {
-                printf("<object at %p>\n", (void*)obj);
+                // 未知类型
+                printf("<%s object at %p>\n", py_type_name(typeId), (void*)obj);
             }
     }
 }
@@ -159,51 +150,53 @@ static void py_print_object_inline(PyObject* obj)
         return;
     }
 
-    // 根据类型打印不同形式
-    switch (obj->typeId)
+    int typeId = py_get_safe_type_id(obj);
+    switch (typeId)
     {
-        case PY_TYPE_INT:
-            printf("%d", ((PyPrimitiveObject*)obj)->value.intValue);
+        case llvmpy::PY_TYPE_INT:
+            // 使用 GMP 打印整数到 stdout
+            mpz_out_str(stdout, 10, ((PyPrimitiveObject*)obj)->value.intValue);
             break;
 
-        case PY_TYPE_DOUBLE:
-            printf("%g", ((PyPrimitiveObject*)obj)->value.doubleValue);
+        case llvmpy::PY_TYPE_DOUBLE:
+            // 使用 GMP 打印浮点数
+            gmp_printf("%Fg", ((PyPrimitiveObject*)obj)->value.doubleValue);
             break;
 
-        case PY_TYPE_BOOL:
+        case llvmpy::PY_TYPE_BOOL:
             printf("%s", ((PyPrimitiveObject*)obj)->value.boolValue ? "True" : "False");
             break;
 
-        case PY_TYPE_STRING:
-            printf("\"%s\"", ((PyPrimitiveObject*)obj)->value.stringValue ? ((PyPrimitiveObject*)obj)->value.stringValue : "");
+        case llvmpy::PY_TYPE_STRING:
+            // 字符串内联打印时带引号 (模拟 repr)
+            printf("'%s'", ((PyPrimitiveObject*)obj)->value.stringValue ? ((PyPrimitiveObject*)obj)->value.stringValue : "");
+            // 或者使用双引号: printf("\"%s\"", ...);
             break;
 
-        case PY_TYPE_LIST:
+        case llvmpy::PY_TYPE_LIST:
         {
             PyListObject* list = (PyListObject*)obj;
             printf("[");
             for (int i = 0; i < list->length; i++)
             {
                 if (i > 0) printf(", ");
-                py_print_object_inline(list->data[i]);
+                py_print_object_inline(list->data[i]); // 递归调用
             }
             printf("]");
             break;
         }
 
-        case PY_TYPE_DICT:
+        case llvmpy::PY_TYPE_DICT:
         {
             PyDictObject* dict = (PyDictObject*)obj;
             printf("{");
             bool first = true;
-
             for (int i = 0; i < dict->capacity; i++)
             {
                 if (dict->entries[i].used && dict->entries[i].key)
                 {
                     if (!first) printf(", ");
                     first = false;
-
                     py_print_object_inline(dict->entries[i].key);
                     printf(": ");
                     py_print_object_inline(dict->entries[i].value);
@@ -213,17 +206,22 @@ static void py_print_object_inline(PyObject* obj)
             break;
         }
 
-        case PY_TYPE_NONE:
+        case llvmpy::PY_TYPE_NONE:
             printf("None");
             break;
-        case PY_TYPE_FUNC:  // <--- Add this case
-            // TODO: Ideally print function name if available
+
+        case llvmpy::PY_TYPE_FUNC:
             printf("<function object at %p>", (void*)obj);
             break;
+
+        case llvmpy::PY_TYPE_CLASS:
+             printf("<class '%s'>", ((PyClassObject*)obj)->name ? ((PyClassObject*)obj)->name : "unknown");
+             break;
+
         default:
-            // 处理派生类型
-            int baseTypeId = py_get_base_type_id(obj->typeId);
-            if (baseTypeId == PY_TYPE_LIST)
+             // 尝试获取基类类型
+            int baseTypeId = py_get_base_type_id(typeId);
+            if (baseTypeId == llvmpy::PY_TYPE_LIST) // 处理派生列表类型
             {
                 PyListObject* list = (PyListObject*)obj;
                 printf("[");
@@ -234,7 +232,7 @@ static void py_print_object_inline(PyObject* obj)
                 }
                 printf("]");
             }
-            else if (baseTypeId == PY_TYPE_DICT)
+            else if (baseTypeId == llvmpy::PY_TYPE_DICT) // 处理派生字典类型
             {
                 PyDictObject* dict = (PyDictObject*)obj;
                 printf("{");
@@ -252,9 +250,16 @@ static void py_print_object_inline(PyObject* obj)
                 }
                 printf("}");
             }
+            else if (baseTypeId == llvmpy::PY_TYPE_INSTANCE) // 处理实例类型
+            {
+                 // Fallback representation for inline printing
+                 PyClassObject* cls = ((PyInstanceObject*)obj)->cls;
+                 printf("<%s object at %p>", cls && cls->name ? cls->name : "object", (void*)obj);
+            }
             else
             {
-                printf("<object at %p>", (void*)obj);
+                // 未知类型
+                printf("<%s object at %p>", py_type_name(typeId), (void*)obj);
             }
     }
 }
@@ -268,9 +273,9 @@ void py_print_int(int value)
 void py_print_double(double value)
 {
     // 检查是否为整数
-    if (value == (int)value)
+    if (value == (long long)value) // Use long long for wider range check
     {
-        printf("%d\n", (int)value);
+        printf("%lld\n", (long long)value);
     }
     else
     {
@@ -285,13 +290,14 @@ void py_print_bool(bool value)
 
 void py_print_string(const char* value)
 {
+    // 直接打印 C 字符串，通常用于字面量
     if (value)
     {
         printf("%s\n", value);
     }
     else
     {
-        printf("\n");
+        printf("None\n"); // 或者打印空行？保持 None 吧
     }
 }
 
@@ -303,6 +309,7 @@ char* input(void)
 
     if (!buffer)
     {
+        fprintf(stderr, "MemoryError: Failed to allocate buffer for input()\n");
         return NULL;  // 内存分配失败
     }
 
@@ -315,10 +322,23 @@ char* input(void)
         {
             buffer[len - 1] = '\0';
         }
+        // Handle potential buffer overflow if input exceeds MAX_INPUT_SIZE - 1
+        // (fgets prevents buffer overflow, but the line might be truncated)
     }
     else
     {
-        // 读取失败，返回空字符串
+        // 读取失败或 EOF
+        if (feof(stdin)) {
+             fprintf(stderr, "EOFError: EOF when reading a line\n");
+             // Decide behavior: return NULL, empty string, or raise specific error
+             free(buffer);
+             return NULL; // Indicate EOF error
+        } else if (ferror(stdin)) {
+             perror("Error reading input");
+             free(buffer);
+             return NULL; // Indicate read error
+        }
+        // If fgets returns NULL without EOF or error, treat as empty input?
         buffer[0] = '\0';
     }
 

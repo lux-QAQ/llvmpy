@@ -94,6 +94,10 @@ public:
     llvm::Value* createBoolLiteral(bool value);
     llvm::Value* createStringLiteral(const std::string& value);
     llvm::Value* createNoneLiteral();
+    // 创建整数字面量
+llvm::Value* createIntLiteralFromString(const std::string& value);
+llvm::Value* createDoubleLiteralFromString(const std::string& value);
+
 
     // 列表操作
     llvm::Value* createList(int size, std::shared_ptr<PyType> elemType);

@@ -1,0 +1,32 @@
+{
+    "version": 8,
+    "configurePresets": [
+        {
+            "name": "llvmpypy",
+            "displayName": "使用工具链文件配置预设",
+            "description": "设置 Ninja 生成器、版本和安装目录",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_TOOLCHAIN_FILE": "",
+                "CMAKE_"
+                "CMAKE_C_COMPILER": "/usr/local/bin/clang",
+                "CMAKE_CXX_COMPILER": "/usr/local/bin/clang++",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}"
+            }
+        },
+        {
+            "name": "clang21",
+            "displayName": "Clang 21.0.0git x86_64-unknown-linux-gnu",
+            "description": "正在使用编译器: C = /usr/local/bin/clang, CXX = /usr/local/bin/clang++",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "CMAKE_C_COMPILER": "/usr/local/bin/clang",
+                "CMAKE_CXX_COMPILER": "/usr/local/bin/clang++",
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        }
+    ]
+}

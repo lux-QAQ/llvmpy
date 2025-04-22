@@ -55,7 +55,9 @@ public:
     llvm::Value* createDoubleObject(llvm::Value* value);
     llvm::Value* createBoolObject(llvm::Value* value);
     llvm::Value* createStringObject(llvm::Value* value);
-    llvm::Value* createList(llvm::Value* size, ObjectType* elemType);
+    llvm::Value* createList(llvm::Value* initialCapacity, llvm::Value* elemTypeIdValue);
+    llvm::Value* createIntObjectFromString(llvm::Value* strPtr);
+    llvm::Value* createDoubleObjectFromString(llvm::Value* strPtr);
     llvm::Value* getListElement(llvm::Value* list, llvm::Value* index);
     void setListElement(llvm::Value* list, llvm::Value* index, llvm::Value* value);
 

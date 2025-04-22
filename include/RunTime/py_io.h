@@ -9,8 +9,7 @@ extern "C" {
 #endif
 
 // 打印函数
-void print(char* str);
-void print_number(double num);
+
 void py_print_object(PyObject* obj);
 void py_print_int(int value);
 void py_print_double(double value);

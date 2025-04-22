@@ -8,10 +8,29 @@
 #include <cctype>
 #include <iostream> // For errors
 
+
 using namespace llvmpy;
 //===----------------------------------------------------------------------===//
 // 类型检查函数
 //===----------------------------------------------------------------------===//
+
+
+static mpz_t gmp_bool_true;
+static mpz_t gmp_bool_false;
+static std::atomic_flag gmp_bool_initialized = ATOMIC_FLAG_INIT; // Flag for one-time init
+
+
+void initialize_static_gmp_bools() {
+    if (!gmp_bool_initialized.test_and_set()) { // Ensure one-time initialization
+        mpz_init_set_si(gmp_bool_true, 1);
+        mpz_init_set_si(gmp_bool_false, 0);
+        // Note: These should ideally be cleared on runtime shutdown,
+        // but for static duration objects, it might not be strictly necessary
+        // unless dealing with memory checkers or specific shutdown requirements.
+        // atexit(cleanup_static_gmp_bools); // Example cleanup registration
+    }
+}
+
 
 // 检查对象类型是否匹配
 bool py_check_type(PyObject* obj, int expectedTypeId)
@@ -309,10 +328,13 @@ bool py_object_to_bool(PyObject* obj)
             return ((PyPrimitiveObject*)obj)->value.boolValue;
 
         case PY_TYPE_INT:
-            return ((PyPrimitiveObject*)obj)->value.intValue != 0;
+            // 使用 mpz_sgn 判断 GMP 整数是否为 0
+            return mpz_sgn(((PyPrimitiveObject*)obj)->value.intValue) != 0;
 
         case PY_TYPE_DOUBLE:
-            return ((PyPrimitiveObject*)obj)->value.doubleValue != 0.0;
+            // 使用 mpf_sgn 判断 GMP 浮点数是否为 0
+            // 注意：GMP 认为 0.0, -0.0 等都是 0
+            return mpf_sgn(((PyPrimitiveObject*)obj)->value.doubleValue) != 0;
 
         case PY_TYPE_STRING:
         {
@@ -336,7 +358,7 @@ bool py_object_to_bool(PyObject* obj)
             return false;
 
         default:
-            // 其他类型默认为true
+            // 其他类型默认为true (e.g., instances, functions)
             return true;
     }
 }
@@ -346,26 +368,26 @@ bool py_object_to_bool(PyObject* obj)
 //===----------------------------------------------------------------------===//
 
 // 从整数对象提取整数值
-int py_extract_int(PyObject* obj)
+mpz_ptr py_extract_int(PyObject* obj)
 {
     if (!obj || obj->typeId != PY_TYPE_INT)
     {
-        fprintf(stderr, "TypeError: Expected int\n");
-        return 0;
+        // fprintf(stderr, "TypeError: Expected int for extraction\n"); // Optional: suppress for performance?
+        return NULL; // Return NULL on type mismatch or null object
     }
-
+    // Return a direct pointer to the internal mpz_t
     return ((PyPrimitiveObject*)obj)->value.intValue;
 }
 
 // 从浮点数对象提取浮点值
-double py_extract_double(PyObject* obj)
+mpf_ptr py_extract_double(PyObject* obj)
 {
     if (!obj || obj->typeId != PY_TYPE_DOUBLE)
     {
-        fprintf(stderr, "TypeError: Expected float\n");
-        return 0.0;
+        // fprintf(stderr, "TypeError: Expected float for extraction\n"); // Optional: suppress for performance?
+        return NULL; // Return NULL on type mismatch or null object
     }
-
+    // Return a direct pointer to the internal mpf_t
     return ((PyPrimitiveObject*)obj)->value.doubleValue;
 }
 
@@ -441,70 +463,89 @@ const char* py_extract_string(PyObject* obj)
     }
 } */
 
+// 从任意对象中提取整数值 (返回新的 PyObject*)
 PyObject* py_extract_int_from_any(PyObject* obj)
 {
     if (!obj)
     {
         fprintf(stderr, "Error: Cannot extract int from NULL object\n");
-        return NULL;
+        return NULL; // Or return py_create_int(0)? Depends on desired semantics.
     }
 
-    int value = 0;
+    if (obj->typeId == PY_TYPE_INT)
+    {
+        py_incref(obj); // Type matches, just incref and return
+        return obj;
+    }
+
+    mpz_t temp_z; // Temporary GMP integer for conversion
+    mpz_init(temp_z); // Initialize temporary
+    bool conversion_ok = true;
 
     switch (obj->typeId)
     {
-        case PY_TYPE_INT:
-            // 修复: py_incref 返回 void，不能作为函数返回值
-            py_incref(obj);  // 先增加引用计数
-            return obj;      // 再返回对象
-
         case PY_TYPE_DOUBLE:
-        {
-            // 浮点数到整数的转换
-            double val = ((PyPrimitiveObject*)obj)->value.doubleValue;
-            value = (int)val;
+            // GMP float to int conversion (truncates towards zero)
+            mpz_set_f(temp_z, ((PyPrimitiveObject*)obj)->value.doubleValue);
             break;
-        }
 
         case PY_TYPE_BOOL:
-            value = ((PyPrimitiveObject*)obj)->value.boolValue ? 1 : 0;
+            mpz_set_si(temp_z, ((PyPrimitiveObject*)obj)->value.boolValue ? 1 : 0);
             break;
 
         case PY_TYPE_STRING:
         {
             const char* str = ((PyPrimitiveObject*)obj)->value.stringValue;
-            if (!str)
-                value = 0;
-            else
-                value = atoi(str);
+            // Attempt conversion from base 10 string
+            if (!str || mpz_set_str(temp_z, str, 10) != 0) {
+                 fprintf(stderr, "ValueError: Could not convert string '%s' to int\n", str ? str : "<null>");
+                 conversion_ok = false;
+            }
             break;
         }
 
         default:
-            fprintf(stderr, "Warning: Cannot extract int from type %d\n", obj->typeId);
-            return NULL;
+            fprintf(stderr, "TypeError: Cannot extract int from type %s\n", py_type_name(obj->typeId));
+            conversion_ok = false;
     }
 
-    // 创建新的整数对象
-    return py_create_int(value);
+    PyObject* result = NULL;
+    if (conversion_ok) {
+        // Create a *new* integer object from the temporary GMP integer
+        // Assumes a function like py_create_int_from_mpz exists
+        result = py_create_int_from_mpz(temp_z);
+    }
+
+    mpz_clear(temp_z); // Clear the temporary GMP integer
+    return result; // Return the new PyObject* or NULL if conversion failed
 }
 // 尝试从常量中提取整数值
-int py_extract_constant_int(PyObject* obj)
+mpz_ptr py_extract_constant_int(PyObject* obj)
 {
-    if (!obj) return 0;
+    if (!obj) return NULL;
 
-    // 处理整数常量
-    if (obj->typeId == PY_TYPE_INT)
+    if (obj->typeId == PY_TYPE_INT) {
+        // 直接返回内部的 mpz_t 指针
         return ((PyPrimitiveObject*)obj)->value.intValue;
+    }
 
-    // 处理布尔常量
-    if (obj->typeId == PY_TYPE_BOOL)
-        return ((PyPrimitiveObject*)obj)->value.boolValue ? 1 : 0;
+    // 处理布尔常量，返回指向静态 GMP 0 或 1 的指针
+    if (obj->typeId == PY_TYPE_BOOL) {
+        // Lazy initialization using atomic flag (thread-safe)
+        if (!gmp_bool_initialized.test_and_set()) {
+            mpz_init_set_si(gmp_bool_true, 1);
+            mpz_init_set_si(gmp_bool_false, 0);
+            // Consider registering a cleanup function if necessary
+            // atexit([](){ mpz_clear(gmp_bool_true); mpz_clear(gmp_bool_false); });
+        }
 
-    // 其他类型无法提取为常量整数
-    fprintf(stderr, "TypeError: Cannot extract constant int from type %s\n",
-            py_type_name(obj->typeId));
-    return 0;
+        // 返回指向静态 mpz_t 的指针
+        return ((PyPrimitiveObject*)obj)->value.boolValue ? gmp_bool_true : gmp_bool_false;
+    }
+
+    // 其他类型无法提取为常量整数指针
+    // fprintf(stderr, "TypeError: Cannot extract constant int pointer from type %s\n", py_type_name(obj->typeId)); // Optional warning
+    return NULL; // 返回 NULL 表示无法提取
 }
 
 //===----------------------------------------------------------------------===//
@@ -520,8 +561,18 @@ PyObject* py_convert_int_to_double(PyObject* obj)
         return NULL;
     }
 
-    int intValue = ((PyPrimitiveObject*)obj)->value.intValue;
-    return py_create_double((double)intValue);
+    mpf_t temp_f;
+    // Initialize with a default precision (e.g., 256 bits) or obj's precision if available
+    mpf_init2(temp_f, 256);
+    // Convert GMP integer to GMP float
+    mpf_set_z(temp_f, ((PyPrimitiveObject*)obj)->value.intValue);
+
+    // Create a new float object from the temporary GMP float
+    // Assumes py_create_double_from_mpf exists
+    PyObject* result = py_create_double_from_mpf(temp_f);
+
+    mpf_clear(temp_f); // Clear the temporary
+    return result;
 }
 
 // 将浮点数对象转换为整数对象
@@ -533,27 +584,34 @@ PyObject* py_convert_double_to_int(PyObject* obj)
         return NULL;
     }
 
-    double doubleValue = ((PyPrimitiveObject*)obj)->value.doubleValue;
-    return py_create_int((int)doubleValue);
+    mpz_t temp_z;
+    mpz_init(temp_z);
+    // Convert GMP float to GMP integer (truncates towards zero)
+    mpz_set_f(temp_z, ((PyPrimitiveObject*)obj)->value.doubleValue);
+
+    // Create a new integer object from the temporary GMP integer
+    // Assumes py_create_int_from_mpz exists
+    PyObject* result = py_create_int_from_mpz(temp_z);
+
+    mpz_clear(temp_z); // Clear the temporary
+    return result;
 }
 
 // 将对象转换为布尔对象
 PyObject* py_convert_to_bool(PyObject* obj)
 {
-    if (!obj)
-        return py_create_bool(false);
-
+    // No GMP specific changes here, relies on py_object_to_bool
     bool boolValue = py_object_to_bool(obj);
-    return py_create_bool(boolValue);
+    return py_create_bool(boolValue); // Assumes py_create_bool exists
 }
 
 // 将对象转换为字符串对象
 PyObject* py_convert_to_string(PyObject* obj)
 {
     if (!obj)
-        return py_create_string("None");
+        return py_create_string("None"); // Assumes py_create_string exists
 
-    char buffer[256];
+    char* buffer = NULL; // GMP functions allocate memory
 
     switch (getBaseTypeId(obj->typeId))
     {
@@ -562,16 +620,67 @@ PyObject* py_convert_to_string(PyObject* obj)
 
         case PY_TYPE_INT:
         {
-            int val = ((PyPrimitiveObject*)obj)->value.intValue;
-            snprintf(buffer, sizeof(buffer), "%d", val);
-            return py_create_string(buffer);
+            // Convert GMP integer to string (base 10)
+            buffer = mpz_get_str(NULL, 10, ((PyPrimitiveObject*)obj)->value.intValue);
+            if (!buffer) {
+                fprintf(stderr, "Error converting GMP int to string\n");
+                return py_create_string(""); // Or handle error differently
+            }
+            PyObject* str_obj = py_create_string(buffer);
+            free(buffer); // Free memory allocated by mpz_get_str
+            return str_obj;
         }
 
         case PY_TYPE_DOUBLE:
         {
-            double val = ((PyPrimitiveObject*)obj)->value.doubleValue;
-            snprintf(buffer, sizeof(buffer), "%g", val);
-            return py_create_string(buffer);
+            // Convert GMP float to string
+            // mpf_get_str provides digits and exponent separately.
+            // We need to format it properly.
+            mp_exp_t exponent;
+            // Request enough digits for reasonable precision, 0 means use default based on precision
+            buffer = mpf_get_str(NULL, &exponent, 10, 0, ((PyPrimitiveObject*)obj)->value.doubleValue);
+             if (!buffer) {
+                fprintf(stderr, "Error converting GMP float to string\n");
+                return py_create_string(""); // Or handle error differently
+            }
+
+            // Simple formatting (could be improved for scientific notation etc.)
+            size_t len = strlen(buffer);
+            // Allocate enough space for sign, digits, decimal point, 'e', exponent sign, exponent digits, null terminator
+            char* formatted_buffer = (char*)malloc(len + 20);
+            if (!formatted_buffer) {
+                free(buffer);
+                fprintf(stderr, "Memory allocation failed for float string formatting\n");
+                return py_create_string("");
+            }
+
+            if (len == 0 || strcmp(buffer, "0") == 0) { // Handle zero
+                 strcpy(formatted_buffer, "0.0");
+            } else {
+                // This formatting is basic and might not match Python's exactly
+                // It aims for a decimal representation.
+                char sign = (buffer[0] == '-') ? '-' : '+';
+                const char* digits = (sign == '-') ? buffer + 1 : buffer;
+                len = strlen(digits); // Length of digits only
+
+                if (exponent <= 0) { // Like 0.00xyz
+                    sprintf(formatted_buffer, "%c0.%0*d%s", sign, (int)(-exponent), 0, digits);
+                    // Remove trailing zeros after decimal point if desired
+                } else if (exponent >= (mp_exp_t)len) { // Like xy000.0
+                    sprintf(formatted_buffer, "%c%s%0*d.0", sign, digits, (int)(exponent - len), 0);
+                } else { // Like xyz.abc
+                    sprintf(formatted_buffer, "%c%.*s.%s", sign, (int)exponent, digits, digits + exponent);
+                    // Remove trailing zeros after decimal point if desired
+                }
+                if (sign == '+') { // Remove leading '+' if present
+                    memmove(formatted_buffer, formatted_buffer + 1, strlen(formatted_buffer));
+                }
+            }
+
+            free(buffer); // Free memory from mpf_get_str
+            PyObject* str_obj = py_create_string(formatted_buffer);
+            free(formatted_buffer); // Free the formatting buffer
+            return str_obj;
         }
 
         case PY_TYPE_BOOL:
@@ -581,15 +690,16 @@ PyObject* py_convert_to_string(PyObject* obj)
         }
 
         case PY_TYPE_STRING:
-            // 字符串对象直接复制
+            // String object: create a copy (assuming py_object_copy handles strings)
             return py_object_copy(obj, PY_TYPE_STRING);
 
         default:
         {
-            // 其他类型使用类型名称
+            // Other types: use default representation
             const char* typeName = py_type_name(obj->typeId);
-            snprintf(buffer, sizeof(buffer), "<%s object at %p>", typeName, (void*)obj);
-            return py_create_string(buffer);
+            char temp_buffer[256]; // Static buffer okay for this fallback
+            snprintf(temp_buffer, sizeof(temp_buffer), "<%s object at %p>", typeName, (void*)obj);
+            return py_create_string(temp_buffer);
         }
     }
 }
@@ -597,18 +707,13 @@ PyObject* py_convert_to_string(PyObject* obj)
 // 将任意对象转换为整数对象
 PyObject* py_convert_any_to_int(PyObject* obj)
 {
-    if (!obj)
-        return py_create_int(0);
-
-    // 修复: py_extract_int_from_any 现在返回 PyObject* 而不是 int
+    // py_extract_int_from_any already does the conversion and returns a new object or NULL
     PyObject* result = py_extract_int_from_any(obj);
-    if (result)
-    {
-        return result;  // 直接返回结果，不需要再次创建整数对象
-    }
-    else
-    {
-        return py_create_int(0);  // 如果转换失败，返回默认值
+    if (result) {
+        return result;
+    } else {
+        // If extraction/conversion failed, return 0
+        return py_create_int(0); // Assumes py_create_int(0) creates GMP 0
     }
 }
 
@@ -616,56 +721,67 @@ PyObject* py_convert_any_to_int(PyObject* obj)
 PyObject* py_convert_any_to_double(PyObject* obj)
 {
     if (!obj)
-        return py_create_double(0.0);
+        return py_create_double(0.0); // Assumes py_create_double creates GMP 0.0
 
-    double doubleValue = 0.0;
+    if (obj->typeId == PY_TYPE_DOUBLE) {
+        py_incref(obj); // Type matches, just incref and return
+        return obj;
+    }
+
+    mpf_t temp_f;
+    mpf_init2(temp_f, 256); // Initialize temporary with default precision
+    bool conversion_ok = true;
 
     switch (obj->typeId)
     {
         case PY_TYPE_INT:
-            doubleValue = (double)((PyPrimitiveObject*)obj)->value.intValue;
-            break;
-
-        case PY_TYPE_DOUBLE:
-            doubleValue = ((PyPrimitiveObject*)obj)->value.doubleValue;
+            mpf_set_z(temp_f, ((PyPrimitiveObject*)obj)->value.intValue);
             break;
 
         case PY_TYPE_BOOL:
-            doubleValue = ((PyPrimitiveObject*)obj)->value.boolValue ? 1.0 : 0.0;
+            mpf_set_si(temp_f, ((PyPrimitiveObject*)obj)->value.boolValue ? 1 : 0);
             break;
 
         case PY_TYPE_STRING:
         {
             const char* str = ((PyPrimitiveObject*)obj)->value.stringValue;
-            if (str && *str != '\0')
-            {
-                char* end;
-                doubleValue = strtod(str, &end);
-
-                if (end == str || *end != '\0')
-                {
-                    fprintf(stderr, "ValueError: Could not convert string to float: '%s'\n", str);
-                }
+            // Attempt conversion from base 10 string
+            if (!str || mpf_set_str(temp_f, str, 10) != 0) {
+                 fprintf(stderr, "ValueError: Could not convert string '%s' to float\n", str ? str : "<null>");
+                 conversion_ok = false;
             }
             break;
         }
 
         default:
             fprintf(stderr, "TypeError: Cannot convert %s to float\n", py_type_name(obj->typeId));
+            conversion_ok = false;
     }
 
-    return py_create_double(doubleValue);
+    PyObject* result = NULL;
+    if (conversion_ok) {
+        // Create a new float object from the temporary GMP float
+        result = py_create_double_from_mpf(temp_f);
+    } else {
+        // Conversion failed, return 0.0
+        result = py_create_double(0.0);
+    }
+
+    mpf_clear(temp_f); // Clear the temporary
+    return result;
 }
 
 // 将任意对象转换为布尔对象
 PyObject* py_convert_any_to_bool(PyObject* obj)
 {
+    // Relies on py_object_to_bool which is updated
     return py_convert_to_bool(obj);
 }
 
 // 将任意对象转换为字符串对象
 PyObject* py_convert_any_to_string(PyObject* obj)
 {
+    // Relies on py_convert_to_string which is updated
     return py_convert_to_string(obj);
 }
 
@@ -718,72 +834,50 @@ PyObject* py_preserve_parameter_type(PyObject* obj)
  * @param targetTypeId The desired target type ID.
  * @return Converted object (new or original+incref) or NULL.
  */
-PyObject* py_smart_convert(PyObject* obj, int targetTypeId)
-{
-    if (!obj) return NULL;  // Cannot convert NULL
-
-    int sourceTypeId = py_get_safe_type_id(obj);
-    int baseSourceTypeId = llvmpy::getBaseTypeId(sourceTypeId);
-    int baseTargetTypeId = llvmpy::getBaseTypeId(targetTypeId);
-
-    // 1. Check if types are already compatible (or identical)
-    if (py_are_types_compatible(sourceTypeId, targetTypeId))
-    {
-        py_incref(obj);  // No conversion needed, return original with incremented ref count
-        return obj;
-    }
-
-    // 2. Implement specific conversion rules (mimic TypeOperationRegistry)
-    // Example rules:
-    if (baseTargetTypeId == llvmpy::PY_TYPE_INT)
-    {
-        if (baseSourceTypeId == llvmpy::PY_TYPE_DOUBLE)
-        {
-            return py_convert_double_to_int(obj);  // Assumes this returns a new object
-        }
-        if (baseSourceTypeId == llvmpy::PY_TYPE_BOOL)
-        {
-            // Convert bool to int (0 or 1)
-            bool boolVal = ((PyPrimitiveObject*)obj)->value.boolValue;
-            return py_create_int(boolVal ? 1 : 0);  // Returns a new object
-        }
-        // Add string to int conversion if desired
-    }
-    else if (baseTargetTypeId == llvmpy::PY_TYPE_DOUBLE)
-    {
-        if (baseSourceTypeId == llvmpy::PY_TYPE_INT)
-        {
-            return py_convert_int_to_double(obj);  // Assumes this returns a new object
-        }
-        if (baseSourceTypeId == llvmpy::PY_TYPE_BOOL)
-        {
-            // Convert bool to double (0.0 or 1.0)
-            bool boolVal = ((PyPrimitiveObject*)obj)->value.boolValue;
-            return py_create_double(boolVal ? 1.0 : 0.0);  // Returns a new object
-        }
-        // Add string to double conversion if desired
-    }
-    else if (baseTargetTypeId == llvmpy::PY_TYPE_BOOL)
-    {
-        // Most types can convert to bool
-        return py_convert_to_bool(obj);  // Assumes this returns a new object
-    }
-    else if (baseTargetTypeId == llvmpy::PY_TYPE_STRING)
-    {
-        // Convert common types to string
-        return py_convert_to_string(obj);  // Assumes this returns a new object
-    }
-    // Add more rules for list/dict compatibility, custom types etc.
-
-    // 3. If no rule matches, conversion fails
-    // fprintf(stderr, "TypeError: Cannot convert type %s to %s\n", py_type_name(sourceTypeId), py_type_name(targetTypeId));
-    return NULL;
-}
+ PyObject* py_smart_convert(PyObject* obj, int targetTypeId)
+ {
+      if (!obj) return NULL;
+ 
+     int sourceTypeId = py_get_safe_type_id(obj);
+     int baseSourceTypeId = llvmpy::getBaseTypeId(sourceTypeId);
+     int baseTargetTypeId = llvmpy::getBaseTypeId(targetTypeId);
+ 
+     // 1. Check if types are already compatible
+     if (py_are_types_compatible(sourceTypeId, targetTypeId))
+     {
+         py_incref(obj);
+         return obj;
+     }
+ 
+     // 2. Use updated conversion functions
+     if (baseTargetTypeId == llvmpy::PY_TYPE_INT)
+     {
+         // Use py_convert_any_to_int which handles Double, Bool, String -> Int
+         return py_convert_any_to_int(obj);
+     }
+     else if (baseTargetTypeId == llvmpy::PY_TYPE_DOUBLE)
+     {
+          // Use py_convert_any_to_double which handles Int, Bool, String -> Double
+         return py_convert_any_to_double(obj);
+     }
+     else if (baseTargetTypeId == llvmpy::PY_TYPE_BOOL)
+     {
+         return py_convert_to_bool(obj); // Handles conversion from any type
+     }
+     else if (baseTargetTypeId == llvmpy::PY_TYPE_STRING)
+     {
+         return py_convert_to_string(obj); // Handles conversion from common types
+     }
+ 
+     // 3. If no rule matches, conversion fails
+     // fprintf(stderr, "TypeError: Cannot smart convert type %s to %s\n", py_type_name(sourceTypeId), py_type_name(targetTypeId));
+     return NULL;
+ }
 
 
-int py_object_to_exit_code(PyObject* obj) {
+ int py_object_to_exit_code(PyObject* obj) {
     if (!obj) {
-        std::cerr << "Runtime Warning: Converting null object to exit code, returning 1." << std::endl;
+        // std::cerr << "Runtime Warning: Converting null object to exit code, returning 1." << std::endl;
         return 1; // Error case
     }
 
@@ -792,17 +886,24 @@ int py_object_to_exit_code(PyObject* obj) {
     if (typeId == PY_TYPE_NONE) {
         return 0; // None maps to exit code 0
     } else if (typeId == PY_TYPE_INT) {
-        // Need a safe way to extract int value
-        // Assuming py_extract_int exists and handles potential errors/conversions
-        // It should not decref the object.
-        return py_extract_constant_int(obj); // Use the constant extraction
+        // Extract GMP int pointer
+        mpz_ptr gmp_int = py_extract_int(obj);
+        if (!gmp_int) { // Should not happen if typeId is PY_TYPE_INT, but check anyway
+             // std::cerr << "Runtime Error: Failed to extract GMP int for exit code." << std::endl;
+             return 1;
+        }
+        // Check if it fits in a C signed long (typical for exit codes)
+        if (mpz_fits_slong_p(gmp_int)) {
+            return (int)mpz_get_si(gmp_int); // Convert GMP int to C signed long
+        } else {
+             // std::cerr << "Runtime Warning: Integer exit code out of range for standard int, returning 1." << std::endl;
+             return 1; // Value out of range
+        }
     } else {
-        // Handle other types? Booleans?
-        // For now, non-None/non-Int result in error code 1
-        std::cerr << "Runtime Warning: Converting object of type " << py_type_name(typeId)
-                  << " to exit code, returning 1." << std::endl;
+        // Non-None/non-Int result in error code 1
+        // std::cerr << "Runtime Warning: Converting object of type " << py_type_name(typeId)
+        //           << " to exit code, returning 1." << std::endl;
         return 1;
     }
-    // Note: We don't decref 'obj' here. The caller manages its lifecycle.
 }
 

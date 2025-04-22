@@ -461,18 +461,50 @@ void PyParser::dumpCurrentToken() const
 
 std::unique_ptr<ExprAST> PyParser::parseNumberExpr()
 {
-    double value = std::stod(currentToken.value);
-    auto result = makeExpr<NumberExprAST>(value);
-    PyToken consumedToken = currentToken;  // 保存 token 信息用于日志
-    nextToken();                           // 消费数字 token
-#ifdef DEBUG_PARSER_Expr                   // 在 DEBUG_PARSER_Expr 宏下添加日志
+    std::string numStr = currentToken.value;
+    PyToken consumedToken = currentToken; // Save token info for logging and location
+    int line = consumedToken.line;
+    int column = consumedToken.column;
+
+    // --- Input Validation ---
+    if (numStr.empty()) {
+        // This should ideally not happen if the lexer is correct
+        return logParseError<ExprAST>("Internal error: Encountered empty number token.");
+    }
+    // Check if starts with 'e' or 'E' (invalid number format)
+    // Note: A leading '.' is valid (e.g., .5)
+    if (numStr[0] == 'e' || numStr[0] == 'E') {
+         return logParseError<ExprAST>("Number literal cannot start with exponent 'e' or 'E'.");
+    }
+
+    // --- Type Determination ---
+    // Check for the presence of a decimal point '.' or exponent 'e'/'E'.
+    // find_first_of is suitable for checking 'e' or 'E'.
+    bool isFloat = (numStr.find('.') != std::string::npos) ||
+                   (numStr.find_first_of("eE") != std::string::npos);
+
+    std::shared_ptr<PyType> determinedType = isFloat ? PyType::getDouble() : PyType::getInt();
+
+    // --- Create AST Node ---
+    // Pass the original string `numStr` and the determined type.
+    // The string can be used later by GMP. We don't modify/clean it here
+    // (like removing leading zeros) as GMP might handle various formats.
+    auto result = makeExpr<NumberExprAST>(numStr, determinedType);
+    result->setLocation(line, column); // Set location from the original token
+
+    nextToken(); // Consume the number token
+
+    // --- Debug Logging ---
+#ifdef DEBUG_PARSER_Expr
     std::cerr << "Debug [parseNumberExpr]: Consumed '" << consumedToken.value
               << "' (type: " << lexer.getTokenName(consumedToken.type)
+              << ", determined as: " << (isFloat ? "double" : "int") // Show determined type
               << ") at L" << consumedToken.line << " C" << consumedToken.column
               << ". Next token is now: '" << currentToken.value
               << "' (type: " << lexer.getTokenName(currentToken.type)
               << ") at L" << currentToken.line << " C" << currentToken.column << std::endl;
 #endif
+
     return result;
 }
 

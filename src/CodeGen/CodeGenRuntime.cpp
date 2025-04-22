@@ -340,28 +340,29 @@ llvm::Value* CodeGenRuntime::copyObject(llvm::Value* obj, std::shared_ptr<PyType
 //===----------------------------------------------------------------------===//
 
 // 在 CodeGenRuntime 类中添加方法声明
-llvm::Value* CodeGenRuntime::createList(llvm::Value* size, ObjectType* elemType)
+llvm::Value* CodeGenRuntime::createList(llvm::Value* initialCapacity, llvm::Value* elemTypeIdValue)
 {
-/*     if (runtime)
-    {
-        return runtime->createList(size, elemType);
-    } 不在需要委托*/
+    // --- 验证参数类型 ---
+    if (!initialCapacity || !initialCapacity->getType()->isIntegerTy(32)) {
+        codeGen.logError("Internal Error: CodeGenRuntime::createList called with invalid initialCapacity type.");
+        return nullptr;
+    }
+    if (!elemTypeIdValue || !elemTypeIdValue->getType()->isIntegerTy(32)) {
+        codeGen.logError("Internal Error: CodeGenRuntime::createList called with invalid elemTypeIdValue type.");
+        return nullptr;
+    }
 
-    // 如果没有runtime，使用内置实现
+    // 获取 C 运行时函数 py_create_list(int initialCapacity, int elemTypeId)
     llvm::Function* createListFunc = getRuntimeFunction(
             "py_create_list",
-            llvm::PointerType::get(codeGen.getContext(), 0),
-            {llvm::Type::getInt32Ty(codeGen.getContext()),
-             llvm::Type::getInt32Ty(codeGen.getContext())});
+            llvm::PointerType::get(codeGen.getContext(), 0), // Return type: PyObject*
+            {llvm::Type::getInt32Ty(codeGen.getContext()),   // Param 1: initialCapacity (int)
+             llvm::Type::getInt32Ty(codeGen.getContext())}    // Param 2: elemTypeId (int)
+    );
 
-    // 获取元素类型ID
-    int elemTypeId = OperationCodeGenerator::getTypeId(elemType);
-    llvm::Value* elemTypeIdValue = llvm::ConstantInt::get(
-            llvm::Type::getInt32Ty(codeGen.getContext()),
-            elemTypeId);
-
+    // --- 直接使用传入的 llvm::Value* 参数 ---
     return codeGen.getBuilder().CreateCall(
-            createListFunc, {size, elemTypeIdValue}, "list_obj");
+            createListFunc, {initialCapacity, elemTypeIdValue}, "list_obj");
 }
 
 llvm::Value* CodeGenRuntime::getListElement(llvm::Value* list, llvm::Value* index)
@@ -372,11 +373,12 @@ llvm::Value* CodeGenRuntime::getListElement(llvm::Value* list, llvm::Value* inde
     } */
 
     // 如果没有runtime，使用内置实现
+    // --- 修改函数签名 ---
     llvm::Function* getItemFunc = getRuntimeFunction(
             "py_list_get_item",
-            llvm::PointerType::get(codeGen.getContext(), 0),
-            {llvm::PointerType::get(codeGen.getContext(), 0),
-             llvm::Type::getInt32Ty(codeGen.getContext())});
+            llvm::PointerType::get(codeGen.getContext(), 0), // Return: PyObject*
+            {llvm::PointerType::get(codeGen.getContext(), 0), // Arg 1: PyObject* (list)
+             llvm::PointerType::get(codeGen.getContext(), 0)}); // Arg 2: PyObject* (index) <-- 修改
 
     return codeGen.getBuilder().CreateCall(getItemFunc, {list, index}, "list_item");
 }
@@ -390,12 +392,13 @@ void CodeGenRuntime::setListElement(llvm::Value* list, llvm::Value* index, llvm:
     } */
 
     // 如果没有runtime，使用内置实现
+    // --- 修改函数签名 ---
     llvm::Function* setItemFunc = getRuntimeFunction(
             "py_list_set_item",
-            llvm::Type::getVoidTy(codeGen.getContext()),
-            {llvm::PointerType::get(codeGen.getContext(), 0),
-             llvm::Type::getInt32Ty(codeGen.getContext()),
-             llvm::PointerType::get(codeGen.getContext(), 0)});
+            llvm::Type::getVoidTy(codeGen.getContext()), // Return: void
+            {llvm::PointerType::get(codeGen.getContext(), 0), // Arg 1: PyObject* (list)
+             llvm::PointerType::get(codeGen.getContext(), 0), // Arg 2: PyObject* (index) <-- 修改
+             llvm::PointerType::get(codeGen.getContext(), 0)}); // Arg 3: PyObject* (value)
 
     codeGen.getBuilder().CreateCall(setItemFunc, {list, index, value});
 }

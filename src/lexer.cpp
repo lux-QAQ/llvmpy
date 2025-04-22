@@ -564,52 +564,74 @@ PyToken PyLexer::handleIdentifier()
 PyToken PyLexer::handleNumber()
 {
     size_t start = position;
+    size_t startLine = currentLine;
+    size_t startColumn = currentColumn;
     bool isFloat = false;
+    bool hasExponent = false;
 
-    // 整数部分
+    // 整数部分 (允许前导 0，Python 允许 0001 这种写法)
     while (isDigit(peek()))
     {
         advance();
     }
 
     // 小数部分
-    if (peek() == '.' && isDigit(peekNext()))
+    if (peek() == '.')
     {
-        isFloat = true;
-        advance();  // 消费 '.'
-
-        while (isDigit(peek()))
+        // 检查 '.' 后面是否是数字，以区分属性访问 (e.g., obj.attr)
+        // 虽然 handleOperator 应该先处理 '.'，但这里加一层保险
+        if (isDigit(peekNext()))
         {
-            advance();
+            isFloat = true;
+            advance(); // 消费 '.'
+
+            while (isDigit(peek()))
+            {
+                advance();
+            }
         }
+        // 如果 '.' 后面不是数字，则停止，这个 '.' 可能是其他 token 的一部分
     }
 
-    // 指数部分
+    // 指数部分 (e 或 E)
     if (peek() == 'e' || peek() == 'E')
     {
-        isFloat = true;
-        advance();  // 消费 'e' 或 'E'
+        // 检查指数部分是否有效
+        size_t exponentStartPos = position;
+        char exponentChar = peek();
+        char signChar = peekNext();
+        bool hasSign = (signChar == '+' || signChar == '-');
+        char firstDigitChar = hasSign ? (position + 2 < sourceCode.length() ? sourceCode[position + 2] : '\0') : signChar;
 
-        if (peek() == '+' || peek() == '-')
+        if (isDigit(firstDigitChar))
         {
-            advance();  // 消费符号
-        }
+            // 这是一个有效的指数部分
+            isFloat = true; // 包含指数部分则一定是浮点数
+            hasExponent = true;
+            advance(); // 消费 'e' 或 'E'
 
-        if (!isDigit(peek()))
-        {
-            return errorToken("Invalid exponential notation");
-        }
+            if (hasSign)
+            {
+                advance(); // 消费符号 '+' 或 '-'
+            }
 
-        while (isDigit(peek()))
-        {
-            advance();
+            // 消费指数数字
+            while (isDigit(peek()))
+            {
+                advance();
+            }
         }
+        // 如果 'e'/'E' 后面不是有效的指数数字（可能带符号），则停止，'e'/'E' 可能是标识符的一部分
     }
 
-    std::string number = sourceCode.substr(start, position - start);
+    // 提取完整的数字字符串
+    std::string numberString = sourceCode.substr(start, position - start);
+
+    // 确定最终类型
     PyTokenType type = isFloat ? TOK_FLOAT : TOK_INTEGER;
 
-    return PyToken(type, number, currentLine, currentColumn - number.length());
+    // 返回 Token，值为完整的数字字符串
+    return PyToken(type, numberString, startLine, startColumn);
 }
 
 PyToken PyLexer::handleString()

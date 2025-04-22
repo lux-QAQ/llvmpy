@@ -361,22 +361,25 @@ void registerNodeWithFactory(ASTKind kind) {
     });
 } */
 
+NumberExprAST::NumberExprAST() : valueString("0"), determinedType(PyType::getInt()) // Default to integer 0
+{
+    // Note: Default constructor might need adjustment depending on factory usage
+}
 
+NumberExprAST::NumberExprAST(std::string valStr, std::shared_ptr<PyType> type)
+: valueString(std::move(valStr)), determinedType(std::move(type))
+{
+// Basic validation: ensure type is not null
+if (!determinedType) {
+     std::cerr << "Warning: NumberExprAST created with null type for value '" << valueString << "'. Defaulting to int." << std::endl;
+     determinedType = PyType::getInt(); // Fallback
+}
+}
 
 std::shared_ptr<PyType> NumberExprAST::getType() const
 {
-    // 对整数值和浮点值进行区分
-    double intPart;
-    if (::modf(value, &intPart) == 0.0)
-    {  // 使用全局作用域的modf，而不是std::modf
-        // 如果小数部分为0，则为整数
-        return PyType::getInt();
-    }
-    else
-    {
-        // 否则为浮点数
-        return PyType::getDouble();
-    }
+
+    return determinedType ? determinedType : PyType::getInt();
 }
 
 

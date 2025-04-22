@@ -41,18 +41,16 @@ std::shared_ptr<PyType> CodeGenType::inferExprType(const ExprAST* expr)
     {
         case ASTKind::NumberExpr:
         {
-            // 检查是否是整数或浮点数
+            // --- MODIFIED: Get type directly from NumberExprAST ---
             auto numExpr = static_cast<const NumberExprAST*>(expr);
-            double value = numExpr->getValue();
-
-            if (std::floor(value) == value && value <= INT_MAX && value >= INT_MIN)
-            {
-                resultType = PyType::getInt();
+            // The type (int or double) was determined during parsing and stored.
+            resultType = numExpr->getType();
+            // Ensure a valid type is returned, fallback to Any if somehow null
+            if (!resultType) {
+                 std::cerr << "Warning: NumberExprAST returned null type in inferExprType. Defaulting to Any." << std::endl;
+                 resultType = PyType::getAny();
             }
-            else
-            {
-                resultType = PyType::getDouble();
-            }
+            // --- End Modification ---
             break;
         }
 

@@ -94,6 +94,8 @@ static PyObject* py_class_getattr_handler(PyObject* obj, const char* attr_name);
 static int       py_class_setattr_handler(PyObject* obj, const char* attr_name, PyObject* value);
 
 static PyObject* _py_string_index_get_handler(PyObject* container, PyObject* index);
+static int       _py_string_len_handler(PyObject* obj); // Added declaration for string length
+
 static unsigned int _py_int_hash(PyObject* obj);
 static unsigned int _py_float_hash(PyObject* obj);
 static unsigned int _py_string_hash(PyObject* obj);

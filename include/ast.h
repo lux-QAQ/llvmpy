@@ -14,7 +14,7 @@
  */
 #ifndef AST_H
 #define AST_H
-
+class PyType;
 #include <string>
 #include <vector>
 #include <memory>
@@ -417,30 +417,36 @@ void StmtASTBase<Derived, K>::endScope(PyCodeGen& codegen)
 // ======================== 具体表达式类 ========================
 
 /**
- * @brief 数字字面量表达式节点 (例如 123, 4.56)。
+ * @brief 数字字面量表达式节点 (例如 123, 4.56, 1.2e3)。
  */
-class NumberExprAST : public ExprASTBase<NumberExprAST, ASTKind::NumberExpr>
-{
-    double value;  ///< 存储数字的值（统一使用 double）。
-
-public:
-    /** @brief 默认构造函数，用于工厂创建。*/
-    NumberExprAST() : value(0.0)
-    {
-    }
-    /** @brief 构造函数。*/
-    NumberExprAST(double val) : value(val)
-    {
-    }
-
-    /** @brief 获取数字的值。*/
-    double getValue() const
-    {
-        return value;
-    }
-    /** @brief 获取表达式类型（int 或 double）。*/
-    std::shared_ptr<PyType> getType() const override;
-};
+ class NumberExprAST : public ExprASTBase<NumberExprAST, ASTKind::NumberExpr>
+ {
+     std::string valueString; ///< 存储数字的原始字符串表示 (用于高精度处理)。
+     std::shared_ptr<PyType> determinedType; ///< 存储解析时确定的类型（int 或 double）。
+ 
+ public:
+     /** @brief 默认构造函数，用于工厂创建或错误处理。*/
+     NumberExprAST(); // Default constructor moved to ast.cpp
+ 
+     /**
+      * @brief 构造函数 (由解析器使用)。
+      * @param valStr 数字的字符串表示。
+      * @param type 解析时确定的 PyType (Int 或 Double)。
+      */
+     NumberExprAST(std::string valStr, std::shared_ptr<PyType> type);
+     
+ 
+     /** @brief 获取数字的字符串表示 (用于高精度库如 GMP)。*/
+     const std::string& getValueString() const
+     {
+         return valueString;
+     }
+ 
+     /**
+      * @brief 获取表达式类型（int 或 double），该类型在解析时确定。
+      */
+     std::shared_ptr<PyType> getType() const override; // Declaration only, definition in ast.cpp
+ };
 
 /**
  * @brief 字符串字面量表达式节点 (例如 "hello", 'world')。

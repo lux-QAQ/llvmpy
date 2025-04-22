@@ -9,14 +9,18 @@ extern "C" {
 #endif
 
 // 对象创建函数
-PyObject* py_create_int(int value);
+PyObject* py_create_int(long long int value);
 PyObject* py_create_double(double value);
 PyObject* py_create_bool(bool value);
 PyObject* py_create_string(const char* value);
 PyObject* py_create_list(int size, int elemTypeId);
 PyObject* py_create_dict(int initialCapacity, int keyTypeId);
+PyObject* py_create_int_from_mpz(mpz_srcptr src) ;
+PyObject* py_create_double_from_mpf(mpf_srcptr src);
 PyObject* py_get_none(void);
+PyObject* py_create_int_bystring(const char* s, int base);
 
+PyObject* py_create_double_bystring(const char* s, int base, mp_bitcnt_t precision);
 
 PyObject* py_create_class(const char* name, PyObject* base_cls_obj, PyObject* class_dict_obj);
 PyObject* py_create_instance(PyObject* cls_obj); // 参数是类对象

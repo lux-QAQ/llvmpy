@@ -51,7 +51,7 @@ fi
 # 5. 链接所有目标文件 <---- 修改此步骤
 echo "链接目标文件..."
 # 使用 clang++ 进行最终链接，添加 -lffi
-clang++ output.o entry.o $RUNTIME_OBJS -o program -O0 -lffi # <-- 添加 -lffi
+clang++ output.o entry.o $RUNTIME_OBJS -o program -O0 -lffi -lgmp # <-- 添加 -lffi
 
 if [ $? -ne 0 ]; then
     echo "链接失败"
