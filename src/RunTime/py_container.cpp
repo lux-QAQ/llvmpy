@@ -4,7 +4,6 @@
 #include <cstdlib>
 #include <cctype>
 
-
 //===----------------------------------------------------------------------===//
 // 列表操作函数
 //===----------------------------------------------------------------------===//
@@ -33,14 +32,14 @@ PyObject* py_list_get_item(PyObject* listObj, PyObject* indexObj)
         fprintf(stderr, "RuntimeError: Attempting to get item from NULL list\n");
         // In Python, this would likely be a crash or earlier error.
         // Returning None might hide issues. Consider returning NULL.
-        return NULL; // Indicate error more strongly
+        return NULL;  // Indicate error more strongly
     }
 
     // 确保是列表类型
     if (!py_check_type(listObj, llvmpy::PY_TYPE_LIST))
     {
         py_type_error(listObj, llvmpy::PY_TYPE_LIST);
-        return NULL; // Indicate error
+        return NULL;  // Indicate error
     }
 
     PyListObject* list = (PyListObject*)listObj;
@@ -49,20 +48,27 @@ PyObject* py_list_get_item(PyObject* listObj, PyObject* indexObj)
     mpz_ptr idx_mpz = py_extract_int(indexObj);
     long c_index;
 
-    if (!idx_mpz) {
+    if (!idx_mpz)
+    {
         // 尝试布尔值? Python 允许 bool 作为索引 (0 或 1)
-        if (py_get_safe_type_id(indexObj) == llvmpy::PY_TYPE_BOOL) {
+        if (py_get_safe_type_id(indexObj) == llvmpy::PY_TYPE_BOOL)
+        {
             c_index = py_extract_bool(indexObj) ? 1 : 0;
-        } else {
+        }
+        else
+        {
             fprintf(stderr, "TypeError: list indices must be integers or slices, not '%s'\n",
                     py_type_name(py_get_safe_type_id(indexObj)));
-            return NULL; // Indicate error
+            return NULL;  // Indicate error
         }
-    } else {
+    }
+    else
+    {
         // 检查 GMP 整数是否适合 C long
-        if (!mpz_fits_slong_p(idx_mpz)) {
-             fprintf(stderr, "IndexError: cannot fit 'int' index into C long\n");
-             return NULL; // Indicate error
+        if (!mpz_fits_slong_p(idx_mpz))
+        {
+            fprintf(stderr, "IndexError: cannot fit 'int' index into C long\n");
+            return NULL;  // Indicate error
         }
         c_index = mpz_get_si(idx_mpz);
     }
@@ -72,7 +78,8 @@ PyObject* py_list_get_item(PyObject* listObj, PyObject* indexObj)
 #endif
 
     // 处理负数索引
-    if (c_index < 0) {
+    if (c_index < 0)
+    {
         c_index += list->length;
     }
 
@@ -80,15 +87,18 @@ PyObject* py_list_get_item(PyObject* listObj, PyObject* indexObj)
     if (c_index < 0 || c_index >= list->length)
     {
         fprintf(stderr, "IndexError: list index %ld out of range [0, %d)\n", c_index, list->length);
-        return NULL; // Indicate error
+        return NULL;  // Indicate error
     }
 
     // 获取元素并增加引用计数
     PyObject* item = list->data[c_index];
-    if (item) { // Item could theoretically be NULL if list allows it
+    if (item)
+    {  // Item could theoretically be NULL if list allows it
         py_incref(item);
         return item;
-    } else {
+    }
+    else
+    {
         // If item is NULL, return None (incref'd)
         PyObject* none_obj = py_get_none();
         py_incref(none_obj);
@@ -114,18 +124,25 @@ void py_list_set_item(PyObject* listObj, PyObject* indexObj, PyObject* item)
     mpz_ptr idx_mpz = py_extract_int(indexObj);
     long c_index;
 
-    if (!idx_mpz) {
-        if (py_get_safe_type_id(indexObj) == llvmpy::PY_TYPE_BOOL) {
+    if (!idx_mpz)
+    {
+        if (py_get_safe_type_id(indexObj) == llvmpy::PY_TYPE_BOOL)
+        {
             c_index = py_extract_bool(indexObj) ? 1 : 0;
-        } else {
+        }
+        else
+        {
             fprintf(stderr, "TypeError: list indices must be integers or slices, not '%s'\n",
                     py_type_name(py_get_safe_type_id(indexObj)));
             return;
         }
-    } else {
-        if (!mpz_fits_slong_p(idx_mpz)) {
-             fprintf(stderr, "IndexError: cannot fit 'int' index into C long\n");
-             return;
+    }
+    else
+    {
+        if (!mpz_fits_slong_p(idx_mpz))
+        {
+            fprintf(stderr, "IndexError: cannot fit 'int' index into C long\n");
+            return;
         }
         c_index = mpz_get_si(idx_mpz);
     }
@@ -135,7 +152,8 @@ void py_list_set_item(PyObject* listObj, PyObject* indexObj, PyObject* item)
 #endif
 
     // 处理负数索引
-    if (c_index < 0) {
+    if (c_index < 0)
+    {
         c_index += list->length;
     }
 
@@ -176,7 +194,6 @@ void py_list_set_item(PyObject* listObj, PyObject* indexObj, PyObject* item)
     }
     // --- 结束类型兼容性检查 ---
 
-
     // 替换项目前先减少旧项目的引用计数
     PyObject* old_item = list->data[c_index];
     if (old_item)
@@ -194,7 +211,7 @@ void py_list_set_item(PyObject* listObj, PyObject* indexObj, PyObject* item)
 #ifdef DEBUG_RUNTIME_CONTAINER
         fprintf(stderr, "DEBUG: py_list_set_item: Incref new item at index %ld (%p, refcnt before: %d)\n", c_index, (void*)final_value, final_value->refCount);
 #endif
-        py_incref(final_value); // Incref the value being stored in the list
+        py_incref(final_value);  // Incref the value being stored in the list
     }
 
     // 如果 final_value 是转换后创建的新对象，减少它的临时引用计数
@@ -218,7 +235,7 @@ PyObject* py_list_append(PyObject* listObj, PyObject* item)
     if (!py_check_type(listObj, llvmpy::PY_TYPE_LIST))
     {
         py_type_error(listObj, llvmpy::PY_TYPE_LIST);
-        return NULL; // Return NULL on error
+        return NULL;  // Return NULL on error
     }
 
     PyListObject* list = (PyListObject*)listObj;
@@ -233,7 +250,7 @@ PyObject* py_list_append(PyObject* listObj, PyObject* item)
         if (!converted_value)
         {
             // py_smart_convert should print the error
-            return NULL; // Return NULL on type error during append
+            return NULL;  // Return NULL on type error during append
         }
         if (converted_value != item)
         {
@@ -242,7 +259,7 @@ PyObject* py_list_append(PyObject* listObj, PyObject* item)
         }
         else
         {
-            py_decref(converted_value); // Decref extra ref if no conversion needed
+            py_decref(converted_value);  // Decref extra ref if no conversion needed
         }
     }
     // --- 结束类型兼容性检查 ---
@@ -250,18 +267,20 @@ PyObject* py_list_append(PyObject* listObj, PyObject* item)
     // 检查是否需要扩展容量
     if (list->length >= list->capacity)
     {
-        int newCapacity = (list->capacity == 0) ? 8 : list->capacity * 2; // Start with 8, then double
+        int newCapacity = (list->capacity == 0) ? 8 : list->capacity * 2;  // Start with 8, then double
 #ifdef DEBUG_RUNTIME_CONTAINER
         fprintf(stderr, "DEBUG: py_list_append: Resizing list from %d to %d\n", list->capacity, newCapacity);
 #endif
         // Check for potential overflow before multiplication
-        if (list->capacity > INT_MAX / 2) {
-             newCapacity = INT_MAX; // Cap at INT_MAX
-             if (list->length >= newCapacity) {
-                 fprintf(stderr, "MemoryError: Cannot expand list capacity beyond INT_MAX\n");
-                 if (needs_decref_final) py_decref(final_value);
-                 return NULL; // Indicate error
-             }
+        if (list->capacity > INT_MAX / 2)
+        {
+            newCapacity = INT_MAX;  // Cap at INT_MAX
+            if (list->length >= newCapacity)
+            {
+                fprintf(stderr, "MemoryError: Cannot expand list capacity beyond INT_MAX\n");
+                if (needs_decref_final) py_decref(final_value);
+                return NULL;  // Indicate error
+            }
         }
 
         PyObject** newData = (PyObject**)realloc(list->data, newCapacity * sizeof(PyObject*));
@@ -270,7 +289,7 @@ PyObject* py_list_append(PyObject* listObj, PyObject* item)
         {
             fprintf(stderr, "MemoryError: Failed to expand list capacity to %d\n", newCapacity);
             if (needs_decref_final) py_decref(final_value);
-            return NULL; // Indicate error
+            return NULL;  // Indicate error
         }
 
         // 初始化新分配的内存 (realloc doesn't guarantee zeroing)
@@ -288,10 +307,17 @@ PyObject* py_list_append(PyObject* listObj, PyObject* item)
 #ifdef DEBUG_RUNTIME_CONTAINER
         fprintf(stderr, "DEBUG: py_list_append: Incref appended item (%p, refcnt before: %d)\n", (void*)final_value, final_value->refCount);
 #endif
-        py_incref(final_value); // Incref the value being stored
+        py_incref(final_value);  // Incref the value being stored
     }
-
+#ifdef DEBUG_RUNTIME_CONTAINER
+    fprintf(stderr, "DEBUG: py_list_append: List %p, BEFORE length increment. Current length: %d, Capacity: %d. Appending item %p.\n",
+            (void*)list, list->length, list->capacity, (void*)final_value);
+#endif
     list->length++;
+#ifdef DEBUG_RUNTIME_CONTAINER
+    fprintf(stderr, "DEBUG: py_list_append: List %p, AFTER length increment. New length: %d.\n",
+            (void*)list, list->length);
+#endif
 
     // Decref temporary converted value if created
     if (needs_decref_final)
@@ -326,12 +352,13 @@ PyObject* py_list_copy(PyObject* obj)
 
     PyListObject* newList = (PyListObject*)newListObj;
 
-    if (newList->capacity < srcList->length) {
+    if (newList->capacity < srcList->length)
+    {
         // This shouldn't happen with py_create_list logic above, but check defensively
         fprintf(stderr, "InternalError: Insufficient capacity in py_list_copy\n");
         py_decref(newListObj);
         return NULL;
-   }
+    }
     // 复制元素
     for (int i = 0; i < srcList->length; i++)
     {
@@ -387,14 +414,14 @@ PyObject* py_list_get_item_with_type(PyObject* listObj, PyObject* indexObj, int*
     if (!listObj || !out_type_id)
     {
         fprintf(stderr, "RuntimeError: Invalid arguments to py_list_get_item_with_type (list=%p, out_type_id=%p)\n", (void*)listObj, (void*)out_type_id);
-        return NULL; // Indicate error
+        return NULL;  // Indicate error
     }
 
     // 确保是列表类型
     if (!py_check_type(listObj, llvmpy::PY_TYPE_LIST))
     {
         py_type_error(listObj, llvmpy::PY_TYPE_LIST);
-        return NULL; // Indicate error
+        return NULL;  // Indicate error
     }
 
     PyListObject* list = (PyListObject*)listObj;
@@ -403,18 +430,25 @@ PyObject* py_list_get_item_with_type(PyObject* listObj, PyObject* indexObj, int*
     mpz_ptr idx_mpz = py_extract_int(indexObj);
     long c_index;
 
-    if (!idx_mpz) {
-        if (py_get_safe_type_id(indexObj) == llvmpy::PY_TYPE_BOOL) {
+    if (!idx_mpz)
+    {
+        if (py_get_safe_type_id(indexObj) == llvmpy::PY_TYPE_BOOL)
+        {
             c_index = py_extract_bool(indexObj) ? 1 : 0;
-        } else {
+        }
+        else
+        {
             fprintf(stderr, "TypeError: list indices must be integers or slices, not '%s'\n",
                     py_type_name(py_get_safe_type_id(indexObj)));
             return NULL;
         }
-    } else {
-        if (!mpz_fits_slong_p(idx_mpz)) {
-             fprintf(stderr, "IndexError: cannot fit 'int' index into C long\n");
-             return NULL;
+    }
+    else
+    {
+        if (!mpz_fits_slong_p(idx_mpz))
+        {
+            fprintf(stderr, "IndexError: cannot fit 'int' index into C long\n");
+            return NULL;
         }
         c_index = mpz_get_si(idx_mpz);
     }
@@ -424,7 +458,8 @@ PyObject* py_list_get_item_with_type(PyObject* listObj, PyObject* indexObj, int*
 #endif
 
     // 处理负数索引
-    if (c_index < 0) {
+    if (c_index < 0)
+    {
         c_index += list->length;
     }
 
@@ -432,7 +467,7 @@ PyObject* py_list_get_item_with_type(PyObject* listObj, PyObject* indexObj, int*
     if (c_index < 0 || c_index >= list->length)
     {
         fprintf(stderr, "IndexError: list index %ld out of range [0, %d)\n", c_index, list->length);
-        return NULL; // Indicate error
+        return NULL;  // Indicate error
     }
 
     // 获取元素
@@ -458,10 +493,13 @@ PyObject* py_list_get_item_with_type(PyObject* listObj, PyObject* indexObj, int*
     }
 
     // 增加引用计数并返回 (return NULL if item is NULL)
-    if (item) {
+    if (item)
+    {
         py_incref(item);
         return item;
-    } else {
+    }
+    else
+    {
         // Return None if the slot contains NULL
         PyObject* none_obj = py_get_none();
         py_incref(none_obj);
@@ -514,19 +552,20 @@ int py_dict_len(PyObject* obj)
 // 哈希函数
 unsigned int py_hash_object(PyObject* obj)
 {
-    if (!obj) {
+    if (!obj)
+    {
 #ifdef DEBUG_RUNTIME_CONTAINER
         fprintf(stderr, "DEBUG: py_hash_object called with NULL object, returning 0.\n");
 #endif
-        return 0; // Hash of NULL pointer
+        return 0;  // Hash of NULL pointer
     }
 
     // Handle None explicitly? CPython hashes None to a constant.
-    if (py_get_safe_type_id(obj) == llvmpy::PY_TYPE_NONE) {
-         // Return a constant hash for None, e.g., 0 or a specific value
-         return 0; // Or some other constant like 1234567
+    if (py_get_safe_type_id(obj) == llvmpy::PY_TYPE_NONE)
+    {
+        // Return a constant hash for None, e.g., 0 or a specific value
+        return 0;  // Or some other constant like 1234567
     }
-
 
     int typeId = py_get_safe_type_id(obj);
     const PyTypeMethods* methods = py_get_type_methods(typeId);
@@ -549,19 +588,20 @@ unsigned int py_hash_object(PyObject* obj)
         // 处理不可哈希类型
         int baseTypeId = llvmpy::getBaseTypeId(typeId);
         // Check known unhashable types explicitly
-        if (baseTypeId == llvmpy::PY_TYPE_LIST || baseTypeId == llvmpy::PY_TYPE_DICT /* || add other known unhashable types */) {
-             fprintf(stderr, "TypeError: unhashable type: '%s'\n", py_type_name(typeId));
-             // How to signal error? Raise exception? Return specific value?
-             // For now, return 0 and rely on caller to handle potential collisions.
-             // Ideally, set an error flag/exception.
-             return 0; // Problematic: 0 can be a valid hash
+        if (baseTypeId == llvmpy::PY_TYPE_LIST || baseTypeId == llvmpy::PY_TYPE_DICT /* || add other known unhashable types */)
+        {
+            fprintf(stderr, "TypeError: unhashable type: '%s'\n", py_type_name(typeId));
+            // How to signal error? Raise exception? Return specific value?
+            // For now, return 0 and rely on caller to handle potential collisions.
+            // Ideally, set an error flag/exception.
+            return 0;  // Problematic: 0 can be a valid hash
         }
 
         // Fallback: Use address? (Generally bad for value types)
         // CPython raises TypeError for instances of classes without __hash__
         fprintf(stderr, "TypeError: unhashable type: '%s' (no hash method found)\n", py_type_name(typeId));
         // Raise exception or return error indicator needed here.
-        return 0; // Problematic
+        return 0;  // Problematic
     }
 }
 
@@ -574,7 +614,7 @@ PyDictEntry* py_dict_find_entry(PyDictObject* dict, PyObject* key)
     // TODO: Handle error from py_hash_object if it indicates unhashable type
 
     unsigned int index = hash % dict->capacity;
-    int probes = 0; // To detect full table loop
+    int probes = 0;  // To detect full table loop
 
 #ifdef DEBUG_RUNTIME_CONTAINER
     fprintf(stderr, "DEBUG: py_dict_find_entry: Looking for key %p (hash %u) starting at index %u in dict %p (cap %d)\n", (void*)key, hash, index, (void*)dict, dict->capacity);
@@ -596,7 +636,7 @@ PyDictEntry* py_dict_find_entry(PyDictObject* dict, PyObject* key)
 #ifdef DEBUG_RUNTIME_CONTAINER
             fprintf(stderr, "DEBUG: py_dict_find_entry: Found empty slot at index %u. Key not present.\n", current_idx);
 #endif
-            return entry; // Return the empty slot
+            return entry;  // Return the empty slot
         }
 
         // Check if hash matches AND keys are equal
@@ -608,31 +648,37 @@ PyDictEntry* py_dict_find_entry(PyDictObject* dict, PyObject* key)
             // Compare keys using GMP-aware comparison
             PyObject* cmpResultObj = py_object_compare(key, entry->key, PY_CMP_EQ);
             bool isEqual = false;
-            if (cmpResultObj) {
-                 if (py_get_safe_type_id(cmpResultObj) == llvmpy::PY_TYPE_BOOL) {
-                     isEqual = py_extract_bool(cmpResultObj);
-                 } else {
-                     fprintf(stderr, "Warning: Equality comparison returned non-boolean type '%s'\n", py_type_name(py_get_safe_type_id(cmpResultObj)));
-                     // Treat non-bool result as not equal? Or error?
-                 }
-                 py_decref(cmpResultObj);
-            } else {
-                 // py_object_compare failed (e.g., TypeError)
-                 fprintf(stderr, "Warning: Key comparison failed during dictionary lookup.\n");
-                 // Treat as not equal? Or propagate error?
+            if (cmpResultObj)
+            {
+                if (py_get_safe_type_id(cmpResultObj) == llvmpy::PY_TYPE_BOOL)
+                {
+                    isEqual = py_extract_bool(cmpResultObj);
+                }
+                else
+                {
+                    fprintf(stderr, "Warning: Equality comparison returned non-boolean type '%s'\n", py_type_name(py_get_safe_type_id(cmpResultObj)));
+                    // Treat non-bool result as not equal? Or error?
+                }
+                py_decref(cmpResultObj);
             }
-
+            else
+            {
+                // py_object_compare failed (e.g., TypeError)
+                fprintf(stderr, "Warning: Key comparison failed during dictionary lookup.\n");
+                // Treat as not equal? Or propagate error?
+            }
 
             if (isEqual)
             {
 #ifdef DEBUG_RUNTIME_CONTAINER
                 fprintf(stderr, "DEBUG: py_dict_find_entry: Keys match! Found entry at index %u.\n", current_idx);
 #endif
-                return entry; // Found the key
+                return entry;  // Found the key
             }
 #ifdef DEBUG_RUNTIME_CONTAINER
-            else {
-                 fprintf(stderr, "DEBUG: py_dict_find_entry: Keys do not match at index %u.\n", current_idx);
+            else
+            {
+                fprintf(stderr, "DEBUG: py_dict_find_entry: Keys do not match at index %u.\n", current_idx);
             }
 #endif
         }
@@ -645,7 +691,7 @@ PyDictEntry* py_dict_find_entry(PyDictObject* dict, PyObject* key)
 #ifdef DEBUG_RUNTIME_CONTAINER
     fprintf(stderr, "DEBUG: py_dict_find_entry: Table full or key not found after %d probes.\n", probes);
 #endif
-    return NULL; // Indicate key not found (or table full)
+    return NULL;  // Indicate key not found (or table full)
 }
 
 // 重新调整字典大小
@@ -659,11 +705,11 @@ bool py_dict_resize(PyDictObject* dict)
     // 新容量为旧容量的两倍 (handle zero capacity)
     int newCapacity = (oldCapacity == 0) ? 8 : oldCapacity * 2;
     // Check for potential overflow
-    if (oldCapacity > 0 && newCapacity / 2 != oldCapacity) {
+    if (oldCapacity > 0 && newCapacity / 2 != oldCapacity)
+    {
         fprintf(stderr, "MemoryError: Dictionary capacity overflow during resize.\n");
-        return false; // Cannot resize further
+        return false;  // Cannot resize further
     }
-
 
 #ifdef DEBUG_RUNTIME_CONTAINER
     fprintf(stderr, "DEBUG: py_dict_resize: Resizing dict %p from %d to %d\n", (void*)dict, oldCapacity, newCapacity);
@@ -671,7 +717,8 @@ bool py_dict_resize(PyDictObject* dict)
 
     // 分配新的条目数组 (use calloc for zero-initialization)
     PyDictEntry* newEntries = (PyDictEntry*)calloc(newCapacity, sizeof(PyDictEntry));
-    if (!newEntries) {
+    if (!newEntries)
+    {
         fprintf(stderr, "MemoryError: Failed to allocate memory for dictionary resize (capacity %d)\n", newCapacity);
         return false;
     }
@@ -698,7 +745,8 @@ bool py_dict_resize(PyDictObject* dict)
             // as they are no longer referenced by the old table structure.
             // py_dict_set_item already incref'd them for the new table.
             py_decref(oldEntry->key);
-            if (oldEntry->value) { // Decref value only if it's not NULL
+            if (oldEntry->value)
+            {  // Decref value only if it's not NULL
                 py_decref(oldEntry->value);
             }
         }
@@ -737,7 +785,8 @@ void py_dict_set_item(PyObject* obj, PyObject* key, PyObject* value)
     // --- 类型兼容性检查 (Key) ---
     // Hashability is checked later by py_hash_object.
     // Check declared key type if specified.
-    if (dict->keyTypeId > 0 && dict->keyTypeId != llvmpy::PY_TYPE_ANY) {
+    if (dict->keyTypeId > 0 && dict->keyTypeId != llvmpy::PY_TYPE_ANY)
+    {
         // Use py_are_types_compatible or a similar check if needed.
         // For now, assume hashability check is sufficient.
         // if (!py_are_types_compatible(py_get_safe_type_id(key), dict->keyTypeId)) {
@@ -753,7 +802,7 @@ void py_dict_set_item(PyObject* obj, PyObject* key, PyObject* value)
     // Use > instead of >= for load factor < 1.0 (e.g., 0.75)
     // Check before insertion attempt.
     // Python resizes when dict is 2/3 full. Let's use ~0.75.
-    if (dict->size * 4 >= dict->capacity * 3 && dict->capacity > 0) // Avoid division
+    if (dict->size * 4 >= dict->capacity * 3 && dict->capacity > 0)  // Avoid division
     {
 #ifdef DEBUG_RUNTIME_CONTAINER
         fprintf(stderr, "DEBUG: py_dict_set_item: Load factor exceeded (%d/%d). Resizing dict %p.\n", dict->size, dict->capacity, (void*)dict);
@@ -770,7 +819,8 @@ void py_dict_set_item(PyObject* obj, PyObject* key, PyObject* value)
     // 查找条目 (find entry returns existing entry or first empty slot)
     PyDictEntry* entry = py_dict_find_entry(dict, key);
 
-    if (!entry) {
+    if (!entry)
+    {
         // This implies the table is full AND the key wasn't found,
         // which shouldn't happen if resize logic is correct.
         fprintf(stderr, "InternalError: Dictionary find failed unexpectedly during setitem (table full?). Dict %p, cap %d, size %d\n", (void*)dict, dict->capacity, dict->size);
@@ -778,7 +828,8 @@ void py_dict_set_item(PyObject* obj, PyObject* key, PyObject* value)
     }
 
     // Check if the entry found is already used (i.e., key exists)
-    if (entry->used && entry->key) {
+    if (entry->used && entry->key)
+    {
         // Key found, update value
 #ifdef DEBUG_RUNTIME_CONTAINER
         fprintf(stderr, "DEBUG: py_dict_set_item: Key found at entry %p. Updating value.\n", (void*)entry);
@@ -789,19 +840,20 @@ void py_dict_set_item(PyObject* obj, PyObject* key, PyObject* value)
         entry->value = value;
         if (value) py_incref(value);
         if (old_value) py_decref(old_value);
-
-    } else {
+    }
+    else
+    {
         // Key not found, insert new entry into the empty slot returned by find_entry
 #ifdef DEBUG_RUNTIME_CONTAINER
         fprintf(stderr, "DEBUG: py_dict_set_item: Key not found. Inserting new entry at %p.\n", (void*)entry);
 #endif
         // Check if hash object failed earlier (if py_hash_object could signal error)
-        unsigned int hash = py_hash_object(key); // Re-hash or store hash from find_entry if possible
+        unsigned int hash = py_hash_object(key);  // Re-hash or store hash from find_entry if possible
         // TODO: Handle hash error signal here
 
         entry->key = key;
         entry->value = value;
-        entry->hash = hash; // Store hash
+        entry->hash = hash;  // Store hash
         entry->used = true;
 
         // Incref the new key and value being stored
@@ -824,14 +876,14 @@ PyObject* py_dict_get_item(PyObject* obj, PyObject* key)
     if (!py_check_type(obj, llvmpy::PY_TYPE_DICT))
     {
         py_type_error(obj, llvmpy::PY_TYPE_DICT);
-        return NULL; // Indicate error
+        return NULL;  // Indicate error
     }
 
     if (!key)
     {
         // Python raises KeyError for None key lookup
-        fprintf(stderr, "KeyError: None\n"); // Match Python's KeyError message for None
-        return NULL; // Indicate error
+        fprintf(stderr, "KeyError: None\n");  // Match Python's KeyError message for None
+        return NULL;                          // Indicate error
     }
 
     PyDictObject* dict = (PyDictObject*)obj;
@@ -850,7 +902,7 @@ PyObject* py_dict_get_item(PyObject* obj, PyObject* key)
         // NOTE: CPython's PyDict_GetItem does NOT incref the result.
         // Let's follow that convention. The caller (e.g., index handler) must incref.
         // if (value) py_incref(value); // NO INCREF HERE
-        return value; // Return value (can be NULL if None was stored)
+        return value;  // Return value (can be NULL if None was stored)
     }
     else
     {
@@ -862,7 +914,7 @@ PyObject* py_dict_get_item(PyObject* obj, PyObject* key)
 #endif
         // Set KeyError? No, follow PyDict_GetItem convention.
         // fprintf(stderr, "KeyError: Key not found in dictionary\n"); // Don't print error here
-        return NULL; // Indicate key not found
+        return NULL;  // Indicate key not found
     }
 }
 
@@ -877,15 +929,15 @@ PyObject* py_dict_get_item_with_type(PyObject* dictObj, PyObject* key, int* out_
 
     if (!dictObj || !key || !out_type_id)
     {
-         fprintf(stderr, "RuntimeError: Invalid arguments to py_dict_get_item_with_type (dict=%p, key=%p, out_type_id=%p)\n", (void*)dictObj, (void*)key, (void*)out_type_id);
-        return NULL; // Indicate error
+        fprintf(stderr, "RuntimeError: Invalid arguments to py_dict_get_item_with_type (dict=%p, key=%p, out_type_id=%p)\n", (void*)dictObj, (void*)key, (void*)out_type_id);
+        return NULL;  // Indicate error
     }
 
     // 确保是字典类型
     if (!py_check_type(dictObj, llvmpy::PY_TYPE_DICT))
     {
         py_type_error(dictObj, llvmpy::PY_TYPE_DICT);
-        return NULL; // Indicate error
+        return NULL;  // Indicate error
     }
 
     PyDictObject* dict = (PyDictObject*)dictObj;
@@ -897,18 +949,21 @@ PyObject* py_dict_get_item_with_type(PyObject* dictObj, PyObject* key, int* out_
     if (entry && entry->used && entry->key)
     {
         PyObject* value = entry->value;
-        if (value) {
+        if (value)
+        {
             *out_type_id = value->typeId;
-            py_incref(value); // Incref the returned value
+            py_incref(value);  // Incref the returned value
 #ifdef DEBUG_RUNTIME_CONTAINER
             fprintf(stderr, "DEBUG: py_dict_get_item_with_type: Found key. Returning value %p (type %d), incref'd.\n", (void*)value, *out_type_id);
 #endif
             return value;
-        } else {
+        }
+        else
+        {
             // Value is None (stored as NULL)
             *out_type_id = llvmpy::PY_TYPE_NONE;
             PyObject* none_obj = py_get_none();
-            py_incref(none_obj); // Incref None
+            py_incref(none_obj);  // Incref None
 #ifdef DEBUG_RUNTIME_CONTAINER
             fprintf(stderr, "DEBUG: py_dict_get_item_with_type: Found key. Value is None. Returning None (%p), incref'd.\n", (void*)none_obj);
 #endif
@@ -923,7 +978,7 @@ PyObject* py_dict_get_item_with_type(PyObject* dictObj, PyObject* key, int* out_
 #endif
         // Raise KeyError? No, return NULL like py_dict_get_item.
         // fprintf(stderr, "KeyError: Key not found in dictionary\n");
-        return NULL; // Indicate key not found
+        return NULL;  // Indicate key not found
     }
 }
 
@@ -970,45 +1025,49 @@ PyObject* py_object_index_with_type(PyObject* obj, PyObject* index, int* out_typ
         fprintf(stderr, "RuntimeError: Invalid arguments to py_object_index_with_type\n");
         return NULL;
     }
-    *out_type_id = llvmpy::PY_TYPE_NONE; // Default to None type
+    *out_type_id = llvmpy::PY_TYPE_NONE;  // Default to None type
 
     // 解包可能的指针 (保持不变)
     PyObject* actual_obj = obj;
-    if (obj && obj->typeId >= 400) // Check obj validity
+    if (obj && obj->typeId >= 400)  // Check obj validity
     {
         PyObject** ptr_obj = (PyObject**)obj;
         if (ptr_obj && *ptr_obj)
         {
             actual_obj = *ptr_obj;
-        } else {
-             fprintf(stderr, "RuntimeError: Dereferencing NULL pointer object in py_object_index_with_type\n");
-             return NULL;
+        }
+        else
+        {
+            fprintf(stderr, "RuntimeError: Dereferencing NULL pointer object in py_object_index_with_type\n");
+            return NULL;
         }
     }
-    if (!actual_obj) {
-         fprintf(stderr, "TypeError: 'NoneType' object is not subscriptable\n");
-         return NULL;
+    if (!actual_obj)
+    {
+        fprintf(stderr, "TypeError: 'NoneType' object is not subscriptable\n");
+        return NULL;
     }
-
 
     // 同样解包索引 (保持不变)
     PyObject* actual_index = index;
-    if (index && index->typeId >= 400) // Check index validity
+    if (index && index->typeId >= 400)  // Check index validity
     {
         PyObject** ptr_index = (PyObject**)index;
         if (ptr_index && *ptr_index)
         {
             actual_index = *ptr_index;
-        } else {
-             fprintf(stderr, "RuntimeError: Dereferencing NULL pointer index in py_object_index_with_type\n");
-             return NULL;
+        }
+        else
+        {
+            fprintf(stderr, "RuntimeError: Dereferencing NULL pointer index in py_object_index_with_type\n");
+            return NULL;
         }
     }
-     if (!actual_index) {
-         fprintf(stderr, "TypeError: subscript indices must be integers, slices, or other valid key types, not 'NoneType'\n");
-         return NULL;
-     }
-
+    if (!actual_index)
+    {
+        fprintf(stderr, "TypeError: subscript indices must be integers, slices, or other valid key types, not 'NoneType'\n");
+        return NULL;
+    }
 
     // 获取基本类型ID
     int baseTypeId = llvmpy::getBaseTypeId(actual_obj->typeId);
@@ -1019,29 +1078,37 @@ PyObject* py_object_index_with_type(PyObject* obj, PyObject* index, int* out_typ
         case llvmpy::PY_TYPE_LIST:
         {
             PyListObject* list = (PyListObject*)actual_obj;
-            long c_index; // Use long for index
+            long c_index;  // Use long for index
 
             // --- GMP Index Extraction ---
             mpz_ptr idx_mpz = py_extract_int(actual_index);
-            if (!idx_mpz) {
-                if (py_get_safe_type_id(actual_index) == llvmpy::PY_TYPE_BOOL) {
+            if (!idx_mpz)
+            {
+                if (py_get_safe_type_id(actual_index) == llvmpy::PY_TYPE_BOOL)
+                {
                     c_index = py_extract_bool(actual_index) ? 1 : 0;
-                } else {
+                }
+                else
+                {
                     fprintf(stderr, "TypeError: list indices must be integers or slices, not '%s'\n",
                             py_type_name(py_get_safe_type_id(actual_index)));
-                    return NULL; // Return NULL on error
+                    return NULL;  // Return NULL on error
                 }
-            } else {
-                if (!mpz_fits_slong_p(idx_mpz)) {
-                     fprintf(stderr, "IndexError: cannot fit 'int' index into C long\n");
-                     return NULL; // Return NULL on error
+            }
+            else
+            {
+                if (!mpz_fits_slong_p(idx_mpz))
+                {
+                    fprintf(stderr, "IndexError: cannot fit 'int' index into C long\n");
+                    return NULL;  // Return NULL on error
                 }
                 c_index = mpz_get_si(idx_mpz);
             }
             // --- End GMP Index Extraction ---
 
             // Handle negative index
-            if (c_index < 0) {
+            if (c_index < 0)
+            {
                 c_index += list->length;
             }
 
@@ -1050,7 +1117,7 @@ PyObject* py_object_index_with_type(PyObject* obj, PyObject* index, int* out_typ
             {
                 fprintf(stderr, "IndexError: list index %ld out of range [0, %d)\n", c_index, list->length);
                 // *out_type_id remains PY_TYPE_NONE
-                return NULL; // Return NULL on error
+                return NULL;  // Return NULL on error
             }
 
             PyObject* item = list->data[c_index];
@@ -1061,7 +1128,7 @@ PyObject* py_object_index_with_type(PyObject* obj, PyObject* index, int* out_typ
                 *out_type_id = item->typeId;
                 // Optional: Refine type based on list->elemTypeId (logic seems complex/potentially reversed, keep simple for now)
                 // if (list->elemTypeId > 0 && list->elemTypeId != llvmpy::PY_TYPE_ANY) { ... }
-                py_incref(item); // Incref the item being returned
+                py_incref(item);  // Incref the item being returned
                 return item;
             }
             else
@@ -1079,48 +1146,58 @@ PyObject* py_object_index_with_type(PyObject* obj, PyObject* index, int* out_typ
             PyDictObject* dict = (PyDictObject*)actual_obj;
             // Use the existing py_dict_get_item_with_type which handles GMP keys and returns incref'd value/None
             PyObject* value = py_dict_get_item_with_type((PyObject*)dict, actual_index, out_type_id);
-            if (!value) {
-                 // Key not found, py_dict_get_item_with_type returns NULL and sets *out_type_id to NONE.
-                 // Print KeyError here to match Python behavior for direct indexing.
-                 // Note: py_dict_get_item doesn't print error, but indexing should.
-                 // Need a way to represent the key in the error message.
-                 // For now, a generic message.
-                 fprintf(stderr, "KeyError\n"); // Simplified KeyError message
+            if (!value)
+            {
+                // Key not found, py_dict_get_item_with_type returns NULL and sets *out_type_id to NONE.
+                // Print KeyError here to match Python behavior for direct indexing.
+                // Note: py_dict_get_item doesn't print error, but indexing should.
+                // Need a way to represent the key in the error message.
+                // For now, a generic message.
+                fprintf(stderr, "KeyError\n");  // Simplified KeyError message
             }
-            return value; // Return the result (already incref'd or NULL)
+            return value;  // Return the result (already incref'd or NULL)
         }
 
         case llvmpy::PY_TYPE_STRING:
         {
             const char* c_str = py_extract_string(actual_obj);
-            if (!c_str) {
+            if (!c_str)
+            {
                 fprintf(stderr, "InternalError: String object has NULL value in py_object_index_with_type\n");
                 return NULL;
             }
             size_t len = strlen(c_str);
-            long c_index; // Use long for index
+            long c_index;  // Use long for index
 
             // --- GMP Index Extraction ---
             mpz_ptr idx_mpz = py_extract_int(actual_index);
-            if (!idx_mpz) {
-                if (py_get_safe_type_id(actual_index) == llvmpy::PY_TYPE_BOOL) {
+            if (!idx_mpz)
+            {
+                if (py_get_safe_type_id(actual_index) == llvmpy::PY_TYPE_BOOL)
+                {
                     c_index = py_extract_bool(actual_index) ? 1 : 0;
-                } else {
+                }
+                else
+                {
                     fprintf(stderr, "TypeError: string indices must be integers, not '%s'\n",
                             py_type_name(py_get_safe_type_id(actual_index)));
-                    return NULL; // Return NULL on error
+                    return NULL;  // Return NULL on error
                 }
-            } else {
-                if (!mpz_fits_slong_p(idx_mpz)) {
-                     fprintf(stderr, "IndexError: cannot fit 'int' index into C long\n");
-                     return NULL; // Return NULL on error
+            }
+            else
+            {
+                if (!mpz_fits_slong_p(idx_mpz))
+                {
+                    fprintf(stderr, "IndexError: cannot fit 'int' index into C long\n");
+                    return NULL;  // Return NULL on error
                 }
                 c_index = mpz_get_si(idx_mpz);
             }
             // --- End GMP Index Extraction ---
 
             // Handle negative index
-            if (c_index < 0) {
+            if (c_index < 0)
+            {
                 c_index += len;
             }
 
@@ -1129,7 +1206,7 @@ PyObject* py_object_index_with_type(PyObject* obj, PyObject* index, int* out_typ
             {
                 fprintf(stderr, "IndexError: string index %ld out of range [0, %zu)\n", c_index, len);
                 // *out_type_id remains PY_TYPE_NONE
-                return NULL; // Return NULL on error
+                return NULL;  // Return NULL on error
             }
 
             // Create single-character string
@@ -1142,7 +1219,7 @@ PyObject* py_object_index_with_type(PyObject* obj, PyObject* index, int* out_typ
         default:
             fprintf(stderr, "TypeError: '%s' object is not subscriptable\n", py_type_name(actual_obj->typeId));
             // *out_type_id remains PY_TYPE_NONE
-            return NULL; // Return NULL for unsupported type
+            return NULL;  // Return NULL for unsupported type
     }
 }
 
@@ -1208,61 +1285,62 @@ int py_get_container_type_info(PyObject* container)
  * @param index 索引对象 (PyObject*)。
  * @param value 要赋的值 (PyObject*)。
  */
- void py_object_set_index(PyObject* obj, PyObject* index, PyObject* value)
- {
- #ifdef DEBUG_RUNTIME_CONTAINER
-     fprintf(stderr, "DEBUG: py_object_set_index called for obj %p, index %p, value %p.\n", (void*)obj, (void*)index, (void*)value);
- #endif
-     if (!obj)
-     {
-         fprintf(stderr, "TypeError: 'NoneType' object does not support item assignment\n");
-         return;
-     }
-     if (!index)
-     {
-         fprintf(stderr, "TypeError: subscript indices must be integers, slices, or other valid key types, not 'NoneType'\n");
-         return;
-     }
-     // value can be NULL (representing None)
- 
-     // --- Pointer Dereferencing (Optional) ---
-     // ...
-     // --- End Pointer Dereferencing ---
- 
-     // 1. Get the type ID of the target object
-     int typeId = py_get_safe_type_id(obj);
- #ifdef DEBUG_RUNTIME_CONTAINER
-     fprintf(stderr, "DEBUG: py_object_set_index: obj typeId: %d (%s)\n", typeId, py_type_name(typeId));
- #endif
- 
-     // 2. Look up the methods for this type ID
-     const PyTypeMethods* methods = py_get_type_methods(typeId);
- #ifdef DEBUG_RUNTIME_CONTAINER
-     fprintf(stderr, "DEBUG: py_object_set_index: py_get_type_methods(%d) returned: %p\n", typeId, (void*)methods);
-     if (methods) {
-         fprintf(stderr, "DEBUG: py_object_set_index: methods->index_set: %p\n", (void*)methods->index_set);
-     }
- #endif
- 
-     // 3. Check if an index_set method exists and call it
-     if (methods && methods->index_set)
-     {
-         // The handler function is responsible for:
-         // - Checking index type validity
-         // - Performing bounds/key checks
-         // - Handling value type compatibility (if applicable)
-         // - Managing reference counts for old/new values
-         // - Printing appropriate errors (TypeError, IndexError, KeyError, ValueError).
-         methods->index_set(obj, index, value);
-         // The handler returns void, errors are printed internally.
-     }
-     else
-     {
-         // 4. Handle unsupported types (object does not support item assignment)
-         fprintf(stderr, "TypeError: '%s' object does not support item assignment\n", py_type_name(typeId));
-         // Consider setting an exception state here.
-     }
- }
+void py_object_set_index(PyObject* obj, PyObject* index, PyObject* value)
+{
+#ifdef DEBUG_RUNTIME_CONTAINER
+    fprintf(stderr, "DEBUG: py_object_set_index called for obj %p, index %p, value %p.\n", (void*)obj, (void*)index, (void*)value);
+#endif
+    if (!obj)
+    {
+        fprintf(stderr, "TypeError: 'NoneType' object does not support item assignment\n");
+        return;
+    }
+    if (!index)
+    {
+        fprintf(stderr, "TypeError: subscript indices must be integers, slices, or other valid key types, not 'NoneType'\n");
+        return;
+    }
+    // value can be NULL (representing None)
+
+    // --- Pointer Dereferencing (Optional) ---
+    // ...
+    // --- End Pointer Dereferencing ---
+
+    // 1. Get the type ID of the target object
+    int typeId = py_get_safe_type_id(obj);
+#ifdef DEBUG_RUNTIME_CONTAINER
+    fprintf(stderr, "DEBUG: py_object_set_index: obj typeId: %d (%s)\n", typeId, py_type_name(typeId));
+#endif
+
+    // 2. Look up the methods for this type ID
+    const PyTypeMethods* methods = py_get_type_methods(typeId);
+#ifdef DEBUG_RUNTIME_CONTAINER
+    fprintf(stderr, "DEBUG: py_object_set_index: py_get_type_methods(%d) returned: %p\n", typeId, (void*)methods);
+    if (methods)
+    {
+        fprintf(stderr, "DEBUG: py_object_set_index: methods->index_set: %p\n", (void*)methods->index_set);
+    }
+#endif
+
+    // 3. Check if an index_set method exists and call it
+    if (methods && methods->index_set)
+    {
+        // The handler function is responsible for:
+        // - Checking index type validity
+        // - Performing bounds/key checks
+        // - Handling value type compatibility (if applicable)
+        // - Managing reference counts for old/new values
+        // - Printing appropriate errors (TypeError, IndexError, KeyError, ValueError).
+        methods->index_set(obj, index, value);
+        // The handler returns void, errors are printed internally.
+    }
+    else
+    {
+        // 4. Handle unsupported types (object does not support item assignment)
+        fprintf(stderr, "TypeError: '%s' object does not support item assignment\n", py_type_name(typeId));
+        // Consider setting an exception state here.
+    }
+}
 
 // 索引操作
 PyObject* py_object_index(PyObject* obj, PyObject* index)
@@ -1290,7 +1368,6 @@ PyObject* py_object_index(PyObject* obj, PyObject* index)
     // For simplicity, assume obj and index are the actual objects for now.
     // --- End Pointer Dereferencing ---
 
-
     // 1. Get the type ID of the target object
     int typeId = py_get_safe_type_id(obj);
 #ifdef DEBUG_RUNTIME_CONTAINER
@@ -1301,7 +1378,8 @@ PyObject* py_object_index(PyObject* obj, PyObject* index)
     const PyTypeMethods* methods = py_get_type_methods(typeId);
 #ifdef DEBUG_RUNTIME_CONTAINER
     fprintf(stderr, "DEBUG: py_object_index: py_get_type_methods(%d) returned: %p\n", typeId, (void*)methods);
-    if (methods) {
+    if (methods)
+    {
         fprintf(stderr, "DEBUG: py_object_index: methods->index_get: %p\n", (void*)methods->index_get);
     }
 #endif
@@ -1320,7 +1398,7 @@ PyObject* py_object_index(PyObject* obj, PyObject* index)
 #endif
         // The handler should return NULL on error (e.g., IndexError, KeyError, TypeError)
         // and print the specific error message.
-        return result; // Return result directly (already incref'd or NULL)
+        return result;  // Return result directly (already incref'd or NULL)
     }
     else
     {
@@ -1340,34 +1418,41 @@ PyObject* py_string_get_char(PyObject* strObj, PyObject* indexObj)
     {
         // Should this be TypeError?
         fprintf(stderr, "RuntimeError: py_string_get_char requires a string object, got '%s'\n", py_type_name(py_get_safe_type_id(strObj)));
-        return NULL; // Indicate error
+        return NULL;  // Indicate error
     }
 
     const char* c_str = py_extract_string(strObj);
-    if (!c_str) {
+    if (!c_str)
+    {
         // Should not happen for a valid string object, but handle defensively
         fprintf(stderr, "InternalError: String object has NULL value in py_string_get_char\n");
-        return NULL; // Indicate error
+        return NULL;  // Indicate error
     }
     size_t len = strlen(c_str);
-
 
     // 提取 GMP 整数索引
     mpz_ptr idx_mpz = py_extract_int(indexObj);
     long c_index;
 
-    if (!idx_mpz) {
-        if (py_get_safe_type_id(indexObj) == llvmpy::PY_TYPE_BOOL) {
+    if (!idx_mpz)
+    {
+        if (py_get_safe_type_id(indexObj) == llvmpy::PY_TYPE_BOOL)
+        {
             c_index = py_extract_bool(indexObj) ? 1 : 0;
-        } else {
+        }
+        else
+        {
             fprintf(stderr, "TypeError: string indices must be integers, not '%s'\n",
                     py_type_name(py_get_safe_type_id(indexObj)));
             return NULL;
         }
-    } else {
-        if (!mpz_fits_slong_p(idx_mpz)) {
-             fprintf(stderr, "IndexError: cannot fit 'int' index into C long\n");
-             return NULL;
+    }
+    else
+    {
+        if (!mpz_fits_slong_p(idx_mpz))
+        {
+            fprintf(stderr, "IndexError: cannot fit 'int' index into C long\n");
+            return NULL;
         }
         c_index = mpz_get_si(idx_mpz);
     }
@@ -1377,7 +1462,8 @@ PyObject* py_string_get_char(PyObject* strObj, PyObject* indexObj)
 #endif
 
     // 处理负数索引
-    if (c_index < 0) {
+    if (c_index < 0)
+    {
         c_index += len;
     }
 
@@ -1385,12 +1471,12 @@ PyObject* py_string_get_char(PyObject* strObj, PyObject* indexObj)
     if (c_index < 0 || (size_t)c_index >= len)
     {
         fprintf(stderr, "IndexError: string index %ld out of range [0, %zu)\n", c_index, len);
-        return NULL; // Indicate error
+        return NULL;  // Indicate error
     }
 
     // Create a new string for the single character
     char buf[2] = {c_str[c_index], '\0'};
-    PyObject* result = py_create_string(buf); // py_create_string handles incref for the new string
+    PyObject* result = py_create_string(buf);  // py_create_string handles incref for the new string
 #ifdef DEBUG_RUNTIME_CONTAINER
     fprintf(stderr, "DEBUG: py_string_get_char: Returning new string '%s' (%p).\n", buf, (void*)result);
 #endif

@@ -710,6 +710,14 @@ void CodeGenModule::addRuntimeFunctions()
                 false);
     }
 
+    codeGen.getOrCreateExternalFunction(
+        "py_object_compare",
+        llvm::PointerType::get(codeGen.getContext(), 0),    // Return PyObject*
+        {llvm::PointerType::get(codeGen.getContext(), 0),  // PyObject* a
+         llvm::PointerType::get(codeGen.getContext(), 0),  // PyObject* b
+         llvm::Type::getInt32Ty(codeGen.getContext())},    // PyCompareOp op (i32)
+        false); // isVarArg
+
     // 引用计数管理函数
     {
         // 修改为使用 getOrCreateExternalFunction

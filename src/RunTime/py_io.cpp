@@ -22,6 +22,9 @@ void py_print_object(PyObject* obj)
 
     // 根据类型打印不同形式
     int typeId = py_get_safe_type_id(obj); // 使用安全获取类型ID的函数
+    #ifdef DEBUG_RUNTIME_print
+    printf("py_print_object: typeId = %d\n", typeId);
+    #endif
     switch (typeId)
     {
         case llvmpy::PY_TYPE_INT:
@@ -29,9 +32,21 @@ void py_print_object(PyObject* obj)
             gmp_printf("%Zd\n", ((PyPrimitiveObject*)obj)->value.intValue);
             break;
 
-        case llvmpy::PY_TYPE_DOUBLE:
-            // 使用 GMP 打印浮点数 (使用 %Fg 模拟 Python 的默认行为)
-            gmp_printf("%Fg\n", ((PyPrimitiveObject*)obj)->value.doubleValue);
+            case llvmpy::PY_TYPE_DOUBLE:
+            {
+                mpf_ptr val = ((PyPrimitiveObject*)obj)->value.doubleValue;
+                // 检查浮点数是否为整数
+                if (mpf_integer_p(val)) {
+                    // 如果是整数，打印为 x.0 的形式
+                    // 先打印整数部分，再打印 ".0"
+            
+                    gmp_printf("%.0Ff.0\n", val);
+                } else {
+                    // 否则，使用通用格式打印
+
+                    gmp_printf("%Fg\n", val);
+                }
+            }
             break;
 
         case llvmpy::PY_TYPE_BOOL:
@@ -158,9 +173,18 @@ static void py_print_object_inline(PyObject* obj)
             mpz_out_str(stdout, 10, ((PyPrimitiveObject*)obj)->value.intValue);
             break;
 
-        case llvmpy::PY_TYPE_DOUBLE:
-            // 使用 GMP 打印浮点数
-            gmp_printf("%Fg", ((PyPrimitiveObject*)obj)->value.doubleValue);
+            case llvmpy::PY_TYPE_DOUBLE:
+            {
+                mpf_ptr val = ((PyPrimitiveObject*)obj)->value.doubleValue;
+                // 检查浮点数是否为整数
+                if (mpf_integer_p(val)) {
+                    // 如果是整数，打印为 x.0 的形式
+                    gmp_printf("%.0Ff.0", val);
+                } else {
+                    // 否则，使用通用格式打印
+                    gmp_printf("%Fg", val);
+                }
+            }
             break;
 
         case llvmpy::PY_TYPE_BOOL:

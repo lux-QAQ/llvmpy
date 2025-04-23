@@ -46,9 +46,10 @@ std::shared_ptr<PyType> CodeGenType::inferExprType(const ExprAST* expr)
             // The type (int or double) was determined during parsing and stored.
             resultType = numExpr->getType();
             // Ensure a valid type is returned, fallback to Any if somehow null
-            if (!resultType) {
-                 std::cerr << "Warning: NumberExprAST returned null type in inferExprType. Defaulting to Any." << std::endl;
-                 resultType = PyType::getAny();
+            if (!resultType)
+            {
+                std::cerr << "Warning: NumberExprAST returned null type in inferExprType. Defaulting to Any." << std::endl;
+                resultType = PyType::getAny();
             }
             // --- End Modification ---
             break;
@@ -138,7 +139,33 @@ std::shared_ptr<PyType> CodeGenType::inferExprType(const ExprAST* expr)
             resultType = PyType::getList(elemType);
             break;
         }
+        case ASTKind::DictExpr:
+        {
+            auto dictExpr = static_cast<const DictExprAST*>(expr);
+            const auto& pairs = dictExpr->getPairs();  // Use getPairs()
 
+            if (pairs.empty())
+            {
+                // Empty dict: dict[any, any]
+                resultType = PyType::getDict(PyType::getAny(), PyType::getAny());
+            }
+            else
+            {
+                // Infer common key and value types
+                std::shared_ptr<PyType> commonKeyType = inferExprType(pairs[0].first.get());
+                std::shared_ptr<PyType> commonValueType = inferExprType(pairs[0].second.get());
+
+                for (size_t i = 1; i < pairs.size(); ++i)
+                {
+                    std::shared_ptr<PyType> keyType = inferExprType(pairs[i].first.get());
+                    std::shared_ptr<PyType> valueType = inferExprType(pairs[i].second.get());
+                    commonKeyType = getCommonType(commonKeyType, keyType);
+                    commonValueType = getCommonType(commonValueType, valueType);
+                }
+                resultType = PyType::getDict(commonKeyType, commonValueType);
+            }
+            break;  // Add break statement
+        }
         case ASTKind::IndexExpr:
         {
             auto indexExpr = static_cast<const IndexExprAST*>(expr);
@@ -275,18 +302,18 @@ std::shared_ptr<PyType> CodeGenType::inferUnaryExprType(
             // 对于其他未知或不支持的一元操作，默认返回 Any
             // 也可以在这里添加日志记录
             std::cerr << "Warning: Unhandled unary operator token " << op << " in inferUnaryExprType. Returning Any." << std::endl;
-            break; // Fallthrough 到函数末尾的 return PyType::getAny()
-        // --- 结束添加 ---
+            break;  // Fallthrough 到函数末尾的 return PyType::getAny()
+                    // --- 结束添加 ---
     }
 
     // 默认情况返回Any类型 (包括从 TOK_MINUS 的非数值情况 fallthrough)
     return PyType::getAny();
 }
 
-
 ObjectType* CodeGenType::getFunctionObjectType(const FunctionAST* funcAST)
 {
-    if (!funcAST) {
+    if (!funcAST)
+    {
         codeGen.logError("Cannot get ObjectType for null FunctionAST");
         return nullptr;
     }
@@ -294,54 +321,67 @@ ObjectType* CodeGenType::getFunctionObjectType(const FunctionAST* funcAST)
     // --- 1. Resolve Return Type (Default to Any if no hint) ---
     ObjectType* returnObjectType = nullptr;
     // 使用存储在 FunctionAST 中的返回类型名称字符串
-    const std::string& returnTypeName = funcAST->getReturnTypeName(); // 使用 string getter
+    const std::string& returnTypeName = funcAST->getReturnTypeName();  // 使用 string getter
 
-    if (!returnTypeName.empty()) { // 检查字符串是否为空
+    if (!returnTypeName.empty())
+    {  // 检查字符串是否为空
         // 使用 PyTypeParser 从字符串解析类型
         std::shared_ptr<PyType> returnPyType = PyTypeParser::parseType(returnTypeName);
-        if (returnPyType) {
+        if (returnPyType)
+        {
             returnObjectType = returnPyType->getObjectType();
-        } else {
+        }
+        else
+        {
             codeGen.logWarning("Failed to parse return type name '" + returnTypeName + "' for function: " + funcAST->getName() + ". Defaulting to any.",
-                             funcAST->line.value_or(0), funcAST->column.value_or(0));
+                               funcAST->line.value_or(0), funcAST->column.value_or(0));
         }
     }
 
     // Default to 'object' if no hint or parsing failed
-    if (!returnObjectType) {
+    if (!returnObjectType)
+    {
         returnObjectType = TypeRegistry::getInstance().getType("object");
-        if (!returnObjectType) {
-             codeGen.logError("Default type 'object' not found in TypeRegistry!");
-             return nullptr;
+        if (!returnObjectType)
+        {
+            codeGen.logError("Default type 'object' not found in TypeRegistry!");
+            return nullptr;
         }
     }
 
     // --- 2. Resolve Parameter Types (Default to Any if no hint) ---
     std::vector<ObjectType*> paramObjectTypes;
-    for (const auto& param : funcAST->getParams()) {
+    for (const auto& param : funcAST->getParams())
+    {
         ObjectType* paramObjectType = nullptr;
         // 使用存储在 ParamAST 中的参数类型名称字符串
-        const std::string& paramTypeName = param.typeName; // 直接访问 string 成员
+        const std::string& paramTypeName = param.typeName;  // 直接访问 string 成员
 
-        if (!paramTypeName.empty()) { // 检查字符串是否为空
+        if (!paramTypeName.empty())
+        {  // 检查字符串是否为空
             // 使用 PyTypeParser 从字符串解析类型
             std::shared_ptr<PyType> paramPyType = PyTypeParser::parseType(paramTypeName);
-            if (paramPyType) {
+            if (paramPyType)
+            {
                 paramObjectType = paramPyType->getObjectType();
-            } else {
-                 codeGen.logWarning("Failed to parse type name '" + paramTypeName + "' for parameter '" + param.name
-                                 + "' in function: " + funcAST->getName() + ". Defaulting to any.",
-                                 funcAST->line.value_or(0), funcAST->column.value_or(0));
+            }
+            else
+            {
+                codeGen.logWarning("Failed to parse type name '" + paramTypeName + "' for parameter '" + param.name
+                                           + "' in function: " + funcAST->getName() + ". Defaulting to any.",
+                                   funcAST->line.value_or(0), funcAST->column.value_or(0));
             }
         }
 
         // Default to 'object' if no hint or parsing failed
-        if (!paramObjectType) {
+        if (!paramObjectType)
+        {
             paramObjectType = TypeRegistry::getInstance().getType("object");
-             if (!paramObjectType) {
-                 codeGen.logError("Default type 'object' not found in TypeRegistry!");
-                 return nullptr;
-             }
+            if (!paramObjectType)
+            {
+                codeGen.logError("Default type 'object' not found in TypeRegistry!");
+                return nullptr;
+            }
         }
         paramObjectTypes.push_back(paramObjectType);
     }
@@ -349,20 +389,19 @@ ObjectType* CodeGenType::getFunctionObjectType(const FunctionAST* funcAST)
     // --- 3. Get/Create FunctionType from Registry ---
     ObjectType* functionType = TypeRegistry::getInstance().getFunctionType(returnObjectType, paramObjectTypes);
 
-    if (!functionType) {
-         codeGen.logError("Failed to get or create FunctionType in TypeRegistry for function: " + funcAST->getName());
-         return nullptr;
+    if (!functionType)
+    {
+        codeGen.logError("Failed to get or create FunctionType in TypeRegistry for function: " + funcAST->getName());
+        return nullptr;
     }
 
-    #ifdef DEBUG_CODEGEN_TYPE
+#ifdef DEBUG_CODEGEN_TYPE
     std::cerr << "Debug [CodeGenType]: Resolved static FunctionType for '" << funcAST->getName()
               << "' as " << functionType->getName() << std::endl;
-    #endif
+#endif
 
-    return functionType; // This will be a FunctionType*
+    return functionType;  // This will be a FunctionType*
 }
-
-
 
 std::shared_ptr<PyType> CodeGenType::inferIndexExprType(
         std::shared_ptr<PyType> targetType,
@@ -390,17 +429,18 @@ std::shared_ptr<PyType> CodeGenType::inferIndexExprType(
 }
 
 std::shared_ptr<PyType> CodeGenType::inferCallReturnType(
-    std::shared_ptr<PyType> callableType,
-    const std::vector<std::shared_ptr<PyType>>& argTypes)
+        std::shared_ptr<PyType> callableType,
+        const std::vector<std::shared_ptr<PyType>>& argTypes)
 {
     // TODO: Implement more sophisticated type inference based on callableType signature
     // For now, if the callable is a function (or Any), assume it can return Any.
-    if (callableType && (callableType->isFunction() || callableType->isAny())) {
-         // In the future, if callableType holds FunctionType info, return its return type.
-         // e.g., if (auto* funcType = dynamic_cast<FunctionObjectType*>(callableType->getObjectType())) {
-         //          return PyType::fromObjectType(funcType->getReturnType());
-         //      }
-         return PyType::getAny();
+    if (callableType && (callableType->isFunction() || callableType->isAny()))
+    {
+        // In the future, if callableType holds FunctionType info, return its return type.
+        // e.g., if (auto* funcType = dynamic_cast<FunctionObjectType*>(callableType->getObjectType())) {
+        //          return PyType::fromObjectType(funcType->getReturnType());
+        //      }
+        return PyType::getAny();
     }
 
     // If the callable type is not a function or Any, it's an error handled elsewhere.
@@ -454,7 +494,7 @@ std::shared_ptr<PyType> CodeGenType::inferCallExprType(
     }
 
     // 通用函数类型推导 - 根据函数体分析
-    const FunctionAST* funcAST = getFunctionAST(funcName); 
+    const FunctionAST* funcAST = getFunctionAST(funcName);
     if (funcAST)
     {
         // 如果能找到函数定义，分析函数体内的返回语句
@@ -466,30 +506,33 @@ std::shared_ptr<PyType> CodeGenType::inferCallExprType(
 }
 
 // 根据函数名查找函数AST定义
-const FunctionAST* CodeGenType::getFunctionAST(const std::string& funcName) // <--- 改为 const FunctionAST*
+const FunctionAST* CodeGenType::getFunctionAST(const std::string& funcName)  // <--- 改为 const FunctionAST*
 {
     // --- 1. 优先从符号表查找当前及父作用域 ---
     const FunctionAST* funcFromScope = codeGen.getSymbolTable().findFunctionAST(funcName);
-    if (funcFromScope) {
-        #ifdef DEBUG_CODEGEN_TYPE
+    if (funcFromScope)
+    {
+#ifdef DEBUG_CODEGEN_TYPE
         std::cerr << "Debug [CodeGenType]: Found FunctionAST for '" << funcName << "' in symbol table scope." << std::endl;
-        #endif
+#endif
         return funcFromScope;
     }
 
-    // --- 2. 如果作用域中未找到，再查找顶层模块 ---
-    #ifdef DEBUG_CODEGEN_TYPE
+// --- 2. 如果作用域中未找到，再查找顶层模块 ---
+#ifdef DEBUG_CODEGEN_TYPE
     std::cerr << "Debug [CodeGenType]: FunctionAST for '" << funcName << "' not found in scope, searching module top-level..." << std::endl;
-    #endif
+#endif
 
     auto* moduleGen = codeGen.getModuleGen();
-    if (!moduleGen) {
+    if (!moduleGen)
+    {
         codeGen.logError("Module generator is not available in CodeGenType::getFunctionAST");
         return nullptr;
     }
 
     ModuleAST* module = moduleGen->getCurrentModule();
-    if (!module) {
+    if (!module)
+    {
         // 在非模块顶层查找时，如果符号表里没有，这里找不到是正常的
         // codeGen.logWarning("Current module is not set in CodeGenType::getFunctionAST when searching top-level for: " + funcName);
         return nullptr;
@@ -501,69 +544,69 @@ const FunctionAST* CodeGenType::getFunctionAST(const std::string& funcName) // <
         if (stmt->kind() == ASTKind::FunctionDefStmt)
         {
             // 强制转换为 FunctionDefStmtAST
-            auto* funcDefStmt = static_cast<const FunctionDefStmtAST*>(stmt.get()); // <--- 使用 const*
+            auto* funcDefStmt = static_cast<const FunctionDefStmtAST*>(stmt.get());  // <--- 使用 const*
             // 获取底层的 FunctionAST (现在是 const*)
-            const FunctionAST* funcAST = funcDefStmt->getFunctionAST(); // <--- 改为 const FunctionAST*
+            const FunctionAST* funcAST = funcDefStmt->getFunctionAST();  // <--- 改为 const FunctionAST*
 
             if (funcAST && funcAST->getName() == funcName)
             {
-                #ifdef DEBUG_CODEGEN_TYPE
+#ifdef DEBUG_CODEGEN_TYPE
                 std::cerr << "Debug [CodeGenType]: Found FunctionAST for '" << funcName << "' in module top-level." << std::endl;
-                #endif
-                return funcAST; // <--- 直接返回 const*
+#endif
+                return funcAST;  // <--- 直接返回 const*
             }
         }
         // TODO: 查找类中的方法
     }
 
-    #ifdef DEBUG_CODEGEN_TYPE
+#ifdef DEBUG_CODEGEN_TYPE
     std::cerr << "Debug [CodeGenType]: FunctionAST for '" << funcName << "' not found anywhere." << std::endl;
-    #endif
+#endif
     // 在模块顶层也未找到
     return nullptr;
 }
 
 // 分析函数体中的返回语句，确定返回类型
 std::shared_ptr<PyType> CodeGenType::analyzeFunctionReturnType(
-    const FunctionAST* func, // <--- 改为 const FunctionAST*
-    const std::vector<std::shared_ptr<PyType>>& argTypes)
+        const FunctionAST* func,  // <--- 改为 const FunctionAST*
+        const std::vector<std::shared_ptr<PyType>>& argTypes)
 {
-// 如果函数定义了返回类型注解，使用注解类型
-if (!func->returnTypeName.empty())
-{
-    // PyType::fromString 应该接受 const string&
-    return PyType::fromString(func->getReturnTypeName()); // 使用 getter
-}
-
-// 从函数中推断返回类型 (inferReturnType 应该是 const 方法)
-std::shared_ptr<PyType> inferredType = func->inferReturnType();
-if (inferredType)
-{
-    return inferredType;
-}
-
-// 分析函数体中的返回语句
-for (const auto& stmt : func->getBody()) // 使用 getter
-{
-    if (stmt->kind() == ASTKind::ReturnStmt)
+    // 如果函数定义了返回类型注解，使用注解类型
+    if (!func->returnTypeName.empty())
     {
-        // static_cast 可以用于 const 指针
-        auto returnStmt = static_cast<const ReturnStmtAST*>(stmt.get()); // <--- 使用 const*
-        if (returnStmt->getValue())
+        // PyType::fromString 应该接受 const string&
+        return PyType::fromString(func->getReturnTypeName());  // 使用 getter
+    }
+
+    // 从函数中推断返回类型 (inferReturnType 应该是 const 方法)
+    std::shared_ptr<PyType> inferredType = func->inferReturnType();
+    if (inferredType)
+    {
+        return inferredType;
+    }
+
+    // 分析函数体中的返回语句
+    for (const auto& stmt : func->getBody())  // 使用 getter
+    {
+        if (stmt->kind() == ASTKind::ReturnStmt)
         {
-            // analyzeReturnExpr 应该接受 const ExprAST*
-            return analyzeReturnExpr(returnStmt->getValue(), argTypes);
-        }
-        else
-        {
-             // 如果是 'return' 或 'return None'
-             return PyType::getAny(); // 或者 PyType::getNone()，取决于你的语义
+            // static_cast 可以用于 const 指针
+            auto returnStmt = static_cast<const ReturnStmtAST*>(stmt.get());  // <--- 使用 const*
+            if (returnStmt->getValue())
+            {
+                // analyzeReturnExpr 应该接受 const ExprAST*
+                return analyzeReturnExpr(returnStmt->getValue(), argTypes);
+            }
+            else
+            {
+                // 如果是 'return' 或 'return None'
+                return PyType::getAny();  // 或者 PyType::getNone()，取决于你的语义
+            }
         }
     }
-}
 
-// 如果无法从返回语句确定类型，使用函数签名和参数类型推导
-return inferReturnTypeFromContext(func->getName(), argTypes); // 使用 getter
+    // 如果无法从返回语句确定类型，使用函数签名和参数类型推导
+    return inferReturnTypeFromContext(func->getName(), argTypes);  // 使用 getter
 }
 
 // 分析返回表达式类型
@@ -589,7 +632,37 @@ std::shared_ptr<PyType> CodeGenType::analyzeReturnExpr(
             // 使用二元运算类型推导规则
             return inferBinaryExprType(op, leftType, rightType);
         }
+        case ASTKind::DictExpr:
+        {
+            auto dictExpr = static_cast<const DictExprAST*>(expr);
+            // --- FIX: Use getPairs() instead of getElements() ---
+            const auto& pairs = dictExpr->getPairs();
+            std::shared_ptr<PyType> resultType;  // Declare resultType here
 
+            if (pairs.empty())
+            {
+                // Empty dict: dict[any, any]
+                resultType = PyType::getDict(PyType::getAny(), PyType::getAny());
+            }
+            else
+            {
+                // Infer common key and value types using pairs
+                std::shared_ptr<PyType> commonKeyType = inferExprType(pairs[0].first.get());
+                std::shared_ptr<PyType> commonValueType = inferExprType(pairs[0].second.get());
+
+                for (size_t i = 1; i < pairs.size(); ++i)
+                {
+                    std::shared_ptr<PyType> keyType = inferExprType(pairs[i].first.get());
+                    std::shared_ptr<PyType> valueType = inferExprType(pairs[i].second.get());
+                    commonKeyType = getCommonType(commonKeyType, keyType);
+                    commonValueType = getCommonType(commonValueType, valueType);
+                }
+                resultType = PyType::getDict(commonKeyType, commonValueType);
+            }
+            // --- FIX: Add return statement ---
+            return resultType;
+            // break; // break is now unreachable after return
+        }
         case ASTKind::IndexExpr:
         {
             // 处理索引表达式，如 a[b]
@@ -608,6 +681,7 @@ std::shared_ptr<PyType> CodeGenType::analyzeReturnExpr(
             // 对于其他表达式，直接推导类型
             return inferExprType(expr);
     }
+    return PyType::getAny();
 }
 
 // 基于函数上下文和参数类型推导返回类型
@@ -735,66 +809,134 @@ std::shared_ptr<PyType> CodeGenType::inferListElementType(
     // 首先推导第一个元素的类型
     std::shared_ptr<PyType> commonType = inferExprType(elements[0].get());
 
+    /// !!!这里更好的办法可能是直接返回Any，因为后续可能有更多复杂的类型，他们是否允许被加入或者处理，应该留在rt
     // 然后与其他元素类型求共同类型
-    for (size_t i = 1; i < elements.size(); i++)
+/*     for (size_t i = 1; i < elements.size(); i++)
     {
         std::shared_ptr<PyType> elemType = inferExprType(elements[i].get());
+#ifdef DEBUG_CODEGEN_inferListElementType
+        std::cerr << "DEBUG [inferListElementType]: Comparing commonType=" << commonType->toString()
+                  << " with element type=" << elemType->toString() << std::endl;
+#endif
         commonType = getCommonType(commonType, elemType);
-    }
+#ifdef DEBUG_CODEGEN_inferListElementType
+        std::cerr << "DEBUG [inferListElementType]: Updated commonType=" << commonType->toString() << std::endl;
+#endif
+    } */
 
-    return commonType;
+    return  PyType::getAny(); // 这里显然还是感觉有问题，因为没有正确推断而是把这些全留给了RT
 }
-
 std::shared_ptr<PyType> CodeGenType::getCommonType(
         std::shared_ptr<PyType> typeA,
         std::shared_ptr<PyType> typeB)
 {
-    // 如果类型相同，直接返回该类型
-    if (typeA->equals(*typeB))
-    {
-        return typeA;
-    }
+#ifdef DEBUG_CODEGEN_getCommonType
+    // --- DEBUGGING START ---
+    std::cerr << "DEBUG [getCommonType]: Comparing A=" << typeA->toString()
+              << " (ID: " << getTypeId(typeA) << ")"
+              << " and B=" << typeB->toString()
+              << " (ID: " << getTypeId(typeB) << ")" << std::endl;
+// --- DEBUGGING END ---
+#endif
 
-    // 如果任一类型是Any，返回另一类型
+    // --- Handle Any type comparison FIRST ---
     if (typeA->isAny())
     {
+#ifdef DEBUG_CODEGEN_getCommonType
+        std::cerr << "DEBUG [getCommonType]: A is Any, returning B=" << typeB->toString() << std::endl;
+#endif
         return typeB;
     }
     if (typeB->isAny())
     {
+#ifdef DEBUG_CODEGEN_getCommonType
+        std::cerr << "DEBUG [getCommonType]: B is Any, returning A=" << typeA->toString() << std::endl;
+#endif
         return typeA;
     }
 
-    // 数值类型提升
-    if (typeA->isNumeric() && typeB->isNumeric())
+    // --- Handle equal types ---
+    if (typeA->equals(*typeB))
     {
-        // 任一类型是double，结果为double
-        if (typeA->isDouble() || typeB->isDouble())
-        {
-            return PyType::getDouble();
-        }
-        // 否则都是整数，结果为int
-        return PyType::getInt();
+#ifdef DEBUG_CODEGEN_getCommonType
+        std::cerr << "DEBUG [getCommonType]: Types are equal, returning A=" << typeA->toString() << std::endl;
+#endif
+        return typeA;
     }
 
-    // 字符串类型处理
+    // --- Handle numeric promotion ---
+    if (typeA->isNumeric() && typeB->isNumeric())
+    {
+        if (typeA->isDouble() || typeB->isDouble())
+        {
+#ifdef DEBUG_CODEGEN_getCommonType
+            std::cerr << "DEBUG [getCommonType]: Numeric promotion to double" << std::endl;
+#endif
+            return PyType::getDouble();
+        }
+        else
+        {
+#ifdef DEBUG_CODEGEN_getCommonType
+            std::cerr << "DEBUG [getCommonType]: Numeric promotion to int" << std::endl;
+#endif
+            return PyType::getInt();
+        }
+    }
+
+    // --- Handle string concatenation ---
     if (typeA->isString() && typeB->isString())
     {
+#ifdef DEBUG_CODEGEN_getCommonType
+        std::cerr << "DEBUG [getCommonType]: String + String -> String" << std::endl;
+#endif
         return PyType::getString();
     }
 
-    // 容器类型处理
+    // --- Handle list + list ---
     if (typeA->isList() && typeB->isList())
     {
-        // 对于列表，获取元素类型的共同超类型
         std::shared_ptr<PyType> elemTypeA = PyType::getListElementType(typeA);
         std::shared_ptr<PyType> elemTypeB = PyType::getListElementType(typeB);
-        std::shared_ptr<PyType> commonElemType = getCommonType(elemTypeA, elemTypeB);
-
+#ifdef DEBUG_CODEGEN_getCommonType
+        std::cerr << "DEBUG [getCommonType]: List + List. Finding common element type for "
+                  << elemTypeA->toString() << " and " << elemTypeB->toString() << std::endl;
+#endif
+        std::shared_ptr<PyType> commonElemType = getCommonType(elemTypeA, elemTypeB);  // Recursive call
+#ifdef DEBUG_CODEGEN_getCommonType
+        std::cerr << "DEBUG [getCommonType]: Common element type is " << commonElemType->toString()
+                  << ". Returning list[" << commonElemType->toString() << "]" << std::endl;
+#endif
         return PyType::getList(commonElemType);
     }
 
-    // 如果没有明确的共同类型，返回Any
+    // --- ADDED: Handle dict + dict ---
+    if (typeA->isDict() && typeB->isDict())
+    {
+        std::shared_ptr<PyType> keyTypeA = PyType::getDictKeyType(typeA);
+        std::shared_ptr<PyType> valueTypeA = PyType::getDictValueType(typeA);
+        std::shared_ptr<PyType> keyTypeB = PyType::getDictKeyType(typeB);
+        std::shared_ptr<PyType> valueTypeB = PyType::getDictValueType(typeB);
+#ifdef DEBUG_CODEGEN_getCommonType
+        std::cerr << "DEBUG [getCommonType]: Dict + Dict. Finding common types for keys ("
+                  << keyTypeA->toString() << ", " << keyTypeB->toString() << ") and values ("
+                  << valueTypeA->toString() << ", " << valueTypeB->toString() << ")" << std::endl;
+#endif
+        std::shared_ptr<PyType> commonKeyType = getCommonType(keyTypeA, keyTypeB);        // Recursive call
+        std::shared_ptr<PyType> commonValueType = getCommonType(valueTypeA, valueTypeB);  // Recursive call
+#ifdef DEBUG_CODEGEN_getCommonType
+        std::cerr << "DEBUG [getCommonType]: Common key type is " << commonKeyType->toString()
+                  << ", common value type is " << commonValueType->toString()
+                  << ". Returning dict[" << commonKeyType->toString() << ", " << commonValueType->toString() << "]" << std::endl;
+#endif
+        return PyType::getDict(commonKeyType, commonValueType);
+    }
+// --- END ADDED ---
+
+// --- Fallback for incompatible types (e.g., list + int, dict + string, list + dict) ---
+#ifdef DEBUG_CODEGEN_getCommonType
+    std::cerr << "DEBUG [getCommonType]: Incompatible types (" << typeA->toString()
+              << ", " << typeB->toString() << "), returning Any" << std::endl;
+#endif
     return PyType::getAny();
 }
 

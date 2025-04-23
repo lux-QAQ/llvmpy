@@ -475,8 +475,17 @@ PyObject* py_object_subtract(PyObject* a, PyObject* b)
     return NULL;
 }
 // 乘法操作符
+
+
+// 乘法操作符
 PyObject* py_object_multiply(PyObject* a, PyObject* b)
 {
+#ifdef DEBUG_RUNTIME_OPERATORS
+    fprintf(stderr, "DEBUG: py_object_multiply called with a=%p, b=%p\n", (void*)a, (void*)b);
+    if (a) fprintf(stderr, "DEBUG:   a typeId: %d (%s)\n", a->typeId, py_type_name(a->typeId));
+    if (b) fprintf(stderr, "DEBUG:   b typeId: %d (%s)\n", b->typeId, py_type_name(b->typeId));
+#endif
+
     if (!a || !b)
     {
         fprintf(stderr, "TypeError: Cannot perform multiplication with None\n");
@@ -492,6 +501,9 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
 
     if (aIsNumeric && bIsNumeric)
     {
+#ifdef DEBUG_RUNTIME_OPERATORS
+        fprintf(stderr, "DEBUG: py_object_multiply: Performing numeric multiplication.\n");
+#endif
         mpz_ptr a_int = py_extract_int(a);
         mpf_ptr a_float = py_extract_double(a);
         bool a_bool_val;
@@ -507,6 +519,9 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
 
         if (result_is_float)
         {
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   Result type is float.\n");
+#endif
             mpf_t result_f;
             mpf_init2(result_f, 256);
             mpf_t temp_a, temp_b;
@@ -531,10 +546,8 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
             }
             else
             { /* Error */
-                mpf_clear(result_f);
-                mpf_clear(temp_a);
-                mpf_clear(temp_b);
-                return NULL;
+                fprintf(stderr, "Internal Error: Unexpected type A in numeric multiply\n");
+                mpf_clear(result_f); mpf_clear(temp_a); mpf_clear(temp_b); return NULL;
             }
 
             if (b_float)
@@ -553,14 +566,15 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
             }
             else
             { /* Error */
-                mpf_clear(result_f);
-                mpf_clear(temp_a);
-                mpf_clear(temp_b);
-                return NULL;
+                 fprintf(stderr, "Internal Error: Unexpected type B in numeric multiply\n");
+                 mpf_clear(result_f); mpf_clear(temp_a); mpf_clear(temp_b); return NULL;
             }
 
             mpf_mul(result_f, op_a, op_b);
             PyObject* resultObj = py_create_double_from_mpf(result_f);
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   Float multiplication result: %p\n", (void*)resultObj);
+#endif
             mpf_clear(result_f);
             if (use_temp_a) mpf_clear(temp_a);
             if (use_temp_b) mpf_clear(temp_b);
@@ -568,6 +582,9 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
         }
         else
         {  // int/bool * int/bool
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   Result type is int.\n");
+#endif
             mpz_t result_z;
             mpz_init(result_z);
             mpz_t temp_a_z, temp_b_z;
@@ -586,10 +603,8 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
             }
             else
             { /* Error */
-                mpz_clear(result_z);
-                mpz_clear(temp_a_z);
-                mpz_clear(temp_b_z);
-                return NULL;
+                 fprintf(stderr, "Internal Error: Unexpected type A in int multiply\n");
+                 mpz_clear(result_z); mpz_clear(temp_a_z); mpz_clear(temp_b_z); return NULL;
             }
 
             if (b_int)
@@ -602,14 +617,15 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
             }
             else
             { /* Error */
-                mpz_clear(result_z);
-                mpz_clear(temp_a_z);
-                mpz_clear(temp_b_z);
-                return NULL;
+                 fprintf(stderr, "Internal Error: Unexpected type B in int multiply\n");
+                 mpz_clear(result_z); mpz_clear(temp_a_z); mpz_clear(temp_b_z); return NULL;
             }
 
             mpz_mul(result_z, op_a_z, op_b_z);
             PyObject* resultObj = py_create_int_from_mpz(result_z);
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   Int multiplication result: %p\n", (void*)resultObj);
+#endif
             mpz_clear(result_z);
             if (use_temp_a_z) mpz_clear(temp_a_z);
             if (use_temp_b_z) mpz_clear(temp_b_z);
@@ -622,13 +638,13 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
     PyObject* countObj = NULL;
     int seqTypeId = 0;
 
-    if ((aTypeId == PY_TYPE_STRING || aTypeId == PY_TYPE_LIST) && bTypeId == PY_TYPE_INT)
+    if ((aTypeId == PY_TYPE_STRING || aTypeId == PY_TYPE_LIST) && (bTypeId == PY_TYPE_INT || bTypeId == PY_TYPE_BOOL)) // Allow bool as count
     {
         seq = a;
         countObj = b;
         seqTypeId = aTypeId;
     }
-    else if (aTypeId == PY_TYPE_INT && (bTypeId == PY_TYPE_STRING || bTypeId == PY_TYPE_LIST))
+    else if ((aTypeId == PY_TYPE_INT || aTypeId == PY_TYPE_BOOL) && (bTypeId == PY_TYPE_STRING || bTypeId == PY_TYPE_LIST)) // Allow bool as count
     {
         seq = b;
         countObj = a;
@@ -637,33 +653,49 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
 
     if (seq && countObj)
     {
+#ifdef DEBUG_RUNTIME_OPERATORS
+        fprintf(stderr, "DEBUG: py_object_multiply: Performing sequence repetition (type %s * %s).\n",
+                py_type_name(seqTypeId), py_type_name(py_get_safe_type_id(countObj)));
+        fprintf(stderr, "DEBUG:   Sequence object: %p, Count object: %p\n", (void*)seq, (void*)countObj);
+#endif
         mpz_ptr count_z = py_extract_int(countObj);
-        if (!count_z)
-        {
-            fprintf(stderr, "TypeError: can't multiply sequence by non-int of type '%s'\n", py_type_name(bTypeId));
+        long count_val;
+
+        if (count_z) { // If countObj is int
+             if (!mpz_fits_slong_p(count_z) || (count_val = mpz_get_si(count_z)) < 0)
+             {
+                 if (mpz_sgn(count_z) < 0)
+                 {
+                     count_val = 0;
+#ifdef DEBUG_RUNTIME_OPERATORS
+                     fprintf(stderr, "DEBUG:   Negative int count treated as 0.\n");
+#endif
+                 }
+                 else
+                 {
+                     fprintf(stderr, "OverflowError: cannot fit 'int' count into C long for sequence repetition\n");
+                     return NULL;
+                 }
+             }
+        } else if (py_get_safe_type_id(countObj) == PY_TYPE_BOOL) { // If countObj is bool
+            count_val = py_extract_bool(countObj) ? 1 : 0;
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   Bool count extracted as %ld.\n", count_val);
+#endif
+        } else { // Not int or bool
+            fprintf(stderr, "TypeError: can't multiply sequence by non-int, non-bool of type '%s'\n", py_type_name(py_get_safe_type_id(countObj)));
             return NULL;
         }
 
-        // Check if count fits in a C integer type suitable for loops/malloc
-        long count_val;
-        if (!mpz_fits_slong_p(count_z) || (count_val = mpz_get_si(count_z)) < 0)
-        {
-            // Python allows huge counts resulting in MemoryError later,
-            // but negative counts result in empty sequence.
-            // We limit to 'long' for practical reasons here.
-            if (mpz_sgn(count_z) < 0)
-            {
-                count_val = 0;  // Treat negative count as 0
-            }
-            else
-            {
-                fprintf(stderr, "OverflowError: cannot fit 'int' count into C long for sequence repetition\n");
-                return NULL;  // Or MemoryError? Python raises OverflowError here.
-            }
-        }
+#ifdef DEBUG_RUNTIME_OPERATORS
+        fprintf(stderr, "DEBUG:   Extracted count_val: %ld\n", count_val);
+#endif
 
         if (count_val == 0)
         {
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   Count is 0, returning empty sequence.\n");
+#endif
             if (seqTypeId == PY_TYPE_STRING) return py_create_string("");
             if (seqTypeId == PY_TYPE_LIST) return py_create_list(0, ((PyListObject*)seq)->elemTypeId);
         }
@@ -673,7 +705,9 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
             const char* str = py_extract_string(seq);
             if (!str) str = "";
             size_t len = strlen(str);
-
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   Original string: '%s', length: %zu\n", str, len);
+#endif
             // Check for potential overflow before malloc
             if (len > 0 && count_val > SIZE_MAX / len)
             {
@@ -681,6 +715,9 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
                 return NULL;
             }
             size_t total_len = len * count_val;
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   Calculated total_len: %zu\n", total_len);
+#endif
             char* result = (char*)malloc(total_len + 1);
             if (!result)
             {
@@ -697,13 +734,19 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
             *ptr = '\0';
 
             PyObject* resultObj = py_create_string(result);
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   Created repeated string: '%s', object: %p\n", result, (void*)resultObj);
+#endif
             free(result);
             return resultObj;
         }
         else if (seqTypeId == PY_TYPE_LIST)
         {
             PyListObject* list = (PyListObject*)seq;
-
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   Original list: %p, length: %d, capacity: %d, elemTypeId: %d\n",
+                    (void*)list, list->length, list->capacity, list->elemTypeId);
+#endif
             // Check for potential overflow before creating list
             if (list->length > 0 && count_val > INT_MAX / list->length)
             {
@@ -711,14 +754,22 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
                 return NULL;
             }
             int newLength = list->length * count_val;
-
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   Calculated newLength: %d\n", newLength);
+#endif
+            // Create list with capacity hint = newLength
             PyObject* resultListObj = py_create_list(newLength, list->elemTypeId);
             if (!resultListObj) return NULL;
             PyListObject* resultList = (PyListObject*)resultListObj;
-
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   py_create_list returned: %p, initial length: %d, capacity: %d\n",
+                    (void*)resultList, resultList->length, resultList->capacity);
+#endif
+            // Check if capacity is sufficient (py_create_list should guarantee this)
             if (resultList->capacity < newLength)
             {
-                fprintf(stderr, "Internal Error: Insufficient capacity after py_create_list in list repetition.\n");
+                fprintf(stderr, "Internal Error: Insufficient capacity (%d < %d) after py_create_list in list repetition.\n",
+                        resultList->capacity, newLength);
                 py_decref(resultListObj);
                 return NULL;
             }
@@ -729,11 +780,25 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
                 for (int i = 0; i < list->length; ++i)
                 {
                     PyObject* item = list->data[i];
-                    if (item) py_incref(item);
-                    *dest_ptr++ = item;
+#ifdef DEBUG_RUNTIME_OPERATORS
+                    // Be cautious with printing item details if it could be complex
+                    // fprintf(stderr, "DEBUG:     Copying item %p from original index %d to new index %ld\n",
+                    //         (void*)item, i, (long)(dest_ptr - resultList->data));
+#endif
+                    if (item) py_incref(item); // Incref item from original list
+                    *dest_ptr++ = item;        // Copy pointer to new list
                 }
             }
+#ifdef DEBUG_RUNTIME_OPERATORS
+            long items_copied = dest_ptr - resultList->data;
+            fprintf(stderr, "DEBUG:   Finished copying elements. items_copied = %ld (expected %d)\n", items_copied, newLength);
+#endif
+            // Set the final length of the new list
             resultList->length = newLength;
+#ifdef DEBUG_RUNTIME_OPERATORS
+            fprintf(stderr, "DEBUG:   Set resultList->length = %d\n", resultList->length);
+            fprintf(stderr, "DEBUG:   Returning new list object: %p\n", (void*)resultListObj);
+#endif
             return resultListObj;
         }
     }
@@ -743,6 +808,8 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
             py_type_name(aTypeId), py_type_name(bTypeId));
     return NULL;
 }
+
+// ... (rest of the file: py_object_divide, py_object_modulo, etc.) ...
 
 // 除法操作符
 PyObject* py_object_divide(PyObject* a, PyObject* b)

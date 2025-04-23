@@ -1191,6 +1191,16 @@ llvm::Value* CodeGenExpr::createListWithValues(const std::vector<llvm::Value*>& 
     llvm::Value* initialCapacity = llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), values.size());
     // --- FIX 1: Use getObjectType() ---
     int elemTypeIdInt = OperationCodeGenerator::getTypeId(elemType->getObjectType());  // 获取元素类型ID
+
+    #ifdef DEBUG_CODEGEN_createListWithValues
+    // --- DEBUGGING START ---
+    std::cerr << "DEBUG [createListWithValues]: Inferred elemType: " << elemType->toString()
+              << ", ObjectType: " << (elemType->getObjectType() ? elemType->getObjectType()->getName() : "null")
+              << ", Got elemTypeIdInt: " << elemTypeIdInt << std::endl;
+    // --- DEBUGGING END ---
+    #endif
+
+
     llvm::Value* elemTypeIdValue = llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), elemTypeIdInt);
     // --- 修改 CodeGenRuntime::createList 的调用签名以匹配 ---
     // --- Call assumes createList now takes llvm::Value* for type ID ---

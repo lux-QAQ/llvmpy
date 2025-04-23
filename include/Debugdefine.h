@@ -24,7 +24,10 @@
 #define DEBUG_PARSER_Stmt
 //#define DEBUG_PARSER_NextToken_detailed
 #define DEBUG_PARSER_NextToken
-//#define DEBUG_WhileSTmt
+
+
+
+#define DEBUG_WhileSTmt
 
 #define DEBUG_CODEGEN_handleCallExpr
 
@@ -35,14 +38,24 @@
 
 
 
-
+#define DEBUG_CODEGEN_TYPE
 #define DEBUG_CODEGEN_generateModule
 #define DEBUG_CODEGEN_handleFunctionDef
 #define DEBUG_CODEGEN_handleFunctionDefStmt
+#define DEBUG_CODEGEN_createListWithValues
+#define DEBUG_CODEGEN_getCommonType
+#define DEBUG_CODEGEN_inferListElementType
 
 
 // RUNTIME
 //#define DEBUG_RUNTIME_py_object_set_index
+//#define DEBUG_RUNTIME_OPERATORS
+//#define DEBUG_RUNTIME_CONTAINER
+#define DEBUG_RUNTIME_print
+#define DEBUG_RUNTIME_print_double
+
+
+
 // 定义DEBUG_PRINT宏来启用调试打印
 
 #define DEBUG_PRINT(x) std::cerr << "DEBUG: " << x << std::endl

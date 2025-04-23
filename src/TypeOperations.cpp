@@ -665,12 +665,12 @@ llvm::Value* OperationCodeGenerator::handleAnyTypeOperation(
         // ... (rest of the comparison logic remains the same) ...
         // 获取比较函数
         llvm::Function* compareFunc = gen.getOrCreateExternalFunction(
-                "py_object_compare",
-                llvm::PointerType::get(context, 0),
-                {llvm::PointerType::get(context, 0),
-                 llvm::PointerType::get(context, 0),
-                 llvm::Type::getInt32Ty(context)},
-                false);
+            "py_object_compare",
+            llvm::PointerType::get(context, 0), // 返回 PyObject*
+            {llvm::PointerType::get(context, 0), // PyObject* a
+             llvm::PointerType::get(context, 0), // PyObject* b
+             llvm::Type::getInt32Ty(context)},   // PyCompareOp op (i32)
+            false);
 
         // 确保两个操作数都是指针类型（Python对象）
         if (!left->getType()->isPointerTy())
@@ -810,39 +810,77 @@ llvm::Value* OperationCodeGenerator::handleBinaryOp(
         }
     }
 
-    // 直接使用运行时函数，不尝试提取整数
-    llvm::Function* func = gen.getOrCreateExternalFunction(
-            descriptor->runtimeFunction,
-            llvm::PointerType::get(context, 0),
-            {llvm::PointerType::get(context, 0),
-             llvm::PointerType::get(context, 0)},
-            false);
+    // --- 修改开始 ---
+    bool isComparison = (op == TOK_LT || op == TOK_GT || op == TOK_EQ || op == TOK_NEQ || op == TOK_LE || op == TOK_GE);
 
-    // 确保操作数是指针类型
+    llvm::Value* result = nullptr;
+    int resultTypeId = descriptor->resultTypeId; // Default result type
+
+    // 确保操作数是指针类型 (提前处理，因为两种情况都需要)
+    PyCodeGen* pyCodeGen = gen.asPyCodeGen(); // Get PyCodeGen once
     if (!left->getType()->isPointerTy())
     {
-        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
-        if (pyCodeGen)
-        {
-            left = createObject(*pyCodeGen, left, leftTypeId);
-        }
+        if (pyCodeGen) { left = createObject(*pyCodeGen, left, leftTypeId); }
+        else { /* Handle error or non-PyCodeGen case */ return nullptr; }
     }
-
     if (!right->getType()->isPointerTy())
     {
-        PyCodeGen* pyCodeGen = gen.asPyCodeGen();
-        if (pyCodeGen)
-        {
-            right = createObject(*pyCodeGen, right, rightTypeId);
-        }
+        if (pyCodeGen) { right = createObject(*pyCodeGen, right, rightTypeId); }
+        else { /* Handle error or non-PyCodeGen case */ return nullptr; }
     }
 
-    // 调用运行时函数
-    llvm::Value* result = builder.CreateCall(func, {left, right}, "binop_result");
+
+    if (isComparison)
+    {
+        // 确定比较运算符类型
+        int compareOpCode;
+        switch (op)
+        {
+            case TOK_LT:  compareOpCode = 2; break; // PY_CMP_LT
+            case TOK_GT:  compareOpCode = 4; break; // PY_CMP_GT
+            case TOK_EQ:  compareOpCode = 0; break; // PY_CMP_EQ
+            case TOK_NEQ: compareOpCode = 1; break; // PY_CMP_NE
+            case TOK_LE:  compareOpCode = 3; break; // PY_CMP_LE
+            case TOK_GE:  compareOpCode = 5; break; // PY_CMP_GE
+            default:      compareOpCode = 0; // Should not happen
+        }
+
+        // 获取 py_object_compare 函数 (使用正确的三参数签名)
+        llvm::Function* compareFunc = gen.getOrCreateExternalFunction(
+            "py_object_compare",
+            llvm::PointerType::get(context, 0), // 返回 PyObject*
+            {llvm::PointerType::get(context, 0), // PyObject* a
+             llvm::PointerType::get(context, 0), // PyObject* b
+             llvm::Type::getInt32Ty(context)},   // PyCompareOp op (i32)
+            false);
+
+        // 创建常量比较运算符
+        llvm::Value* opValue = llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), compareOpCode);
+
+        // 调用比较函数 (传递三个参数)
+        result = builder.CreateCall(compareFunc, {left, right, opValue}, "cmp_result");
+        resultTypeId = PY_TYPE_BOOL; // Comparison result is always bool
+    }
+    else
+    {
+        // 处理其他二元操作 (保持原有逻辑，但使用已包装好的 left/right)
+        llvm::Function* func = gen.getOrCreateExternalFunction(
+                descriptor->runtimeFunction,
+                llvm::PointerType::get(context, 0), // 返回 ptr
+                {llvm::PointerType::get(context, 0), // 参数1 ptr
+                 llvm::PointerType::get(context, 0)}, // 参数2 ptr
+                false);
+
+        // 调用运行时函数 (传递两个参数)
+        result = builder.CreateCall(func, {left, right}, "binop_result");
+        // resultTypeId is already set from descriptor
+    }
 
     // 附加类型元数据
-    int resultTypeId = descriptor->resultTypeId;
-    gen.getRuntimeGen()->attachTypeMetadata(result, resultTypeId);
+    if (result) { // Check if result is not null before attaching metadata
+        gen.getRuntimeGen()->attachTypeMetadata(result, resultTypeId);
+    }
+    // --- 修改结束 ---
 
     return result;
 }
