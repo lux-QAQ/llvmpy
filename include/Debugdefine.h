@@ -51,8 +51,8 @@
 //#define DEBUG_RUNTIME_py_object_set_index
 //#define DEBUG_RUNTIME_OPERATORS
 //#define DEBUG_RUNTIME_CONTAINER
-#define DEBUG_RUNTIME_print
-#define DEBUG_RUNTIME_print_double
+//#define DEBUG_RUNTIME_print
+//#define DEBUG_RUNTIME_print_double
 
 
 
