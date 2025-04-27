@@ -1700,11 +1700,24 @@ std::unique_ptr<FunctionAST> PyParser::parseFunction()
 // 在parseBlock函数中添加作用域管理
 std::vector<std::unique_ptr<StmtAST>> PyParser::parseBlock()
 {
+
+
+    
 #ifdef DEBUG_PARSER_Block
     std::cerr << "Debug [parseBlock]: Entering parseBlock. Expecting INDENT. Current token: "
               << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "') at L"
               << currentToken.line << " C" << currentToken.column << std::endl;
 #endif
+
+    // --- 新增：在期望 INDENT 之前跳过任何前导的 NEWLINE ---
+    while (currentToken.type == TOK_NEWLINE)
+    {
+#ifdef DEBUG_PARSER_Block
+        std::cerr << "Debug [parseBlock]: Skipping leading NEWLINE before INDENT." << std::endl;
+#endif
+        nextToken();
+    }// 这个地方做的其实并不好，按道理这一块应该由lexer负责格式化好，可能诱发bug
+
     if (!expectToken(TOK_INDENT, "Expected indented block"))
     {
         // 如果没有 INDENT，返回空列表，让调用者处理错误（例如 if/else/while 后面必须有块）

@@ -107,6 +107,7 @@ def func_return(a):
      data = {"counter": 0, "limit": 5, "values": {}} 
      i = 0 
      while data["counter"] < data["limit"]: 
+
          key_str = "key" 
 
 
