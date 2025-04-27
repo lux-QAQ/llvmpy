@@ -72,7 +72,7 @@ public:
     void handleStmt(StmtAST* stmt);
     
     // 处理语句块
-    void handleBlock(const std::vector<std::unique_ptr<StmtAST>>& stmts);
+    void handleBlock(const std::vector<std::unique_ptr<StmtAST>>& stmts, bool createNewScope /* = true */);
     
     // 作用域管理
     void beginScope();

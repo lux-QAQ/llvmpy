@@ -126,6 +126,7 @@ struct PairHash {
  */
 class TypeOperationRegistry {
 private:
+    
     // 二元操作映射: 操作符 -> (左类型ID, 右类型ID) -> 操作描述符
     std::unordered_map<
     PyTokenType, 
@@ -177,6 +178,8 @@ private:
 public:
     // 单例访问
     static TypeOperationRegistry& getInstance();
+    TypeOperationRegistry(const TypeOperationRegistry&) = delete;
+    TypeOperationRegistry& operator=(const TypeOperationRegistry&) = delete;
     
     /**
      * 注册二元操作

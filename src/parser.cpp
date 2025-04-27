@@ -17,11 +17,10 @@ PyParserRegistry<PyTokenType, StmtAST> PyParser::stmtRegistry;
 std::unordered_map<PyTokenType, PyOperatorInfo> PyParser::operatorRegistry;
 bool PyParser::isInitialized = false;
 
-
 const int POWER_PRECEDENCE = 60;
-const int UNARY_PLUS_MINUS_PRECEDENCE = 55; // 低于 **
+const int UNARY_PLUS_MINUS_PRECEDENCE = 55;  // 低于 **
 const int NOT_PRECEDENCE = 8;
-const int POSTFIX_PRECEDENCE = 70; // Precedence for call (), index [], attribute .
+const int POSTFIX_PRECEDENCE = 70;  // Precedence for call (), index [], attribute .
 //===----------------------------------------------------------------------===//
 // PyParseError 类实现
 //===----------------------------------------------------------------------===//
@@ -44,23 +43,34 @@ void PyParser::initializeRegistries()
     // 1. 表达式原子/前缀解析器注册 (用于 parsePrimary)
     //    注册字面量、标识符、括号、列表/字典构造等原子表达式的解析器。
     //    一元运算符 (+, -, not) 由 parsePrimary 直接处理，不在此注册。
-    registerExprParser(TOK_INTEGER, [](PyParser& p) { return p.parseNumberExpr(); });
-    registerExprParser(TOK_FLOAT, [](PyParser& p) { return p.parseNumberExpr(); });
+    registerExprParser(TOK_INTEGER, [](PyParser& p)
+                       { return p.parseNumberExpr(); });
+    registerExprParser(TOK_FLOAT, [](PyParser& p)
+                       { return p.parseNumberExpr(); });
     // Note: TOK_NUMBER might be redundant if TOK_INTEGER/TOK_FLOAT cover all cases
-    registerExprParser(TOK_NUMBER, [](PyParser& p) { return p.parseNumberExpr(); });
-    registerExprParser(TOK_IDENTIFIER, [](PyParser& p) { return p.parseIdentifierExpr(); }); // Handles variables, function calls, indexing start
-    registerExprParser(TOK_LPAREN, [](PyParser& p) { return p.parseParenExpr(); });     // Parenthesized expressions
-    registerExprParser(TOK_STRING, [](PyParser& p) { return p.parseStringExpr(); });
-    registerExprParser(TOK_BOOL, [](PyParser& p) { return p.parseBoolExpr(); });     // True, False
-    registerExprParser(TOK_NONE, [](PyParser& p) { return p.parseNoneExpr(); });     // None
-    registerExprParser(TOK_LBRACK, [](PyParser& p) { return p.parseListExpr(); });     // List literals [...]
-    registerExprParser(TOK_LBRACE, [](PyParser& p) { return p.parseDictExpr(); });     // Dictionary literals {...}
+    registerExprParser(TOK_NUMBER, [](PyParser& p)
+                       { return p.parseNumberExpr(); });
+    registerExprParser(TOK_IDENTIFIER, [](PyParser& p)
+                       { return p.parseIdentifierExpr(); });  // Handles variables, function calls, indexing start
+    registerExprParser(TOK_LPAREN, [](PyParser& p)
+                       { return p.parseParenExpr(); });  // Parenthesized expressions
+    registerExprParser(TOK_STRING, [](PyParser& p)
+                       { return p.parseStringExpr(); });
+    registerExprParser(TOK_BOOL, [](PyParser& p)
+                       { return p.parseBoolExpr(); });  // True, False
+    registerExprParser(TOK_NONE, [](PyParser& p)
+                       { return p.parseNoneExpr(); });  // None
+    registerExprParser(TOK_LBRACK, [](PyParser& p)
+                       { return p.parseListExpr(); });  // List literals [...]
+    registerExprParser(TOK_LBRACE, [](PyParser& p)
+                       { return p.parseDictExpr(); });  // Dictionary literals {...}
 
     // 2. 语句解析器注册 (用于 parseStatement)
     //    注册语句关键字和可以启动语句的 Token。
 
     //    关键字启动的语句
-    registerStmtParser(TOK_DEF, [](PyParser& p) -> std::unique_ptr<StmtAST> {
+    registerStmtParser(TOK_DEF, [](PyParser& p) -> std::unique_ptr<StmtAST>
+                       {
         // 解析函数定义
         auto funcAST = p.parseFunction();
         if (!funcAST) {
@@ -74,19 +84,27 @@ void PyParser::initializeRegistries()
 
         // CodeGen 稍后会处理 FunctionDefStmtAST，
         // 将函数对象注册到当前作用域。
-        return funcDefStmt;
-    });
-    registerStmtParser(TOK_CLASS, [](PyParser& p) { return p.parseClassDefinition(); });
-    registerStmtParser(TOK_RETURN, [](PyParser& p) { return p.parseReturnStmt(); });
-    registerStmtParser(TOK_IF, [](PyParser& p) { return p.parseIfStmt(); }); // Handles if/elif/else chain
-    registerStmtParser(TOK_WHILE, [](PyParser& p) { return p.parseWhileStmt(); });
-    registerStmtParser(TOK_FOR, [](PyParser& p) { return p.parseForStmt(); }); // Assuming parseForStmt exists or logs unimplemented
-    registerStmtParser(TOK_PRINT, [](PyParser& p) { return p.parsePrintStmt(); }); // Assuming a simple print function/statement
-    registerStmtParser(TOK_IMPORT, [](PyParser& p) { return p.parseImportStmt(); });
-    registerStmtParser(TOK_PASS, [](PyParser& p) { return p.parsePassStmt(); });
+        return funcDefStmt; });
+    registerStmtParser(TOK_CLASS, [](PyParser& p)
+                       { return p.parseClassDefinition(); });
+    registerStmtParser(TOK_RETURN, [](PyParser& p)
+                       { return p.parseReturnStmt(); });
+    registerStmtParser(TOK_IF, [](PyParser& p)
+                       { return p.parseIfStmt(); });  // Handles if/elif/else chain
+    registerStmtParser(TOK_WHILE, [](PyParser& p)
+                       { return p.parseWhileStmt(); });
+    registerStmtParser(TOK_FOR, [](PyParser& p)
+                       { return p.parseForStmt(); });  // Assuming parseForStmt exists or logs unimplemented
+    registerStmtParser(TOK_PRINT, [](PyParser& p)
+                       { return p.parsePrintStmt(); });  // Assuming a simple print function/statement
+    registerStmtParser(TOK_IMPORT, [](PyParser& p)
+                       { return p.parseImportStmt(); });
+    registerStmtParser(TOK_PASS, [](PyParser& p)
+                       { return p.parsePassStmt(); });
 
     //    标识符启动的语句 (复杂情况：赋值、复合赋值、索引赋值、表达式语句)
-    registerStmtParser(TOK_IDENTIFIER, [](PyParser& p) -> std::unique_ptr<StmtAST> {
+    registerStmtParser(TOK_IDENTIFIER, [](PyParser& p) -> std::unique_ptr<StmtAST>
+                       {
         // 1. Parse the potential Left-Hand Side (LHS) expression first.
         //    This leverages parseExpressionPrecedence to handle complex targets
         //    like simple variables, indexing (nested or not), attribute access etc.
@@ -249,38 +267,50 @@ void PyParser::initializeRegistries()
             // We successfully parsed an expression (lhsExpr), but the token
             // that follows it doesn't form a valid statement continuation.
             return p.logParseError<StmtAST>("Unexpected token '" + p.getCurrentToken().value + "' (" + p.getLexer().getTokenName(currentType) + ") after expression");
-        }
-    });
+        } });
 
     //    Tokens that can start an expression statement (delegate to parseExpressionStmt)
-    registerStmtParser(TOK_INTEGER, [](PyParser& p) { return p.parseExpressionStmt(); });
-    registerStmtParser(TOK_FLOAT, [](PyParser& p) { return p.parseExpressionStmt(); });
-    registerStmtParser(TOK_NUMBER, [](PyParser& p) { return p.parseExpressionStmt(); });
-    registerStmtParser(TOK_STRING, [](PyParser& p) { return p.parseExpressionStmt(); });
-    registerStmtParser(TOK_LPAREN, [](PyParser& p) { return p.parseExpressionStmt(); }); // e.g., (1 + 2)
-    registerStmtParser(TOK_LBRACK, [](PyParser& p) { return p.parseExpressionStmt(); }); // e.g., [1, 2]
-    registerStmtParser(TOK_LBRACE, [](PyParser& p) { return p.parseExpressionStmt(); }); // e.g., {'a': 1}
-    registerStmtParser(TOK_PLUS, [](PyParser& p) { return p.parseExpressionStmt(); });   // e.g., +1
-    registerStmtParser(TOK_MINUS, [](PyParser& p) { return p.parseExpressionStmt(); });  // e.g., -x
-    registerStmtParser(TOK_NOT, [](PyParser& p) { return p.parseExpressionStmt(); });    // e.g., not flag
-    registerStmtParser(TOK_BOOL, [](PyParser& p) { return p.parseExpressionStmt(); });   // e.g., True
-    registerStmtParser(TOK_NONE, [](PyParser& p) { return p.parseExpressionStmt(); });   // e.g., None
+    registerStmtParser(TOK_INTEGER, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });
+    registerStmtParser(TOK_FLOAT, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });
+    registerStmtParser(TOK_NUMBER, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });
+    registerStmtParser(TOK_STRING, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });
+    registerStmtParser(TOK_LPAREN, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });  // e.g., (1 + 2)
+    registerStmtParser(TOK_LBRACK, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });  // e.g., [1, 2]
+    registerStmtParser(TOK_LBRACE, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });  // e.g., {'a': 1}
+    registerStmtParser(TOK_PLUS, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });  // e.g., +1
+    registerStmtParser(TOK_MINUS, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });  // e.g., -x
+    registerStmtParser(TOK_NOT, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });  // e.g., not flag
+    registerStmtParser(TOK_BOOL, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });  // e.g., True
+    registerStmtParser(TOK_NONE, [](PyParser& p)
+                       { return p.parseExpressionStmt(); });  // e.g., None
 
     //    INDENT/DEDENT handling (primarily for block structure, not true statements)
     //    These might be better handled within parseBlock, but registering them
     //    can prevent crashes if they appear unexpectedly at the statement level.
-    registerStmtParser(TOK_INDENT, [](PyParser& p) -> std::unique_ptr<StmtAST> {
-        p.logParseError<StmtAST>("Unexpected indent"); // Indent should follow ':' and newline
-        p.nextToken(); // Consume to potentially recover
-        return nullptr; // Or maybe a PassStmt? Error seems more appropriate.
-    });
-    registerStmtParser(TOK_DEDENT, [](PyParser& p) -> std::unique_ptr<StmtAST> {
+    registerStmtParser(TOK_INDENT, [](PyParser& p) -> std::unique_ptr<StmtAST>
+                       {
+                           p.logParseError<StmtAST>("Unexpected indent");  // Indent should follow ':' and newline
+                           p.nextToken();                                  // Consume to potentially recover
+                           return nullptr;                                 // Or maybe a PassStmt? Error seems more appropriate.
+                       });
+    registerStmtParser(TOK_DEDENT, [](PyParser& p) -> std::unique_ptr<StmtAST>
+                       {
         // Dedent signifies the end of a block, it shouldn't start a statement.
         // If encountered here, it likely means an empty block or incorrect indentation.
         p.logParseError<StmtAST>("Unexpected dedent");
         // Don't consume, let the block parsing logic handle it if possible.
-        return nullptr;
-    });
+        return nullptr; });
 
     // 3. 二元操作符注册 (用于 parseExpressionPrecedence)
     //    注册二元运算符的类型、优先级和结合性。
@@ -297,27 +327,27 @@ void PyParser::initializeRegistries()
     registerOperator(TOK_GT, 10);
     registerOperator(TOK_LE, 10);
     registerOperator(TOK_GE, 10);
-    registerOperator(TOK_EQ, 10);    // ==
-    registerOperator(TOK_NEQ, 10);   // !=
+    registerOperator(TOK_EQ, 10);   // ==
+    registerOperator(TOK_NEQ, 10);  // !=
     registerOperator(TOK_IS, 10);
-    registerOperator(TOK_IS_NOT, 10); // Requires lexer to produce TOK_IS_NOT or parser to handle 'is' followed by 'not'
+    registerOperator(TOK_IS_NOT, 10);  // Requires lexer to produce TOK_IS_NOT or parser to handle 'is' followed by 'not'
     registerOperator(TOK_IN, 10);
-    registerOperator(TOK_NOT_IN, 10); // Requires lexer to produce TOK_NOT_IN or parser to handle 'not' followed by 'in'
+    registerOperator(TOK_NOT_IN, 10);  // Requires lexer to produce TOK_NOT_IN or parser to handle 'not' followed by 'in'
 
     // Binary Additive
     registerOperator(TOK_PLUS, 20);
-    registerOperator(TOK_MINUS, 20); // Binary minus
+    registerOperator(TOK_MINUS, 20);  // Binary minus
 
     // Multiplicative
     registerOperator(TOK_MUL, 40);
-    registerOperator(TOK_DIV, 40);       // True division /
-    registerOperator(TOK_FLOOR_DIV, 40); // Floor division //
-    registerOperator(TOK_MOD, 40);       // Modulo %
+    registerOperator(TOK_DIV, 40);        // True division /
+    registerOperator(TOK_FLOOR_DIV, 40);  // Floor division //
+    registerOperator(TOK_MOD, 40);        // Modulo %
 
     // Unary Plus/Minus (handled in parsePrimary, precedence 55)
 
     // Power (Right associative)
-    registerOperator(TOK_POWER, POWER_PRECEDENCE, true); // Use constant, e.g., 60
+    registerOperator(TOK_POWER, POWER_PRECEDENCE, true);  // Use constant, e.g., 60
 
     // Bitwise operators (if supported, add here with correct precedence)
     // registerOperator(TOK_BITWISE_OR, precedence);  // |
@@ -336,19 +366,25 @@ void PyParser::initializeRegistries()
 
 // Helper function to check for statement termination (newline, EOF, or dedent)
 // Returns true if terminated correctly (and consumes newline if present), false otherwise.
-bool PyParser::expectStatementEnd(const std::string& statementType) {
-    if (currentToken.type == TOK_NEWLINE) {
-        nextToken(); // Consume newline
+bool PyParser::expectStatementEnd(const std::string& statementType)
+{
+    if (currentToken.type == TOK_NEWLINE)
+    {
+        nextToken();  // Consume newline
         return true;
-    } else if (currentToken.type == TOK_EOF || currentToken.type == TOK_DEDENT) {
+    }
+    else if (currentToken.type == TOK_EOF || currentToken.type == TOK_DEDENT)
+    {
         // End of file or block is also a valid statement end, don't consume.
         return true;
-    } else {
+    }
+    else
+    {
         // Log error, but don't throw here, let the caller decide how to handle.
         // Using logParseError would throw, maybe a different logging function is needed?
         // For now, let's assume logParseError is acceptable or adapt it.
         logParseError<StmtAST>("Expected newline or end of block/file after " + statementType + " statement, got " + lexer.getTokenName(currentToken.type));
-        return false; // Indicate failure
+        return false;  // Indicate failure
     }
 }
 
@@ -462,26 +498,27 @@ void PyParser::dumpCurrentToken() const
 std::unique_ptr<ExprAST> PyParser::parseNumberExpr()
 {
     std::string numStr = currentToken.value;
-    PyToken consumedToken = currentToken; // Save token info for logging and location
+    PyToken consumedToken = currentToken;  // Save token info for logging and location
     int line = consumedToken.line;
     int column = consumedToken.column;
 
     // --- Input Validation ---
-    if (numStr.empty()) {
+    if (numStr.empty())
+    {
         // This should ideally not happen if the lexer is correct
         return logParseError<ExprAST>("Internal error: Encountered empty number token.");
     }
     // Check if starts with 'e' or 'E' (invalid number format)
     // Note: A leading '.' is valid (e.g., .5)
-    if (numStr[0] == 'e' || numStr[0] == 'E') {
-         return logParseError<ExprAST>("Number literal cannot start with exponent 'e' or 'E'.");
+    if (numStr[0] == 'e' || numStr[0] == 'E')
+    {
+        return logParseError<ExprAST>("Number literal cannot start with exponent 'e' or 'E'.");
     }
 
     // --- Type Determination ---
     // Check for the presence of a decimal point '.' or exponent 'e'/'E'.
     // find_first_of is suitable for checking 'e' or 'E'.
-    bool isFloat = (numStr.find('.') != std::string::npos) ||
-                   (numStr.find_first_of("eE") != std::string::npos);
+    bool isFloat = (numStr.find('.') != std::string::npos) || (numStr.find_first_of("eE") != std::string::npos);
 
     std::shared_ptr<PyType> determinedType = isFloat ? PyType::getDouble() : PyType::getInt();
 
@@ -490,15 +527,15 @@ std::unique_ptr<ExprAST> PyParser::parseNumberExpr()
     // The string can be used later by GMP. We don't modify/clean it here
     // (like removing leading zeros) as GMP might handle various formats.
     auto result = makeExpr<NumberExprAST>(numStr, determinedType);
-    result->setLocation(line, column); // Set location from the original token
+    result->setLocation(line, column);  // Set location from the original token
 
-    nextToken(); // Consume the number token
+    nextToken();  // Consume the number token
 
     // --- Debug Logging ---
 #ifdef DEBUG_PARSER_Expr
     std::cerr << "Debug [parseNumberExpr]: Consumed '" << consumedToken.value
               << "' (type: " << lexer.getTokenName(consumedToken.type)
-              << ", determined as: " << (isFloat ? "double" : "int") // Show determined type
+              << ", determined as: " << (isFloat ? "double" : "int")  // Show determined type
               << ") at L" << consumedToken.line << " C" << consumedToken.column
               << ". Next token is now: '" << currentToken.value
               << "' (type: " << lexer.getTokenName(currentToken.type)
@@ -526,187 +563,79 @@ std::unique_ptr<ExprAST> PyParser::parseParenExpr()
     return expr;
 }
 
-/* std::unique_ptr<ExprAST> PyParser::parseIdentifierExpr()
+std::unique_ptr<ExprAST> PyParser::parseIndexSuffix(std::unique_ptr<ExprAST> target)
 {
-    std::string idName = currentToken.value;
     int line = currentToken.line;
     int column = currentToken.column;
-    PyToken idToken = currentToken;  // 保存标识符 token 信息
-
-    nextToken();  // 消费标识符
-
-    // 函数调用
-    if (currentToken.type == TOK_LPAREN)
-    {
-#ifdef DEBUG_PARSER_Expr
-        std::cerr << "Debug [parseIdentifierExpr]: Detected function call for '" << idName << "' at L" << line << " C" << column << ". Current token: LPAREN" << std::endl;
-#endif
-        nextToken();  // 消费 '('
-        std::vector<std::unique_ptr<ExprAST>> args;
-
-        // 处理参数列表
-        if (currentToken.type != TOK_RPAREN)  // 检查是否是空参数列表 '()'
-        {
-            while (true)
-            {
-#ifdef DEBUG_PARSER_Expr
-                std::cerr << "Debug [parseIdentifierExpr]: Before parsing argument. Current token: " << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "') at L" << currentToken.line << " C" << currentToken.column << std::endl;
-#endif
-                auto arg = parseExpression();  // 解析一个参数表达式
-                if (!arg)
-                {
-#ifdef DEBUG_PARSER_Expr
-                    std::cerr << "Debug [parseIdentifierExpr]: Argument parsing failed. Current token: " << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "')" << std::endl;
-#endif
-                    return nullptr;  // 参数解析失败
-                }
-#ifdef DEBUG_PARSER_Expr
-                // 在参数解析后添加更详细的日志
-                std::cerr << "Debug [parseIdentifierExpr]: After parsing argument. Current token: " << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "') at L" << currentToken.line << " C" << currentToken.column << std::endl;
-#endif
-                args.push_back(std::move(arg));
-
-                // 查看下一个 token
-                if (currentToken.type == TOK_RPAREN)
-                {  // 如果是右括号，参数列表结束
-#ifdef DEBUG_PARSER_Expr
-                    std::cerr << "Debug [parseIdentifierExpr]: Found RPAREN, ending argument list." << std::endl;
-#endif
-                    break;
-                }
-
-                if (currentToken.type == TOK_COMMA)
-                {  // 如果是逗号
-#ifdef DEBUG_PARSER_Expr
-                    std::cerr << "Debug [parseIdentifierExpr]: Found COMMA, consuming and expecting next argument or RPAREN." << std::endl;
-#endif
-                    nextToken();  // 消费逗号
-                    // 处理可能的尾随逗号，例如 func(a, b, )
-                    if (currentToken.type == TOK_RPAREN)
-                    {
-                        std::cerr << "Warning: Trailing comma detected in argument list at line "
-                                  << currentToken.line << ", col " << currentToken.column << std::endl;
-#ifdef DEBUG_PARSER_Expr
-                        std::cerr << "Debug [parseIdentifierExpr]: Found RPAREN after trailing comma, ending argument list." << std::endl;
-#endif
-                        break;  // 参数列表结束
-                    }
-                    // 逗号后面应该继续解析下一个参数，循环会继续
-                }
-                else
-                {
-                    // 既不是逗号也不是右括号，说明语法错误
-                    return logParseError<ExprAST>("Expected ',' or ')' in argument list, got " + lexer.getTokenName(currentToken.type));
-                }
-            }
-        }
-        else
-        {
-#ifdef DEBUG_PARSER_Expr
-            std::cerr << "Debug [parseIdentifierExpr]: Empty argument list detected (RPAREN found immediately)." << std::endl;
-#endif
-        }
-
-        // 消费右括号
-        if (!expectToken(TOK_RPAREN, "Expected ')' after arguments"))
-        {
-#ifdef DEBUG_PARSER_Expr
-            std::cerr << "Debug [parseIdentifierExpr]: Failed to find expected RPAREN after arguments." << std::endl;
-#endif
-            return nullptr;
-        }
-#ifdef DEBUG_PARSER_Expr
-        std::cerr << "Debug [parseIdentifierExpr]: Successfully parsed function call '" << idName << "'." << std::endl;
-#endif
-
-        auto callExpr = makeExpr<CallExprAST>(idName, std::move(args));
-        callExpr->setLocation(line, column);  // 设置位置信息
-        return callExpr;
-    }
-
-    // 索引操作
-    if (currentToken.type == TOK_LBRACK)
-    {
-        auto varExpr = makeExpr<VariableExprAST>(idName);
-        varExpr->setLocation(line, column);  // 设置位置信息
-        return parseIndexExpr(std::move(varExpr));
-    }
-
-    // 简单变量引用
-#ifdef DEBUG_PARSER_Expr
-    std::cerr << "Debug [parseIdentifierExpr]: Parsed simple variable '" << idName << "'." << std::endl;
-#endif
-    auto varExpr = makeExpr<VariableExprAST>(idName);
-    varExpr->setLocation(line, column);  // 设置位置信息
-    return varExpr;
-} */
-
-
-
-
-std::unique_ptr<ExprAST> PyParser::parseIndexSuffix(std::unique_ptr<ExprAST> target) {
-    int line = currentToken.line;
-    int column = currentToken.column;
-    nextToken(); // Consume '['
+    nextToken();  // Consume '['
 
     auto index = parseExpression();
-    if (!index) {
+    if (!index)
+    {
         // Error already logged by parseExpression
         return nullptr;
     }
 
-    if (!expectToken(TOK_RBRACK, "Expected ']' after index expression")) {
+    if (!expectToken(TOK_RBRACK, "Expected ']' after index expression"))
+    {
         return nullptr;
     }
 
     auto indexExpr = makeExpr<IndexExprAST>(std::move(target), std::move(index));
-    indexExpr->setLocation(line, column); // Location of the '[' token
+    indexExpr->setLocation(line, column);  // Location of the '[' token
     return indexExpr;
 }
 
 // Helper to parse call suffix: consumes '(', args, ')'
-std::unique_ptr<ExprAST> PyParser::parseCallSuffix(std::unique_ptr<ExprAST> callee) {
+std::unique_ptr<ExprAST> PyParser::parseCallSuffix(std::unique_ptr<ExprAST> callee)
+{
     int line = currentToken.line;
     int column = currentToken.column;
-    nextToken(); // Consume '('
+    nextToken();  // Consume '('
 
     std::vector<std::unique_ptr<ExprAST>> args;
-    if (currentToken.type != TOK_RPAREN) {
-        while (true) {
+    if (currentToken.type != TOK_RPAREN)
+    {
+        while (true)
+        {
             auto arg = parseExpression();
             if (!arg) return nullptr;
             args.push_back(std::move(arg));
 
             if (currentToken.type == TOK_RPAREN) break;
             if (!expectToken(TOK_COMMA, "Expected ',' or ')' in argument list")) return nullptr;
-            if (currentToken.type == TOK_RPAREN) { // Handle trailing comma
-                 std::cerr << "Warning: Trailing comma detected in argument list at line "
-                           << currentToken.line << ", col " << currentToken.column << std::endl;
-                 break;
+            if (currentToken.type == TOK_RPAREN)
+            {  // Handle trailing comma
+                std::cerr << "Warning: Trailing comma detected in argument list at line "
+                          << currentToken.line << ", col " << currentToken.column << std::endl;
+                break;
             }
         }
     }
 
-    if (!expectToken(TOK_RPAREN, "Expected ')' after arguments")) {
+    if (!expectToken(TOK_RPAREN, "Expected ')' after arguments"))
+    {
         return nullptr;
     }
 
     // Need to get the callee name if it was a simple variable
     std::string calleeName;
-    if (auto* var = dynamic_cast<VariableExprAST*>(callee.get())) {
-         calleeName = var->getName();
-    } else {
-         // Handle calls on complex expressions like (lambda x: x+1)(5) or obj.method() later
-         // For now, assume simple function name for CallExprAST constructor
-         // A better CallExprAST might store the callee expression directly.
-         // Let's assume CallExprAST can take an ExprAST* callee for now, or adjust CallExprAST.
-         // If CallExprAST requires a string name, this needs more work.
-         // For simplicity, let's log an error if it's not a simple name for now.
-         logParseError<ExprAST>("Calling complex expressions not fully supported yet.");
-         // Fallback: create a CallExprAST with an empty name or handle differently
-         calleeName = "<complex_callee>"; // Placeholder
+    if (auto* var = dynamic_cast<VariableExprAST*>(callee.get()))
+    {
+        calleeName = var->getName();
     }
-
+    else
+    {
+        // Handle calls on complex expressions like (lambda x: x+1)(5) or obj.method() later
+        // For now, assume simple function name for CallExprAST constructor
+        // A better CallExprAST might store the callee expression directly.
+        // Let's assume CallExprAST can take an ExprAST* callee for now, or adjust CallExprAST.
+        // If CallExprAST requires a string name, this needs more work.
+        // For simplicity, let's log an error if it's not a simple name for now.
+        logParseError<ExprAST>("Calling complex expressions not fully supported yet.");
+        // Fallback: create a CallExprAST with an empty name or handle differently
+        calleeName = "<complex_callee>";  // Placeholder
+    }
 
     // Assuming CallExprAST constructor takes name and args
     // This matches the provided CallExprAST definition
@@ -714,10 +643,9 @@ std::unique_ptr<ExprAST> PyParser::parseCallSuffix(std::unique_ptr<ExprAST> call
     // The TODO below is relevant if CallExprAST were changed to store the expression directly
     // // TODO: If CallExprAST should store the callee expression:
     // // auto callExpr = makeExpr<CallExprAST>(std::move(callee), std::move(args));
-    callExpr->setLocation(line, column); // Location of the '(' token
+    callExpr->setLocation(line, column);  // Location of the '(' token
     return callExpr;
 }
-
 
 std::unique_ptr<ExprAST> PyParser::parseIdentifierExpr()
 {
@@ -770,8 +698,6 @@ std::unique_ptr<ExprAST> PyParser::parseNoneExpr()
     return result;
 }
 
-
-
 std::unique_ptr<ExprAST> PyParser::parsePrimary()
 {
     PyTokenType currentType = currentToken.type;
@@ -779,31 +705,37 @@ std::unique_ptr<ExprAST> PyParser::parsePrimary()
     int column = currentToken.column;
 
     // 处理前缀一元运算符
-    if (currentType == TOK_PLUS || currentType == TOK_MINUS) {
-        nextToken(); // 消费 '+' 或 '-'
+    if (currentType == TOK_PLUS || currentType == TOK_MINUS)
+    {
+        nextToken();  // 消费 '+' 或 '-'
         // 递归调用 parseExpressionPrecedence，使用一元运算符的优先级
         auto operand = parseExpressionPrecedence(UNARY_PLUS_MINUS_PRECEDENCE);
-        if (!operand) {
+        if (!operand)
+        {
             return logParseError<ExprAST>("Expected expression after unary '+' or '-'");
         }
         auto unaryExpr = makeExpr<UnaryExprAST>(currentType, std::move(operand));
-        unaryExpr->setLocation(line, column); // 位置是操作符的位置
+        unaryExpr->setLocation(line, column);  // 位置是操作符的位置
         return unaryExpr;
-    } else if (currentType == TOK_NOT) {
-        nextToken(); // 消费 'not'
+    }
+    else if (currentType == TOK_NOT)
+    {
+        nextToken();  // 消费 'not'
         // 递归调用 parseExpressionPrecedence，使用 'not' 的优先级
         auto operand = parseExpressionPrecedence(NOT_PRECEDENCE);
-        if (!operand) {
+        if (!operand)
+        {
             return logParseError<ExprAST>("Expected expression after 'not'");
         }
         auto unaryExpr = makeExpr<UnaryExprAST>(currentType, std::move(operand));
-        unaryExpr->setLocation(line, column); // 位置是操作符的位置
+        unaryExpr->setLocation(line, column);  // 位置是操作符的位置
         return unaryExpr;
     }
 
     // 处理原子表达式 (通过注册表)
     auto parser = exprRegistry.getParser(currentType);
-    if (parser) {
+    if (parser)
+    {
         // 调用注册的原子解析函数 (如 parseNumberExpr, parseIdentifierExpr 等)
         return parser(*this);
     }
@@ -812,45 +744,50 @@ std::unique_ptr<ExprAST> PyParser::parsePrimary()
     return logParseError<ExprAST>("Unexpected token when expecting an expression or prefix operator: '" + currentToken.value + "' (" + lexer.getTokenName(currentType) + ")");
 }
 
-
-
 // 新的 parseExpressionPrecedence 函数，实现 Pratt 解析器的核心逻辑
 // filepath: /home/ljs/code/llvmpy/src/parser.cpp
 std::unique_ptr<ExprAST> PyParser::parseExpressionPrecedence(int minPrecedence)
 {
     // 1. 解析左侧表达式 (原子或前缀表达式)
     auto lhs = parsePrimary();
-    if (!lhs) {
-        return nullptr; // 如果 primary 解析失败，则表达式无效
+    if (!lhs)
+    {
+        return nullptr;  // 如果 primary 解析失败，则表达式无效
     }
 
     // 2. 循环处理优先级 >= minPrecedence 的后缀和二元运算符
-    while (true) {
+    while (true)
+    {
         // --- ADDED: Check for postfix operators first ---
-        if (currentToken.type == TOK_LBRACK && POSTFIX_PRECEDENCE >= minPrecedence) {
+        if (currentToken.type == TOK_LBRACK && POSTFIX_PRECEDENCE >= minPrecedence)
+        {
             // Handle index operator []
             lhs = parseIndexSuffix(std::move(lhs));
-            if (!lhs) return nullptr; // Propagate error
-            continue; // Continue checking for more operators on the new lhs
-        } else if (currentToken.type == TOK_LPAREN && POSTFIX_PRECEDENCE >= minPrecedence) {
+            if (!lhs) return nullptr;  // Propagate error
+            continue;                  // Continue checking for more operators on the new lhs
+        }
+        else if (currentToken.type == TOK_LPAREN && POSTFIX_PRECEDENCE >= minPrecedence)
+        {
             // Handle call operator ()
             lhs = parseCallSuffix(std::move(lhs));
-            if (!lhs) return nullptr; // Propagate error
-            continue; // Continue checking for more operators on the new lhs
+            if (!lhs) return nullptr;  // Propagate error
+            continue;                  // Continue checking for more operators on the new lhs
         }
         // --- END ADDED ---
 
         // Check for binary operators (existing logic)
         auto it = operatorRegistry.find(currentToken.type);
-        if (it == operatorRegistry.end()) {
-            break; // Not a known binary operator
+        if (it == operatorRegistry.end())
+        {
+            break;  // Not a known binary operator
         }
 
         const PyOperatorInfo& opInfo = it->second;
         int currentPrec = opInfo.precedence;
 
         // 如果当前运算符优先级低于要求的最低优先级，则停止
-        if (currentPrec < minPrecedence) {
+        if (currentPrec < minPrecedence)
+        {
             break;
         }
 
@@ -859,12 +796,13 @@ std::unique_ptr<ExprAST> PyParser::parseExpressionPrecedence(int minPrecedence)
         bool isRightAssoc = opInfo.rightAssoc;
         int opLine = currentToken.line;
         int opCol = currentToken.column;
-        nextToken(); // 消费二元运算符
+        nextToken();  // 消费二元运算符
 
         // 3. 解析右侧表达式
         int nextMinPrecedence = currentPrec + (isRightAssoc ? 0 : 1);
         auto rhs = parseExpressionPrecedence(nextMinPrecedence);
-        if (!rhs) {
+        if (!rhs)
+        {
             // Error logged by recursive call
             return nullptr;
             // return logParseError<ExprAST>("Expected expression after binary operator '" + lexer.getTokenName(opType) + "'");
@@ -872,14 +810,13 @@ std::unique_ptr<ExprAST> PyParser::parseExpressionPrecedence(int minPrecedence)
 
         // 4. 合并 LHS 和 RHS
         auto newLhs = makeExpr<BinaryExprAST>(opType, std::move(lhs), std::move(rhs));
-        newLhs->setLocation(opLine, opCol); // 位置是操作符的位置
-        lhs = std::move(newLhs); // 将新构建的二元表达式作为下一次循环的 LHS
+        newLhs->setLocation(opLine, opCol);  // 位置是操作符的位置
+        lhs = std::move(newLhs);             // 将新构建的二元表达式作为下一次循环的 LHS
         // No continue here, the loop condition handles the next iteration
     }
 
-    return lhs; // 返回最终构建的表达式树
+    return lhs;  // 返回最终构建的表达式树
 }
-
 
 std::unique_ptr<ExprAST> PyParser::parseBinOpRHS(int exprPrec, std::unique_ptr<ExprAST> LHS)
 {
@@ -951,21 +888,26 @@ std::unique_ptr<ExprAST> PyParser::parseExpression()
     auto result = parseExpressionPrecedence(0);
 
 #ifdef DEBUG_PARSER_Expr
-    if (result) {
-         std::cerr << "Debug [parseExpression]: Finished expression parsing. Next token: "
-                   << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "') at L"
-                   << currentToken.line << " C" << currentToken.column << std::endl;
-    } else {
-         std::cerr << "Debug [parseExpression]: Expression parsing failed." << std::endl;
+    if (result)
+    {
+        std::cerr << "Debug [parseExpression]: Finished expression parsing. Next token: "
+                  << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "') at L"
+                  << currentToken.line << " C" << currentToken.column << std::endl;
+    }
+    else
+    {
+        std::cerr << "Debug [parseExpression]: Expression parsing failed." << std::endl;
     }
 #endif
     // 类型检查 (如果需要)
-     if (result) {
-         auto type = result->getType();
-         if (!type) {
-             std::cerr << "Warning: Expression has no type information" << std::endl;
-         }
-     }
+    if (result)
+    {
+        auto type = result->getType();
+        if (!type)
+        {
+            std::cerr << "Warning: Expression has no type information" << std::endl;
+        }
+    }
 
     return result;
 }
@@ -1851,7 +1793,7 @@ std::unique_ptr<ModuleAST> PyParser::parseModule()
         if (currentToken.type == TOK_DEF)
         {
             // 调用注册的语句解析器来获取 FunctionDefStmtAST
-            auto stmt = parseStatement(); // This should call the TOK_DEF handler
+            auto stmt = parseStatement();  // This should call the TOK_DEF handler
             if (stmt)
                 topLevelStmts.push_back(std::move(stmt));
             // else: error already logged by parseStatement/parseFunction
@@ -1877,7 +1819,7 @@ std::unique_ptr<ModuleAST> PyParser::parseModule()
     // 创建模块AST (移除 functions 参数)
     auto module = std::make_unique<ModuleAST>(moduleName,
                                               std::move(topLevelStmts));
-                                              // std::move(functions)); // REMOVE
+    // std::move(functions)); // REMOVE
     return module;
 }
 std::shared_ptr<PyType> PyParser::tryParseTypeAnnotation()

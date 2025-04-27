@@ -121,6 +121,12 @@ void CodeGenStmt::initializeHandlers()
     handlersInitialized = true;
 }
 
+
+
+
+
+
+
 void CodeGenStmt::handleStmt(StmtAST* stmt)
 {
     if (!stmt)
@@ -143,10 +149,20 @@ void CodeGenStmt::handleStmt(StmtAST* stmt)
     }
 }
 
-void CodeGenStmt::handleBlock(const std::vector<std::unique_ptr<StmtAST>>& stmts)
+// 修改 handleBlock 签名和实现??
+void CodeGenStmt::handleBlock(const std::vector<std::unique_ptr<StmtAST>>& stmts, bool createNewScope /* = true */)
 {
-    // 创建新作用域
-    beginScope();
+    // 创建新作用域 (可选)
+    if (createNewScope) {
+#ifdef DEBUG_CODEGEN_STMT
+        DEBUG_LOG("Scope: Pushing new scope in handleBlock.");
+#endif
+        beginScope();
+    } else {
+#ifdef DEBUG_CODEGEN_STMT
+        DEBUG_LOG("Scope: Skipping new scope creation in handleBlock (createNewScope=false).");
+#endif
+    }
 
     // 处理块中的每个语句
     for (const auto& stmt : stmts)
@@ -154,14 +170,27 @@ void CodeGenStmt::handleBlock(const std::vector<std::unique_ptr<StmtAST>>& stmts
         handleStmt(stmt.get());
 
         // 检查基本块是否已经终止（例如由于return语句）
-        if (codeGen.getBuilder().GetInsertBlock()->getTerminator())
+        llvm::BasicBlock* currentBlock = codeGen.getBuilder().GetInsertBlock();
+        if (!currentBlock || currentBlock->getTerminator())
         {
-            break;
+#ifdef DEBUG_CODEGEN_STMT
+            DEBUG_LOG("  Block terminated early after statement. Stopping block processing.");
+#endif
+            break; // 不需要处理块中的后续语句
         }
     }
 
-    // 关闭作用域
-    endScope();
+    // 关闭作用域 (可选)
+    if (createNewScope) {
+#ifdef DEBUG_CODEGEN_STMT
+        DEBUG_LOG("Scope: Popping scope in handleBlock.");
+#endif
+        endScope();
+    } else {
+#ifdef DEBUG_CODEGEN_STMT
+        DEBUG_LOG("Scope: Skipping scope pop in handleBlock (createNewScope=false).");
+#endif
+    }
 }
 
 void CodeGenStmt::beginScope()
@@ -451,14 +480,19 @@ void CodeGenStmt::handleReturnStmt(ReturnStmtAST* stmt)
     }
 }
 
+
+
+
+
+
+
 // 递归辅助函数，处理 if/elif/else 逻辑，并将所有路径导向 finalMergeBB
 // 递归辅助函数，处理 if/elif/else 逻辑，并将所有路径导向 finalMergeBB
 // 递归辅助函数，处理 if/elif/else 逻辑，并将所有路径导向 finalMergeBB
 void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* finalMergeBB)
 {
 #ifdef DEBUG_IfStmt
-    // Keep static for recursive calls, reset externally if needed (though not necessary here)
-    static int indentLevel = 0;
+    static int indentLevel = 0; // 注意：静态变量在递归中共享，可能导致日志缩进混乱，仅用于简单调试
     std::string indent(indentLevel * 2, ' ');
     DEBUG_LOG(indent + "-> Entering handleIfStmtRecursive");
     DEBUG_LOG(indent + "   Target finalMergeBB: " + llvmObjToString(finalMergeBB));
@@ -466,9 +500,9 @@ void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* final
 #endif
 
     auto& builder = codeGen.getBuilder();
-    llvm::Function* func = codeGen.getCurrentFunction();  // 获取当前函数
+    llvm::Function* func = codeGen.getCurrentFunction();
 
-    // 1. 处理当前 if/elif 的条件
+    // 1. 处理条件
 #ifdef DEBUG_IfStmt
     DEBUG_LOG(indent + "   [1] Handling condition...");
 #endif
@@ -477,27 +511,26 @@ void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* final
     {
 #ifdef DEBUG_IfStmt
         DEBUG_LOG(indent + "   [1] Condition generation FAILED. Returning.");
-        indentLevel--;  // Decrement on early exit
+        indentLevel--;
         DEBUG_LOG(indent + "<- Leaving handleIfStmtRecursive (condition failed)");
 #endif
-        return;  // 条件生成失败
+        return;
     }
 #ifdef DEBUG_IfStmt
     DEBUG_LOG(indent + "   [1] Condition Value: " + llvmObjToString(condValue));
 #endif
 
-    // 2. 创建当前层级的 then 块和 else 入口块
+    // 2. 创建 then 和 else 入口块
     llvm::BasicBlock* thenBB = codeGen.createBasicBlock("then", func);
-    // This block is the entry point for whatever comes after the condition is false.
-    // It might lead to an elif check, a final else block, or directly to the merge block.
     llvm::BasicBlock* elseEntryBB = codeGen.createBasicBlock("else", func);
 #ifdef DEBUG_IfStmt
     DEBUG_LOG(indent + "   [2] Created blocks: thenBB=" + llvmObjToString(thenBB) + ", elseEntryBB=" + llvmObjToString(elseEntryBB));
 #endif
 
     // 3. 创建条件跳转
+    llvm::BasicBlock* currentCondBlock = builder.GetInsertBlock(); // 保存条件判断结束时的块
 #ifdef DEBUG_IfStmt
-    DEBUG_LOG(indent + "   [3] Creating CondBr from " + llvmObjToString(builder.GetInsertBlock()) + " on " + llvmObjToString(condValue) + " ? " + llvmObjToString(thenBB) + " : " + llvmObjToString(elseEntryBB));
+    DEBUG_LOG(indent + "   [3] Creating CondBr from " + llvmObjToString(currentCondBlock) + " on " + llvmObjToString(condValue) + " ? " + llvmObjToString(thenBB) + " : " + llvmObjToString(elseEntryBB));
 #endif
     generateBranchingCode(condValue, thenBB, elseEntryBB);
 
@@ -508,123 +541,116 @@ void CodeGenStmt::handleIfStmtRecursive(IfStmtAST* stmt, llvm::BasicBlock* final
     builder.SetInsertPoint(thenBB);
 #ifdef DEBUG_IfStmt
     DEBUG_LOG(indent + "       Set insert point to: " + llvmObjToString(thenBB));
-    DEBUG_LOG(indent + "       Calling handleBlock for thenBody (vector)...");
+    DEBUG_LOG(indent + "       Calling handleBlock(..., createNewScope=false) for thenBody...");
 #endif
-    // 'thenBody' is still a vector in the new IfStmtAST
-    handleBlock(stmt->getThenBody());
+    handleBlock(stmt->getThenBody(), false); // <<<--- 修改：不创建新作用域
+    llvm::BasicBlock* thenEndBlock = builder.GetInsertBlock(); // 获取 then 块结束时的块
 #ifdef DEBUG_IfStmt
-    DEBUG_LOG(indent + "       Returned from handleBlock for thenBody. Current block: " + llvmObjToString(builder.GetInsertBlock()));
+    DEBUG_LOG(indent + "       Returned from handleBlock for thenBody. Current block: " + llvmObjToString(thenEndBlock));
 #endif
-    // 如果 then 分支没有终止，跳转到 *最终* 的合并块
-    if (!builder.GetInsertBlock()->getTerminator())
+    // 如果 then 分支没有终止，跳转到最终合并块
+    if (thenEndBlock && !thenEndBlock->getTerminator())
     {
 #ifdef DEBUG_IfStmt
-        DEBUG_LOG(indent + "       'then' block (" + llvmObjToString(builder.GetInsertBlock()) + ") did not terminate. Creating Br to finalMergeBB (" + llvmObjToString(finalMergeBB) + ")");
+        DEBUG_LOG(indent + "       'then' block (" + llvmObjToString(thenEndBlock) + ") did not terminate. Creating Br to finalMergeBB (" + llvmObjToString(finalMergeBB) + ")");
 #endif
         builder.CreateBr(finalMergeBB);
     }
 #ifdef DEBUG_IfStmt
-    else
-    {
-        DEBUG_LOG(indent + "       'then' block (" + llvmObjToString(builder.GetInsertBlock()) + ") already terminated.");
+    else if (thenEndBlock) {
+        DEBUG_LOG(indent + "       'then' block (" + llvmObjToString(thenEndBlock) + ") already terminated.");
+    } else {
+        DEBUG_LOG(indent + "       'then' branch ended with no valid insert block (likely due to return/unreachable).");
     }
 #endif
 
-    // 5. 处理 else 分支 (可能是下一个 elif 或最终的 else)
+    // 5. 处理 else 分支 (可能是 elif 或 final else)
 #ifdef DEBUG_IfStmt
     DEBUG_LOG(indent + "   [5] Handling 'else'/'elif' part (Entry Block: " + llvmObjToString(elseEntryBB) + ")");
 #endif
-    builder.SetInsertPoint(elseEntryBB);  // Start generating code for the else part here
+    builder.SetInsertPoint(elseEntryBB);
 #ifdef DEBUG_IfStmt
     DEBUG_LOG(indent + "       Set insert point to: " + llvmObjToString(elseEntryBB));
 #endif
 
-    // --- FIX: Use getElseStmt() ---
     StmtAST* elseStmt = stmt->getElseStmt();
 
-    if (elseStmt)  // 检查是否有 else 或 elif 部分
+    if (elseStmt)
     {
 #ifdef DEBUG_IfStmt
         DEBUG_LOG(indent + "       Else statement exists (not null). Kind: " + std::to_string(static_cast<int>(elseStmt->kind())));
 #endif
-        // 检查第一个语句是否是 IfStmtAST (代表 elif)
         if (auto* nextIf = dynamic_cast<IfStmtAST*>(elseStmt))
         {
+            // Elif case: recursive call
 #ifdef DEBUG_IfStmt
             DEBUG_LOG(indent + "       Else statement is IfStmtAST (elif). Making recursive call...");
 #endif
-            // 是 elif 结构：递归调用，传递 *相同* 的 finalMergeBB
-            // The recursive call starts from the current block (elseEntryBB)
             handleIfStmtRecursive(nextIf, finalMergeBB);
-            // 递归调用会处理后续的跳转，这里不需要额外操作
 #ifdef DEBUG_IfStmt
             DEBUG_LOG(indent + "       Returned from recursive call for elif.");
-            indentLevel--;  // Decrement before returning from this path
+            indentLevel--;
             DEBUG_LOG(indent + "<- Leaving handleIfStmtRecursive (elif handled)");
 #endif
-            return;  // 从当前递归层返回, crucial!
+            return; // Crucial: return after handling elif recursively
         }
         else
         {
-            // 不是 elif，意味着这是最终的 else 块
-            // It could be a BlockStmtAST or a single StmtAST
+            // Final else case
 #ifdef DEBUG_IfStmt
             DEBUG_LOG(indent + "       Else statement is NOT IfStmtAST. Treating as final 'else' block.");
 #endif
-            // Check if it's a BlockStmtAST
             if (auto* elseBlock = dynamic_cast<BlockStmtAST*>(elseStmt))
             {
 #ifdef DEBUG_IfStmt
-                DEBUG_LOG(indent + "           Else statement is BlockStmtAST. Calling handleBlock...");
+                DEBUG_LOG(indent + "           Else statement is BlockStmtAST. Calling handleBlock(..., createNewScope=false)...");
 #endif
-                handleBlock(elseBlock->getStatements());  // 处理 BlockStmt 的语句列表
+                handleBlock(elseBlock->getStatements(), false); // <<<--- 修改：不创建新作用域
 #ifdef DEBUG_IfStmt
                 DEBUG_LOG(indent + "           Returned from handleBlock for else block. Current block: " + llvmObjToString(builder.GetInsertBlock()));
 #endif
             }
             else
             {
-                // It's a single statement else block.
-                // We should still handle it within a scope for consistency,
-                // although handleStmt itself might not manage scopes.
-                // Calling handleStmt directly is simpler here.
+                // Single statement else
 #ifdef DEBUG_IfStmt
                 DEBUG_LOG(indent + "           Else statement is a single statement. Calling handleStmt...");
 #endif
-                handleStmt(elseStmt);  // 处理单个 else 语句
+                handleStmt(elseStmt); // 单个语句不需要作用域管理
 #ifdef DEBUG_IfStmt
                 DEBUG_LOG(indent + "           Returned from handleStmt for else statement. Current block: " + llvmObjToString(builder.GetInsertBlock()));
 #endif
             }
 
-            // 如果 else 分支没有终止，跳转到 *最终* 的合并块
-            if (!builder.GetInsertBlock()->getTerminator())
+            llvm::BasicBlock* elseEndBlock = builder.GetInsertBlock(); // 获取 else 块结束时的块
+            // 如果 else 分支没有终止，跳转到最终合并块
+            if (elseEndBlock && !elseEndBlock->getTerminator())
             {
 #ifdef DEBUG_IfStmt
-                DEBUG_LOG(indent + "       Final 'else' block (" + llvmObjToString(builder.GetInsertBlock()) + ") did not terminate. Creating Br to finalMergeBB (" + llvmObjToString(finalMergeBB) + ")");
+                DEBUG_LOG(indent + "       Final 'else' block (" + llvmObjToString(elseEndBlock) + ") did not terminate. Creating Br to finalMergeBB (" + llvmObjToString(finalMergeBB) + ")");
 #endif
                 builder.CreateBr(finalMergeBB);
             }
 #ifdef DEBUG_IfStmt
-            else
-            {
-                DEBUG_LOG(indent + "       Final 'else' block (" + llvmObjToString(builder.GetInsertBlock()) + ") already terminated.");
+            else if (elseEndBlock) {
+                DEBUG_LOG(indent + "       Final 'else' block (" + llvmObjToString(elseEndBlock) + ") already terminated.");
+            } else {
+                 DEBUG_LOG(indent + "       Final 'else' branch ended with no valid insert block.");
             }
 #endif
         }
-        // --- End of handling non-elif else ---
     }
     else
     {
-        // 没有 else/elif 部分 (elseStmt is null)
+        // No else/elif part
 #ifdef DEBUG_IfStmt
         DEBUG_LOG(indent + "       Else statement is null (no else/elif). Creating direct Br from elseEntryBB (" + llvmObjToString(elseEntryBB) + ") to finalMergeBB (" + llvmObjToString(finalMergeBB) + ")");
 #endif
-        builder.CreateBr(finalMergeBB);  // else 分支直接跳到最终合并块
+        builder.CreateBr(finalMergeBB); // 直接从 else 入口跳到合并块
     }
 
 #ifdef DEBUG_IfStmt
-    indentLevel--;  // Decrement on normal exit from this level
+    indentLevel--;
     DEBUG_LOG(indent + "<- Leaving handleIfStmtRecursive (normal exit)");
 #endif
 }
@@ -812,23 +838,15 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
     std::set<std::string> assignedInBody;
     for (const auto& bodyStmt : stmt->getBody())
     {
-        findAssignedVariablesInStmt(bodyStmt.get(), assignedInBody);  // <- 改为调用静态函数
+        findAssignedVariablesInStmt(bodyStmt.get(), assignedInBody);
     }
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("  [2] Variables assigned in body:");
-    if (assignedInBody.empty())
-    {
-        DEBUG_LOG("      None");
-    }
-    else
-    {
-        for (const auto& name : assignedInBody)
-        {
-            DEBUG_LOG("      - " + name);
-        }
-    }
+    if (assignedInBody.empty()) { DEBUG_LOG("      None"); }
+    else { for (const auto& name : assignedInBody) { DEBUG_LOG("      - " + name); } }
 #endif
 
+    // 保存循环前的值和类型，用于错误恢复和日志记录（如果需要）
     std::map<std::string, llvm::Value*> valueBeforeLoop;
     std::map<std::string, ObjectType*> typeBeforeLoop;
     std::map<std::string, llvm::PHINode*> phiNodes;
@@ -851,26 +869,28 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 #endif
     for (const std::string& varName : assignedInBody)
     {
-        llvm::Value* initialVal = symTable.getVariable(varName);
-        ObjectType* varType = symTable.getVariableType(varName);
+        llvm::Value* initialVal = symTable.getVariable(varName); // 从当前（父）作用域获取
+        ObjectType* varType = symTable.getVariableType(varName); // 从当前（父）作用域获取
         if (initialVal && varType)
         {
+            valueBeforeLoop[varName] = initialVal; // 保存循环前的值
+            typeBeforeLoop[varName] = varType;     // 保存循环前的类型
 #ifdef DEBUG_WhileSTmt
             DEBUG_LOG("      Processing variable: '" + varName + "'");
-            DEBUG_LOG("        Initial Value: " + llvmObjToString(initialVal));
+            DEBUG_LOG("        Initial Value (from preheader scope): " + llvmObjToString(initialVal));
             DEBUG_LOG("        Initial Type: " + (varType ? varType->getName() : "<null ObjectType>"));
             DEBUG_LOG("        LLVM Type: " + llvmObjToString(initialVal->getType()));
 #endif
-            llvm::PHINode* phi = builder.CreatePHI(initialVal->getType(), 2, varName + ".phi");  // 预期 2 个入口
+            llvm::PHINode* phi = builder.CreatePHI(initialVal->getType(), 2, varName + ".phi");
 #ifdef DEBUG_WhileSTmt
             DEBUG_LOG("        Created PHI node: " + llvmObjToString(phi));
 #endif
-            phi->addIncoming(initialVal, preheaderBB);
+            phi->addIncoming(initialVal, preheaderBB); // 边1: 来自 preheaderBB
 #ifdef DEBUG_WhileSTmt
             DEBUG_LOG("        Added incoming edge to PHI: [" + llvmObjToString(initialVal) + ", from " + llvmObjToString(preheaderBB) + "]");
 #endif
             phiNodes[varName] = phi;
-            symTable.setVariable(varName, phi, varType);
+            symTable.setVariable(varName, phi, varType); // 更新符号表，让循环体和循环后能看到PHI节点
 #ifdef DEBUG_WhileSTmt
             DEBUG_LOG("        Updated symbol table for '" + varName + "' to use PHI node.");
 #endif
@@ -878,8 +898,9 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
         else
         {
 #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Skipping PHI for variable '" + varName + "' (not defined before loop or type missing).");
+            DEBUG_LOG("      Skipping PHI for variable '" + varName + "' (not defined before loop or type missing in preheader scope).");
 #endif
+            // 可以在这里添加警告或错误，如果预期变量总是已定义
         }
     }
 
@@ -891,41 +912,48 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("      Generated condition value: " + llvmObjToString(condValue));
 #endif
-    if (!condValue)
+if (!condValue)
+{
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("      ERROR: Condition generation failed.");
+#endif
+    // 错误处理：恢复符号表到循环前的状态
+    for (auto const& [name, phi] : phiNodes)
     {
+         if (valueBeforeLoop.count(name)) {
+             // 如果循环前已定义，恢复之前的值和类型
+             symTable.setVariable(name, valueBeforeLoop[name], typeBeforeLoop[name]);
 #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("      ERROR: Condition generation failed.");
+             DEBUG_LOG("        Restored '" + name + "' to pre-loop value: " + llvmObjToString(valueBeforeLoop[name]));
 #endif
-        // 错误处理：恢复符号表并清理
-        for (auto const& [name, val] : valueBeforeLoop)
-        {
-            if (phiNodes.count(name))
-            {
-                symTable.setVariable(name, val, typeBeforeLoop[name]);
-            }
-        }
-        // 从 condBB 直接跳到 endBB
-        if (condBB->getTerminator())
-        {
-            llvm::ReplaceInstWithInst(condBB->getTerminator(), llvm::BranchInst::Create(endBB));
-        }
-        else
-        {
-            builder.SetInsertPoint(condBB);  // 确保 builder 在 condBB
-            builder.CreateBr(endBB);
-        }
-        builder.SetInsertPoint(endBB);
-        codeGen.logError("Failed to generate condition for while loop.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
+         } else {
+             // 如果循环前未定义，则将符号表中的条目设置为空，以撤销PHI节点的添加
+             symTable.setVariable(name, nullptr, nullptr); // <<<--- 修改这里
 #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("      Cleaned up and jumped to end block (" + llvmObjToString(endBB) + "). Aborting loop generation.");
+             DEBUG_LOG("        Cleared '" + name + "' from symbol table (was not defined before loop).");
 #endif
-        return;
+         }
     }
+    // 清理创建的块（如果它们没有其他用途）
+    // 注意：直接跳转可能导致IR无效，更好的方式是确保有路径到endBB
+    if (builder.GetInsertBlock() && !builder.GetInsertBlock()->getTerminator()) {
+         builder.CreateBr(endBB); // 确保当前块有终结符
+    }
+    // bodyBB 可能无法到达，可以考虑移除，但要小心
+    // condBB 应该保留，因为它现在跳到 endBB
+    builder.SetInsertPoint(endBB); // 继续在 endBB 生成代码
+    codeGen.logError("Failed to generate condition for while loop.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("      Cleaned up symbol table and jumped to end block (" + llvmObjToString(endBB) + "). Aborting loop generation.");
+#endif
+    return;
+}
 
     // --- 7. 创建条件分支 ---
+    llvm::BasicBlock* currentCondExitBlock = builder.GetInsertBlock(); // 保存条件判断结束时的块
     builder.CreateCondBr(condValue, bodyBB, endBB);
 #ifdef DEBUG_WhileSTmt
-    DEBUG_LOG("  [7] Created conditional branch based on " + llvmObjToString(condValue) + ":");
+    DEBUG_LOG("  [7] Created conditional branch from " + llvmObjToString(currentCondExitBlock) + " based on " + llvmObjToString(condValue) + ":");
     DEBUG_LOG("      True -> Body (" + llvmObjToString(bodyBB) + ")");
     DEBUG_LOG("      False -> End (" + llvmObjToString(endBB) + ")");
 #endif
@@ -934,25 +962,26 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
     builder.SetInsertPoint(bodyBB);
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("  [8] Set insert point to Body block (" + llvmObjToString(bodyBB) + ")");
+    // DEBUG_LOG("      Started new scope for loop body."); // 移除日志
+    DEBUG_LOG("      Processing loop body statements (within parent scope)..."); // 修改日志
 #endif
-    beginScope();
-#ifdef DEBUG_WhileSTmt
-    DEBUG_LOG("      Started new scope for loop body.");
-    DEBUG_LOG("      Processing loop body statements...");
-#endif
+    // beginScope(); // <<<--- 移除
+
+    // 处理循环体语句
     for (auto& bodyStmt : stmt->getBody())
     {
 #ifdef DEBUG_WhileSTmt
-        // 可选：更详细地记录每个语句的处理
         // DEBUG_LOG("        Handling statement of kind: " + std::to_string(static_cast<int>(bodyStmt->kind())));
 #endif
         handleStmt(bodyStmt.get());
-        if (builder.GetInsertBlock()->getTerminator())
+        llvm::BasicBlock* currentBodyBlock = codeGen.getBuilder().GetInsertBlock();
+        // 检查语句是否导致块终止 (return, break, continue - break/continue 需特殊处理)
+        if (!currentBodyBlock || currentBodyBlock->getTerminator())
         {
 #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Loop body terminated early (return/break/continue detected in block " + llvmObjToString(builder.GetInsertBlock()) + ").");
+            DEBUG_LOG("      Loop body terminated early (return/break/continue detected in block " + llvmObjToString(currentBodyBlock) + ").");
 #endif
-            break;
+            break; // 停止处理此循环体的后续语句
         }
     }
 #ifdef DEBUG_WhileSTmt
@@ -960,51 +989,46 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 #endif
 
     // --- 9. Latch Logic ---
-    llvm::BasicBlock* latchBB = builder.GetInsertBlock();
+    llvm::BasicBlock* latchBB = builder.GetInsertBlock(); // 获取循环体正常结束时的块
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("  [9] Latch Logic:");
     DEBUG_LOG("      Determined Latch block (current insert block after body): " + llvmObjToString(latchBB));
 #endif
     std::map<std::string, llvm::Value*> valueFromLatch;
 
-    bool loopTerminatedEarly = latchBB->getTerminator() != nullptr;
+    // 检查 latchBB 是否有效且未终止 (即循环体是否正常走完)
+    bool loopTerminatedNaturally = latchBB && !latchBB->getTerminator();
 #ifdef DEBUG_WhileSTmt
-    DEBUG_LOG("      Checking if Latch block (" + llvmObjToString(latchBB) + ") has terminator: " + (loopTerminatedEarly ? "Yes" : "No"));
+    DEBUG_LOG("      Checking if Latch block (" + llvmObjToString(latchBB) + ") is valid and has no terminator: " + (loopTerminatedNaturally ? "Yes" : "No"));
 #endif
 
-    if (!loopTerminatedEarly)
+    if (loopTerminatedNaturally)
     {
 #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("      Latch block has no terminator. Processing back edge:");
+        DEBUG_LOG("      Latch block is valid and has no terminator. Processing back edge:");
 #endif
-        // 获取循环体结束时变量的最终值 (来自循环体作用域)
+        // 获取循环体结束时变量的最终值 (来自当前作用域，因为没有子作用域了)
         for (const auto& [name, phi] : phiNodes)
         {
-            // --- 从符号表获取循环体结束时的值 ---
-            llvm::Value* finalVal = symTable.getVariable(name);  // 获取当前作用域的值
+            llvm::Value* finalVal = symTable.getVariable(name); // 直接从符号表获取
 #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("        Getting final value for PHI '" + name + "' from latch scope: " + llvmObjToString(finalVal));
+            DEBUG_LOG("        Getting final value for PHI '" + name + "' from symbol table (latch scope): " + llvmObjToString(finalVal));
 #endif
             if (!finalVal)
             {
-                // 如果在当前作用域找不到（理论上不应发生，因为 assignedInBody 保证了赋值），
-                // 作为健壮性回退，使用循环前的值。
-                finalVal = valueBeforeLoop[name];
-#ifdef DEBUG_WhileSTmt
-                DEBUG_LOG("          WARNING: Final value not found in scope for '" + name + "', using value from before loop: " + llvmObjToString(finalVal));
-#endif
-                codeGen.logWarning("Variable '" + name + "' not found at end of loop body scope, using value from before loop for PHI backedge.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
+                // 这理论上不应发生，因为PHI节点本身就在符号表中
+                codeGen.logError("Internal error: Failed to find final value for variable '" + name + "' (PHI node itself?) at end of loop body.", stmt->line.value_or(0), stmt->column.value_or(0));
+                // 使用 UndefValue 或循环前的值作为回退？使用 Undef 更安全地暴露问题。
+                finalVal = llvm::UndefValue::get(phi->getType());
             }
-            // --- 修正结束 ---
-            valueFromLatch[name] = finalVal;  // 现在 finalVal 已声明并赋值
+            valueFromLatch[name] = finalVal;
         }
 
-        // --- 新增：清理当前迭代的临时对象 ---
+        // 清理当前迭代的临时对象
 #ifdef DEBUG_WhileSTmt
         DEBUG_LOG("      Cleaning up temporary objects for this iteration...");
 #endif
-        runtime->cleanupTemporaryObjects();  // 在跳转前回溯并 decref 临时对象
-        // --- 新增结束 ---
+        runtime->cleanupTemporaryObjects();
 
         // 创建回边: Latch -> Cond
         builder.CreateBr(condBB);
@@ -1012,56 +1036,58 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
         DEBUG_LOG("      Created back edge branch from Latch (" + llvmObjToString(latchBB) + ") to Condition (" + llvmObjToString(condBB) + ")");
 #endif
     }
-    // else: latchBB 已经有终结符 (return/break)，不需要回边
-    // 注意：如果是因为 return 或 break 退出，临时对象的清理可能需要由 handleReturnStmt 或 handleBreakStmt 触发
+    // else: latchBB 无效或已经有终结符 (return/break)，不需要创建回边
 
-    endScope();
-#ifdef DEBUG_WhileSTmt
-    DEBUG_LOG("      Ended loop body scope.");
+    // endScope(); // <<<--- 移除
+#ifdef DEBUG_SCOPE
+    // DEBUG_LOG("Scope: Ended loop body scope."); // 移除日志
 #endif
-    // (可选) 恢复 break/continue 目标
-    // codeGen.popLoopBlocks();
 
     // --- 10. 添加 PHI 节点的第二个传入边 (来自 latch) ---
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("  [10] Adding second incoming edges to PHI nodes (in block " + llvmObjToString(condBB) + "):");
 #endif
-    if (!loopTerminatedEarly)
+    if (loopTerminatedNaturally) // 只有当循环体自然结束时，才有来自 latchBB 的边
     {
 #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("      Loop did not terminate early. Adding edges from Latch (" + llvmObjToString(latchBB) + ")");
+        DEBUG_LOG("      Loop body finished naturally. Adding edges from Latch (" + llvmObjToString(latchBB) + ")");
 #endif
         for (const auto& [name, phi] : phiNodes)
         {
-            // 使用在 latchBB 确定分支前获取的值
             if (valueFromLatch.count(name))
             {
                 llvm::Value* latchValue = valueFromLatch[name];
 #ifdef DEBUG_WhileSTmt
                 DEBUG_LOG("        Adding incoming edge to PHI '" + name + "' (" + llvmObjToString(phi) + "): [" + llvmObjToString(latchValue) + ", from " + llvmObjToString(latchBB) + "]");
 #endif
-                phi->addIncoming(latchValue, latchBB);  // 边2: 来自 latchBB
+                phi->addIncoming(latchValue, latchBB); // 边2: 来自 latchBB
             }
             else
             {
-                // 理论上不应发生，因为 valueFromLatch 是基于 phiNodes 构建的
+                // 理论上不应发生
 #ifdef DEBUG_WhileSTmt
                 DEBUG_LOG("        ERROR: Latch value missing for PHI node '" + name + "'. Adding UndefValue.");
 #endif
                 codeGen.logError("Internal error: Latch value missing for PHI node '" + name + "'.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
-                phi->addIncoming(llvm::UndefValue::get(phi->getType()), latchBB);  // 避免崩溃
+                phi->addIncoming(llvm::UndefValue::get(phi->getType()), latchBB);
             }
         }
     }
     else
     {
 #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("      Loop terminated early. No second incoming edges added from latch block " + llvmObjToString(latchBB) + ".");
-        // 注意：如果支持 'continue'，它也应该为 PHI 添加来自 continue 块的边。
-        // 这个简化逻辑假设只有 'break' 或 'return' 会导致提前终止而不产生回边。
+        DEBUG_LOG("      Loop body terminated early or latch block invalid. No second incoming edges added from latch block " + llvmObjToString(latchBB) + ".");
+        // 如果支持 continue, continue 语句应该跳转回 condBB，并成为 PHI 的另一个前驱
+        // 如果支持 break, break 语句应该跳转到 endBB，不影响 condBB 的 PHI
 #endif
+        // 如果循环体总是提前终止（例如 `while True: ...; break`），
+        // 并且没有其他路径（如 continue）可以到达 latchBB，
+        // 那么 latchBB 可能变成无法到达的块。
+        // 此时，PHI 节点可能只有一个来自 preheaderBB 的有效输入。
+        // LLVM 优化可能会处理这种情况，但为了生成有效的初始 IR，
+        // 可能需要确保 PHI 节点有对应所有 *实际* 前驱块的输入。
+        // 如果 latchBB 确实无法到达 condBB，则不添加来自它的边是正确的。
     }
-    // 对于从 break 跳出的路径，它们直接跳到 endBB，不影响 condBB 的 PHI
 
     // --- 11. 循环结束块 (endBB) ---
     builder.SetInsertPoint(endBB);
@@ -1070,9 +1096,8 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
     DEBUG_LOG("Exiting handleWhileStmt");
 #endif
 
-    // 循环结束后，符号表中被PHI覆盖的变量的值需要处理吗？
-    // 不需要。后续代码如果访问这些变量，应该通过符号表获取到PHI节点本身。
-    // PHI节点的值就是循环结束后的正确值。
+    // 循环结束后，符号表中变量的值是 PHI 节点，这是正确的。
+    // 后续代码使用这些变量时，会得到 PHI 节点的值。
 }
 
 void CodeGenStmt::handlePrintStmt(PrintStmtAST* stmt)

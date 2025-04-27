@@ -658,6 +658,7 @@ llvm::Value* OperationCodeGenerator::handleAnyTypeOperation(
             case TOK_GE:
                 compareOp = 5;
                 break;  // PY_CMP_GE (Assuming 5, adjust if needed)
+
             default:
                 compareOp = 0;  // Should not happen if check above is correct
         }
@@ -665,12 +666,12 @@ llvm::Value* OperationCodeGenerator::handleAnyTypeOperation(
         // ... (rest of the comparison logic remains the same) ...
         // 获取比较函数
         llvm::Function* compareFunc = gen.getOrCreateExternalFunction(
-            "py_object_compare",
-            llvm::PointerType::get(context, 0), // 返回 PyObject*
-            {llvm::PointerType::get(context, 0), // PyObject* a
-             llvm::PointerType::get(context, 0), // PyObject* b
-             llvm::Type::getInt32Ty(context)},   // PyCompareOp op (i32)
-            false);
+                "py_object_compare",
+                llvm::PointerType::get(context, 0),   // 返回 PyObject*
+                {llvm::PointerType::get(context, 0),  // PyObject* a
+                 llvm::PointerType::get(context, 0),  // PyObject* b
+                 llvm::Type::getInt32Ty(context)},    // PyCompareOp op (i32)
+                false);
 
         // 确保两个操作数都是指针类型（Python对象）
         if (!left->getType()->isPointerTy())
@@ -722,10 +723,13 @@ llvm::Value* OperationCodeGenerator::handleAnyTypeOperation(
         case TOK_MOD:
             opName = "modulo";
             break;
+        case TOK_POWER:
+            opName = "power";
+            break;
         // Add other binary operators as needed (e.g., TOK_POWERER, TOK_FLOOR_DIV)
         default:
             // Handle unsupported or unexpected operators for ANY type
-            std::cerr << "Unsupported binary operator " << op << " for ANY type in handleAnyTypeOperation" << std::endl;
+            gen.logError("Unsupported binary operator " + PyTokenRegistry::getTokenName(op) + " (" + std::to_string(op) + ") for ANY type in handleAnyTypeOperation");
             // Consider returning a specific error object or nullptr
             return nullptr;  // Or generate code to raise TypeError at runtime
     }
@@ -814,21 +818,32 @@ llvm::Value* OperationCodeGenerator::handleBinaryOp(
     bool isComparison = (op == TOK_LT || op == TOK_GT || op == TOK_EQ || op == TOK_NEQ || op == TOK_LE || op == TOK_GE);
 
     llvm::Value* result = nullptr;
-    int resultTypeId = descriptor->resultTypeId; // Default result type
+    int resultTypeId = descriptor->resultTypeId;  // Default result type
 
     // 确保操作数是指针类型 (提前处理，因为两种情况都需要)
-    PyCodeGen* pyCodeGen = gen.asPyCodeGen(); // Get PyCodeGen once
+    PyCodeGen* pyCodeGen = gen.asPyCodeGen();  // Get PyCodeGen once
     if (!left->getType()->isPointerTy())
     {
-        if (pyCodeGen) { left = createObject(*pyCodeGen, left, leftTypeId); }
-        else { /* Handle error or non-PyCodeGen case */ return nullptr; }
+        if (pyCodeGen)
+        {
+            left = createObject(*pyCodeGen, left, leftTypeId);
+        }
+        else
+        { /* Handle error or non-PyCodeGen case */
+            return nullptr;
+        }
     }
     if (!right->getType()->isPointerTy())
     {
-        if (pyCodeGen) { right = createObject(*pyCodeGen, right, rightTypeId); }
-        else { /* Handle error or non-PyCodeGen case */ return nullptr; }
+        if (pyCodeGen)
+        {
+            right = createObject(*pyCodeGen, right, rightTypeId);
+        }
+        else
+        { /* Handle error or non-PyCodeGen case */
+            return nullptr;
+        }
     }
-
 
     if (isComparison)
     {
@@ -836,39 +851,52 @@ llvm::Value* OperationCodeGenerator::handleBinaryOp(
         int compareOpCode;
         switch (op)
         {
-            case TOK_LT:  compareOpCode = 2; break; // PY_CMP_LT
-            case TOK_GT:  compareOpCode = 4; break; // PY_CMP_GT
-            case TOK_EQ:  compareOpCode = 0; break; // PY_CMP_EQ
-            case TOK_NEQ: compareOpCode = 1; break; // PY_CMP_NE
-            case TOK_LE:  compareOpCode = 3; break; // PY_CMP_LE
-            case TOK_GE:  compareOpCode = 5; break; // PY_CMP_GE
-            default:      compareOpCode = 0; // Should not happen
+            case TOK_LT:
+                compareOpCode = 2;
+                break;  // PY_CMP_LT
+            case TOK_GT:
+                compareOpCode = 4;
+                break;  // PY_CMP_GT
+            case TOK_EQ:
+                compareOpCode = 0;
+                break;  // PY_CMP_EQ
+            case TOK_NEQ:
+                compareOpCode = 1;
+                break;  // PY_CMP_NE
+            case TOK_LE:
+                compareOpCode = 3;
+                break;  // PY_CMP_LE
+            case TOK_GE:
+                compareOpCode = 5;
+                break;  // PY_CMP_GE
+            default:
+                compareOpCode = 0;  // Should not happen
         }
 
         // 获取 py_object_compare 函数 (使用正确的三参数签名)
         llvm::Function* compareFunc = gen.getOrCreateExternalFunction(
-            "py_object_compare",
-            llvm::PointerType::get(context, 0), // 返回 PyObject*
-            {llvm::PointerType::get(context, 0), // PyObject* a
-             llvm::PointerType::get(context, 0), // PyObject* b
-             llvm::Type::getInt32Ty(context)},   // PyCompareOp op (i32)
-            false);
+                "py_object_compare",
+                llvm::PointerType::get(context, 0),   // 返回 PyObject*
+                {llvm::PointerType::get(context, 0),  // PyObject* a
+                 llvm::PointerType::get(context, 0),  // PyObject* b
+                 llvm::Type::getInt32Ty(context)},    // PyCompareOp op (i32)
+                false);
 
         // 创建常量比较运算符
         llvm::Value* opValue = llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), compareOpCode);
 
         // 调用比较函数 (传递三个参数)
         result = builder.CreateCall(compareFunc, {left, right, opValue}, "cmp_result");
-        resultTypeId = PY_TYPE_BOOL; // Comparison result is always bool
+        resultTypeId = PY_TYPE_BOOL;  // Comparison result is always bool
     }
     else
     {
         // 处理其他二元操作 (保持原有逻辑，但使用已包装好的 left/right)
         llvm::Function* func = gen.getOrCreateExternalFunction(
                 descriptor->runtimeFunction,
-                llvm::PointerType::get(context, 0), // 返回 ptr
-                {llvm::PointerType::get(context, 0), // 参数1 ptr
-                 llvm::PointerType::get(context, 0)}, // 参数2 ptr
+                llvm::PointerType::get(context, 0),    // 返回 ptr
+                {llvm::PointerType::get(context, 0),   // 参数1 ptr
+                 llvm::PointerType::get(context, 0)},  // 参数2 ptr
                 false);
 
         // 调用运行时函数 (传递两个参数)
@@ -877,7 +905,8 @@ llvm::Value* OperationCodeGenerator::handleBinaryOp(
     }
 
     // 附加类型元数据
-    if (result) { // Check if result is not null before attaching metadata
+    if (result)
+    {  // Check if result is not null before attaching metadata
         gen.getRuntimeGen()->attachTypeMetadata(result, resultTypeId);
     }
     // --- 修改结束 ---

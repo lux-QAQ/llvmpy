@@ -252,7 +252,7 @@ def main():
     list_dict_interaction_test()
 
     print("\n--- All Tests Done ---")
-
+    print(1.22)
     return 0
 
 main()

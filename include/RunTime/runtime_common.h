@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <vector>
 #include <gmp.h> // <--- 包含 GMP 头文件
+#include <mpfr.h>    // MPFR 头文件
 #ifdef __cplusplus
 extern "C"
 {

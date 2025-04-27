@@ -17,17 +17,24 @@
 
 3. std::shared_ptr<PyType> BinaryExprAST::getType() 中说明了getCommonType可能无法处理list[int] + list[float] -> list[float]
  // 使用 ExpressionTypeInferer 进行推导（已经修改了）（ExpressionTypeInferer似乎没什么用）
-    cachedType = ExpressionTypeInferer::inferBinaryExprType(opType, lhsType, rhsType);
+    cachedType = ExpressionTypeInferer::inferBinaryExprType(opType, lhsType, rhsType); （fixed？）
 
-4. 函数对象
-5. 函数内定义函数
+4. 函数对象(fixed)
+5. 函数内定义函数(仍然有bug)
 6. stmt里面的函数作用域管理这个和第五条挂钩
 
 7. FunctionAST* CodeGenType::getFunctionAST(const std::string& funcName)  TODO: 需要一种方法来访问当前作用域或父作用域的函数定义。
 
-8. basic测试无法通过
-9. def main():
-    a=4
-    b=2
-    c=a**b**a
-    print(c)无法计算
+
+
+8. def main():
+    a=2
+    if a==2:
+        def fun1():
+            print("a is 2")
+            return "a is 2"
+    else :
+        def fun2():
+            print("a is not 2")
+            return "a is not 2"
+    print(fun2())

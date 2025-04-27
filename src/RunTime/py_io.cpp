@@ -44,7 +44,11 @@ void py_print_object(PyObject* obj)
                 } else {
                     // 否则，使用通用格式打印
 
-                    gmp_printf("%Fg\n", val);
+                    mpfr_t r;
+                    mpfr_init(r);                    // 默认 53 位精度
+                    mpfr_set_f(r, val, MPFR_RNDN);   // 转换并舍入
+                    mpfr_printf("%Rg\n", r);         // 最短回收输出
+                    mpfr_clear(r);                   // 释放资源
                 }
             }
             break;
@@ -181,8 +185,12 @@ static void py_print_object_inline(PyObject* obj)
                     // 如果是整数，打印为 x.0 的形式
                     gmp_printf("%.0Ff.0", val);
                 } else {
-                    // 否则，使用通用格式打印
-                    gmp_printf("%Fg", val);
+                 
+                    mpfr_t r;
+                    mpfr_init(r);                    // 默认 53 位精度
+                    mpfr_set_f(r, val, MPFR_RNDN);   // 转换并舍入
+                    mpfr_printf("%Rg", r);         // 最短回收输出
+                    mpfr_clear(r);                   // 释放资源
                 }
             }
             break;

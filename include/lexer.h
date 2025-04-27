@@ -79,10 +79,10 @@ enum PyTokenType
     TOK_NOT = -38,       ///< not
     TOK_NOT_IN = -39,    ///< not in
     TOK_AND = -40,       ///< and
-    TOK_OR = -41,        ///< or  
+    TOK_OR = -41,        ///< or
     TOK_DEL = -42,       ///< del
     TOK_EXEC = -43,      ///< exec
-    TOK_ASYNC = -44,      ///< async
+    TOK_ASYNC = -44,     ///< async
     TOK_AWAIT = -45,     ///< await
     /// @note 缺少 True, False, None (作为字面量处理), and, or, not, is, yield, await, async 等关键字
     ///< 操作符和分隔符 (-50 到 -99)
@@ -117,9 +117,9 @@ enum PyTokenType
     TOK_ARROW = -78,         ///< ->
     TOK_AT = -79,            ///< @
 
-    TOK_POWER_ASSIGN = -80, ///< **=
-    TOK_FLOOR_DIV_ASSIGN = -81, ///< //=
-    
+    TOK_POWER_ASSIGN = -80,      ///< **=
+    TOK_FLOOR_DIV_ASSIGN = -81,  ///< //=
+
     // @note 缺少位运算符 (&, |, ^, ~, <<, >>), 矩阵乘法 (@) 等
     // === 标识符和字面量 (-100 到 -149) ===
     TOK_IDENTIFIER = -100,  ///< 标识符 (变量名, 函数名等)
@@ -140,11 +140,11 @@ enum PyTokenType
  */
 struct PyToken
 {
-    PyTokenType type;   ///< Token 的类型 (见 PyTokenType 枚举)
-    std::string value;  ///< Token 的原始文本值 (例如 "def", "my_var", "123", "+")
-    int line;           ///< Token 在源代码中的起始行号 (从 1 开始)
-    int column;         ///< Token 在源代码中的起始列号 (从 1 开始)
-    char quoteChar = 0; // 新增：存储字符串的引号类型 (' 或 ")，0 表示非字符串
+    PyTokenType type;    ///< Token 的类型 (见 PyTokenType 枚举)
+    std::string value;   ///< Token 的原始文本值 (例如 "def", "my_var", "123", "+")
+    int line;            ///< Token 在源代码中的起始行号 (从 1 开始)
+    int column;          ///< Token 在源代码中的起始列号 (从 1 开始)
+    char quoteChar = 0;  // 新增：存储字符串的引号类型 (' 或 ")，0 表示非字符串
 
     /**
      * @brief 构造函数。
@@ -154,8 +154,10 @@ struct PyToken
      * @param c Token 的列号。
      * @param qc Token 的引号类型 (目前仅在复原字符串 Token 中使用)。
      */
-     PyToken(PyTokenType t, const std::string& v, size_t l, size_t c, char qc = 0) // 修改构造函数
-     : type(t), value(v), line(l), column(c), quoteChar(qc) {}
+    PyToken(PyTokenType t, const std::string& v, size_t l, size_t c, char qc = 0)  // 修改构造函数
+        : type(t), value(v), line(l), column(c), quoteChar(qc)
+    {
+    }
 
     /**
      * @brief 默认构造函数。
@@ -517,24 +519,23 @@ private:
     /** @brief 对整个 `sourceCode` 进行词法分析，填充 `tokens` 向量。在构造函数中调用。*/
     void tokenizeSource();
 
-        // === 错误处理 ===
+    // === 错误处理 ===
     /**
      * @brief 创建一个表示错误的 Token。
      * @param message 错误信息。
      * @return PyToken 类型为 TOK_ERROR 的 Token。
      */
-     PyToken errorToken(const std::string& message);
+    PyToken errorToken(const std::string& message);
 
 public:
-     /**
+    /**
      * @brief 构造函数。
      * @param source 要进行词法分析的源代码字符串。
      * @param config 词法分析器配置 (可选)。
      */
-     explicit PyLexer(const std::string& source, const PyLexerConfig& config = PyLexerConfig());
+    explicit PyLexer(const std::string& source, const PyLexerConfig& config = PyLexerConfig());
 
-
-       /**
+    /**
      * @brief 从文件创建 PyLexer 实例。
      * 读取文件内容并构造 Lexer。
      * @param filePath 源代码文件的路径。
@@ -542,7 +543,7 @@ public:
      * @return PyLexer 构造的词法分析器实例。
      * @throws std::runtime_error 如果文件无法打开或读取。
      */
-     static PyLexer fromFile(const std::string& filePath, const PyLexerConfig& config = PyLexerConfig());
+    static PyLexer fromFile(const std::string& filePath, const PyLexerConfig& config = PyLexerConfig());
 
     // === Token 扫描方法 ===
     /** @brief 从当前位置扫描并返回下一个 Token。这是核心的 Token 生成逻辑。*/
@@ -561,46 +562,49 @@ public:
      * 从 `tokens` 向量中返回下一个 Token，并移动 `tokenIndex`。
      * @return PyToken 下一个 Token。如果已到达末尾，则返回 TOK_EOF。
      */
-     PyToken getNextToken();
+    PyToken getNextToken();
 
-     /**
+    /**
       * @brief 查看当前要返回的 Token，但不移动 `tokenIndex`。
       * @return PyToken 当前 Token。如果已到达末尾，则返回 TOK_EOF。
       */
-     PyToken peekToken() const;
- 
-     /**
+    PyToken peekToken() const;
+
+    /**
       * @brief 查看相对于当前 `tokenIndex` 指定偏移量的 Token。
       * @param offset 偏移量 (0 表示当前 Token, 1 表示下一个, -1 表示上一个)。
       * @return PyToken 指定偏移量的 Token。如果越界，则行为未定义或返回 TOK_ERROR/TOK_EOF。
       */
-     PyToken peekTokenAt(size_t offset) const;
+    PyToken peekTokenAt(size_t offset) const;
 
     // === 状态管理 ===
     /**
      * @brief 保存当前的词法分析器状态 (主要是 `tokenIndex`)。
      * @return PyLexerState 包含当前状态的对象。
      */
-     PyLexerState saveState() const;
+    PyLexerState saveState() const;
 
-     /**
+    /**
       * @brief 恢复到之前保存的状态。
       * @param state 要恢复到的状态对象。
       */
-     void restoreState(const PyLexerState& state);
- 
-     /**
+    void restoreState(const PyLexerState& state);
+
+    /**
       * @brief 获取当前字符处理的位置 (主要用于调试或迭代器式 Lexer)。
       * @return size_t 当前在 `sourceCode` 中的字符索引。
       */
-     size_t peekPosition() const { return position; }
- 
-     /**
+    size_t peekPosition() const
+    {
+        return position;
+    }
+
+    /**
       * @brief 重置字符处理的位置 (主要用于调试或特殊场景)。
       * @param pos 要设置的字符索引。
       * @warning 谨慎使用，可能破坏 Lexer 状态。
       */
-     void resetPosition(size_t pos);
+    void resetPosition(size_t pos);
 
     // === 错误处理 ===
     /**
@@ -608,7 +612,7 @@ public:
      * @param message 错误信息。
      * @throws PyLexerError 包含错误信息和当前位置的异常。
      */
-     [[noreturn]] void error(const std::string& message) const;
+    [[noreturn]] void error(const std::string& message) const;
 
     // === 源码恢复 (调试功能) ===
     /**
@@ -618,24 +622,27 @@ public:
      * @note 恢复的源代码可能不完全符合原始格式，尤其是注释和空格。
      * @todo       自定义报错文件名字
      */
-     void recoverSourceFromTokens(const std::string& filename = "recovered_source.py") const;
-
-
+    void recoverSourceFromTokens(const std::string& filename = "recovered_source.py") const;
 
     // === 调试辅助 ===
     /**
      * @brief 获取包含所有已分析 Token 的向量的常量引用。
      * @return const std::vector<PyToken>& Token 向量。
      */
-     const std::vector<PyToken>& getAllTokens() const { return tokens; }
+    const std::vector<PyToken>& getAllTokens() const
+    {
+        return tokens;
+    }
 
-     /**
+    /**
       * @brief 获取指定 Token 类型的名称字符串 (方便调试)。
       * @param type Token 类型。
       * @return std::string Token 名称。
       */
-     std::string getTokenName(PyTokenType type) const { return PyTokenRegistry::getTokenName(type); }
- 
+    std::string getTokenName(PyTokenType type) const
+    {
+        return PyTokenRegistry::getTokenName(type);
+    }
 
     // === 类型注解支持 ===
     /**
@@ -644,37 +651,41 @@ public:
      * @return bool 如果存在类型注解则返回 true。
      * @note 这个功能可能更适合放在 Parser 中处理。
      */
-     bool hasTypeAnnotation(size_t tokenPos) const;
+    bool hasTypeAnnotation(size_t tokenPos) const;
 
-     /**
+    /**
       * @brief 从指定的 Token 位置提取类型注解字符串。
       * @param startPos 起始 Token 在 `tokens` 向量中的索引。
       * @return std::pair<size_t, std::string> 返回包含注解结束位置索引和注解字符串的 pair。
       * @note 这个功能可能更适合放在 Parser 中处理。
       */
-     std::pair<size_t, std::string> extractTypeAnnotation(size_t startPos) const;
+    std::pair<size_t, std::string> extractTypeAnnotation(size_t startPos) const;
 };
 
 /**
  * @brief 表示源代码中的位置信息。
  * 主要用于错误报告和调试。
  */
- struct PySourceLocation {
-    int line;   ///< 行号 (从 1 开始)。
-    int column; ///< 列号 (从 1 开始)。
+struct PySourceLocation
+{
+    int line;    ///< 行号 (从 1 开始)。
+    int column;  ///< 列号 (从 1 开始)。
 
     /**
      * @brief 构造函数。
      * @param l 行号，默认为 0。
      * @param c 列号，默认为 0。
      */
-    PySourceLocation(int l = 0, int c = 0) : line(l), column(c) {}
+    PySourceLocation(int l = 0, int c = 0) : line(l), column(c)
+    {
+    }
 
     /**
      * @brief 生成位置信息的字符串表示。
      * @return std::string 格式如 "line X, column Y" 的字符串。
      */
-    std::string toString() const {
+    std::string toString() const
+    {
         return "line " + std::to_string(line) + ", column " + std::to_string(column);
     }
 };
