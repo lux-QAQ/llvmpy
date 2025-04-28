@@ -235,11 +235,6 @@ class ExprAST : public ASTNode
 public:
     virtual ~ExprAST() = default;
     /**
-     * @brief 接受代码生成器访问。
-     * @param codegen 代码生成器引用。
-     */
-    //virtual void accept(PyCodeGen& codegen) override = 0;
-    /**
      * @brief 获取表达式计算结果的静态类型。
      * @return std::shared_ptr<PyType> 表示表达式类型的 PyType 对象。
      * @note 类型推断可能在此方法中进行，或者依赖于类型检查阶段的结果。

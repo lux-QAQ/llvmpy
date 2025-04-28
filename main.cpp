@@ -69,7 +69,7 @@ int main(int argc, char** argv)
     // 词法分析
     PyLexer lexer(sourceCode);
 
-#ifdef DEBUG
+#ifdef DEBUG_MAIN_TOKEN_DUMP
     // 在main函数或解析前添加
     std::cerr << "\n···Main中尝试DUMP所有TOKEN···\n"
               << std::endl;

@@ -116,7 +116,6 @@ def complex_dict_while_test():
     data = {"counter": 0, "limit": 5, "values": {}}
     i = 0
     while data["counter"] < data["limit"]:
-        # 1
         key_str = "key" # 简单起见，用固定前缀+数字作键 (需要字符串拼接支持，否则用数字作键)
         # 假设有简单的数字转字符串或直接用数字键
         # data["values"][data["counter"]] = data["counter"] * data["counter"] # 使用数字键
@@ -253,7 +252,6 @@ def main():
     list_dict_interaction_test()
 
     print("\n--- All Tests Done ---")
-    print(1.22)
     return 0
 
 main()

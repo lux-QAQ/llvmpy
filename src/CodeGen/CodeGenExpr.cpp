@@ -165,62 +165,101 @@ llvm::Value* CodeGenExpr::handleNoneExpr(NoneExprAST* expr)
 llvm::Value* CodeGenExpr::handleVariableExpr(VariableExprAST* expr)
 {
     const std::string& name = expr->getName();
-    llvm::Value* value = codeGen.getSymbolTable().getVariable(name);
-    ObjectType* type = codeGen.getSymbolTable().getVariableType(name);  // 获取类型信息
+    auto& symTable = codeGen.getSymbolTable();
+    auto& builder = codeGen.getBuilder();
+    auto& context = codeGen.getContext();
+    llvm::Type* pyObjectPtrType = llvm::PointerType::get(context, 0); // PyObject*
 
-    if (!value)
-    {
-        return codeGen.logError("Unknown variable '" + name + "'",
-                                expr->line.value_or(0),
-                                expr->column.value_or(0));
+    llvm::Value* valueOrStorage = symTable.getVariable(name);
+    ObjectType* type = symTable.getVariableType(name); // 获取类型信息
+
+    if (!valueOrStorage) {
+        // --- 尝试查找函数 AST (作为函数对象) ---
+        const FunctionAST* funcAST = symTable.findFunctionAST(name);
+        if (funcAST) {
+#ifdef DEBUG_CODEGEN_handleVariableExpr
+            DEBUG_LOG_DETAIL("HdlVarExpr", "Found FunctionAST for '" + name + "'. Treating as function object.");
+#endif
+            // 获取代表函数对象的全局变量
+            std::string gvName = name + "_obj_gv"; // 与 CodeGenModule 中创建 GV 的名称一致
+            llvm::GlobalVariable* funcObjGV = codeGen.getModule()->getGlobalVariable(gvName);
+
+            if (!funcObjGV) {
+                return codeGen.logError("Cannot find global variable '" + gvName + "' for function object '" + name + "'.",
+                                        expr->line.value_or(0), expr->column.value_or(0));
+            }
+             if (funcObjGV->getValueType() != pyObjectPtrType) {
+                 return codeGen.logError("Global variable '" + gvName + "' for function object '" + name + "' does not hold PyObject*.",
+                                         expr->line.value_or(0), expr->column.value_or(0));
+             }
+
+            // 加载函数对象
+            llvm::Value* loadedFuncObj = builder.CreateLoad(pyObjectPtrType, funcObjGV, name + "_func_obj_loaded");
+
+            // 设置类型
+            ObjectType* funcObjType = codeGen.getTypeGen()->getFunctionObjectType(funcAST);
+            if (funcObjType) {
+                 expr->setType(PyType::fromObjectType(funcObjType));
+            } else {
+                 expr->setType(PyType::getAny());
+                 codeGen.logWarning("Could not determine ObjectType for function '" + name + "'. Assuming Any.", expr->line.value_or(0), expr->column.value_or(0));
+            }
+            return loadedFuncObj;
+        } else {
+            // 既不是变量也不是函数 AST
+            return codeGen.logError("Unknown variable or function '" + name + "'",
+                                    expr->line.value_or(0), expr->column.value_or(0));
+        }
     }
 
-    // --- FIX: Load from GlobalVariable if necessary ---
-    if (llvm::GlobalVariable* gv = llvm::dyn_cast<llvm::GlobalVariable>(value))
-    {
-        // 这是一个全局变量 (很可能是顶层函数对象)。加载实际的 PyObject*。
-        llvm::Type* expectedPtrType = llvm::PointerType::get(codeGen.getContext(), 0);  // 假设 PyObject* 是 ptr
-        if (gv->getValueType() != expectedPtrType)
-        {
-            return codeGen.logError("Global variable '" + name + "' does not hold expected pointer type.",
+    // --- 变量存在于符号表中 ---
+    llvm::Value* loadedValue = nullptr;
+
+    if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(valueOrStorage)) {
+        // --- 局部变量 (AllocaInst*) ---
+        if (allocaInst->getAllocatedType() != pyObjectPtrType) {
+            return codeGen.logError("Internal error: Storage for local variable '" + name + "' is not PyObject**.",
                                     expr->line.value_or(0), expr->column.value_or(0));
         }
         // 创建 load 指令
-        llvm::Value* loadedValue = codeGen.getBuilder().CreateLoad(expectedPtrType, gv, name + "_loaded");
+        loadedValue = builder.CreateLoad(pyObjectPtrType, allocaInst, name + "_val");
+#ifdef DEBUG_CODEGEN_handleVariableExpr
+        DEBUG_LOG_DETAIL("HdlVarExpr", "Loaded value from AllocaInst '" + name + "': " + llvmObjToString(loadedValue));
+#endif
+    } else if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(valueOrStorage)) {
+        // --- 全局变量 (GlobalVariable*) ---
+        if (gv->getValueType() != pyObjectPtrType) {
+            return codeGen.logError("Internal error: Storage for global variable '" + name + "' is not PyObject**.",
+                                    expr->line.value_or(0), expr->column.value_or(0));
+        }
+        // 创建 load 指令
+        loadedValue = builder.CreateLoad(pyObjectPtrType, gv, name + "_global_val");
 #ifdef DEBUG_CODEGEN_handleVariableExpr
         DEBUG_LOG_DETAIL("HdlVarExpr", "Loaded value from GlobalVariable '" + name + "': " + llvmObjToString(loadedValue));
 #endif
-        // 设置表达式的类型 (应该与符号表中的类型匹配)
-        if (type)
-        {
-            expr->setType(PyType::fromObjectType(type));
-        }
-        else
-        {
-            expr->setType(PyType::getAny());  // 回退
-            codeGen.logWarning("Type information missing for global variable '" + name + "'. Assuming Any.", expr->line.value_or(0), expr->column.value_or(0));
-        }
-        return loadedValue;  // 返回加载后的值 (PyObject*)
-    }
-    else
-    {
-        // 这可能是局部变量 (alloca) 或直接值 (嵌套函数 PyObject*)。
-        // 这里不需要 load。后续使用（如赋值源）会自动处理 alloca 的 load。
+    } else if (valueOrStorage->getType() == pyObjectPtrType) {
+         // --- 直接是 PyObject* (例如函数参数) ---
+         // 不需要 load
+         loadedValue = valueOrStorage;
 #ifdef DEBUG_CODEGEN_handleVariableExpr
-        DEBUG_LOG_DETAIL("HdlVarExpr", "Using direct value/local for variable '" + name + "': " + llvmObjToString(value));
+         DEBUG_LOG_DETAIL("HdlVarExpr", "Using direct PyObject* for variable '" + name + "': " + llvmObjToString(loadedValue));
 #endif
-        // 设置表达式的类型
-        if (type)
-        {
-            expr->setType(PyType::fromObjectType(type));
-        }
-        else
-        {
-            expr->setType(PyType::getAny());  // 回退
-            codeGen.logWarning("Type information missing for variable '" + name + "'. Assuming Any.", expr->line.value_or(0), expr->column.value_or(0));
-        }
-        return value;  // 返回原始值 (alloca* 或 PyObject*)
     }
+    else {
+        // 符号表中的值类型未知或不正确
+        return codeGen.logError("Internal error: Unexpected value type in symbol table for variable '" + name + "'.",
+                                expr->line.value_or(0), expr->column.value_or(0));
+    }
+
+    // 设置表达式的类型
+    if (type) {
+        expr->setType(PyType::fromObjectType(type));
+    } else {
+        expr->setType(PyType::getAny()); // 回退
+        codeGen.logWarning("Type information missing for variable '" + name + "'. Assuming Any.", expr->line.value_or(0), expr->column.value_or(0));
+    }
+
+    return loadedValue; // 返回加载后的 PyObject*
 }
 
 // 处理二元操作表达式

@@ -70,14 +70,12 @@ public:
       */
     const FunctionAST* findFunctionAST(const std::string& name) const;
 
-
-
-    const std::map<std::string, ObjectType*>& getVariableTypes() const // <--- Add this method
+    const std::map<std::string, ObjectType*>& getVariableTypes() const  // <--- Add this method
     {
         return variableTypes;
     }
 
-    const std::unordered_map<std::string, const FunctionAST*>& getFunctionDefinitions() const // <--- Add this method
+    const std::unordered_map<std::string, const FunctionAST*>& getFunctionDefinitions() const  // <--- Add this method
     {
         return functionDefinitions;
     }
@@ -120,7 +118,7 @@ public:
      * @brief 将符号表的当前状态转储到指定的输出流。
      * @param out 输出流 (例如 std::cerr)。
      */
-     void dump(std::ostream& out) const; // <--- 添加此行
+    void dump(std::ostream& out) const;  // <--- 添加此行
     // --- 新增：获取当前作用域深度 ---
     /**
      * @brief 获取当前作用域栈的深度。
@@ -229,6 +227,8 @@ protected:
     llvm::Value* lastExprValue;
     std::shared_ptr<PyType> lastExprType;
 
+    
+
     // 验证生成的LLVM IR是否有效
     bool verifyModule();
 
@@ -269,7 +269,14 @@ public:
     {
         return variableUpdateContext;
     }
-
+/**
+     * @brief 在当前函数的入口块创建一个 alloca 指令。
+     *
+     * @param type 要分配的类型。
+     * @param varName 变量名，用于 alloca 指令的命名。
+     * @return llvm::AllocaInst* 指向创建的 alloca 指令，如果不在函数内则返回 nullptr。
+     */
+     llvm::AllocaInst* createEntryBlockAlloca(llvm::Type* type, const std::string& varName); 
     // 基本块管理
     llvm::BasicBlock* createBasicBlock(const std::string& name, llvm::Function* parent = nullptr);
 

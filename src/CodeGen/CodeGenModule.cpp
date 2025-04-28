@@ -422,69 +422,6 @@ bool CodeGenModule::generateModule(ModuleAST* module, bool isEntryPoint)
     return true;  // Module generated and verified successfully
 }
 
-// --- 新增：创建并注册运行时初始化函数 ---
-/* void CodeGenModule::createAndRegisterRuntimeInitializer()
-{
-    llvm::LLVMContext& context = codeGen.getContext();
-    llvm::Module* module = codeGen.getModule();
-
-    // 1. 创建初始化函数 __llvmpy_runtime_init
-    llvm::FunctionType* initFuncType = llvm::FunctionType::get(llvm::Type::getVoidTy(context), false);
-    llvm::Function* initFunc = llvm::Function::Create(
-        initFuncType,
-        llvm::Function::InternalLinkage, // 或者 PrivateLinkage
-        "__llvmpy_runtime_init",
-        module
-    );
-
-    // 创建入口块
-    llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context, "entry", initFunc);
-    llvm::IRBuilder<> builder(entryBB); // 临时 builder
-
-    // 获取 py_initialize_builtin_type_methods
-    llvm::Function* runtimeInitCore = codeGen.getOrCreateExternalFunction(
-        "py_initialize_builtin_type_methods",
-        llvm::Type::getVoidTy(context),
-        {}
-    );
-
-    // 在 __llvmpy_runtime_init 中调用核心初始化函数
-    builder.CreateCall(runtimeInitCore);
-    builder.CreateRetVoid(); // 添加返回
-
-    // 2. 注册到 llvm.global_ctors
-    // 定义构造函数记录的类型: { i32, void ()*, i8* }
-    llvm::StructType* ctorEntryType = llvm::StructType::get(
-        context,
-        { llvm::Type::getInt32Ty(context),   // 优先级
-          llvm::PointerType::get(initFuncType, 0), // 函数指针
-          llvm::PointerType::get(llvm::Type::getInt8Ty(context), 0) // 数据指针 (通常为 null)
-        }
-    );
-
-    // 创建构造函数记录实例
-    llvm::Constant* ctorEntry = llvm::ConstantStruct::get(
-        ctorEntryType,
-        { llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), 65535), // 优先级 (65535 是默认)
-          initFunc, // 初始化函数
-          llvm::ConstantPointerNull::get(llvm::PointerType::get(llvm::Type::getInt8Ty(context), 0)) // 数据指针为 null
-        }
-    );
-
-    // 创建包含此记录的数组
-    llvm::ArrayType* arrayType = llvm::ArrayType::get(ctorEntryType, 1);
-    llvm::Constant* ctorsArray = llvm::ConstantArray::get(arrayType, {ctorEntry});
-
-    // 创建全局变量 @llvm.global_ctors
-    new llvm::GlobalVariable(
-        *module,
-        arrayType,
-        false, // isConstant = false
-        llvm::GlobalValue::AppendingLinkage, // 必须是 AppendingLinkage
-        ctorsArray, // 初始化值
-        "llvm.global_ctors" // 名称
-    );
-} */
 
 void CodeGenModule::createAndRegisterRuntimeInitializer()
 {

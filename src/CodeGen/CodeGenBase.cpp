@@ -10,8 +10,10 @@
 
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/Instructions.h> // 包含 AllocaInst
 #include <llvm/Support/Casting.h> // For llvm::dyn_cast
 #include <llvm/Support/raw_ostream.h>
+
 
 #include <iostream>
 #include <sstream>
@@ -434,7 +436,18 @@ void CodeGenBase::initializeComponents()
     if (!runtimeGen) runtimeGen = std::make_unique<CodeGenRuntime>(*this, nullptr);
 }
 
+llvm::AllocaInst* CodeGenBase::createEntryBlockAlloca(llvm::Type* type, const std::string& varName)
+{
+    llvm::Function* func = getCurrentFunction();
+    if (!func) {
+        logError("Cannot create alloca: not inside a function.", 0, 0);
+        return nullptr;
+    }
 
+    // 创建一个临时的 builder，指向函数入口块的开头
+    llvm::IRBuilder<> entryBuilder(&func->getEntryBlock(), func->getEntryBlock().getFirstInsertionPt());
+    return entryBuilder.CreateAlloca(type, nullptr, varName + ".addr");
+}
 // 新增：logWarning 实现
 void CodeGenBase::logWarning(const std::string& message, int line, int column)
 {

@@ -8,7 +8,7 @@ mkdir -p runtime_objs
 
 # 1. 首先运行llvmpy编译器生成IR
 echo "运行 llvmpy 编译器..."
-./build/llvmpy test.py
+./build/llvmpy test.py 2>&1 | tee Compile.log
 
 if [ $? -ne 0 ]; then
     echo "编译Python代码失败 (llvmpy)"
