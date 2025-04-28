@@ -453,13 +453,17 @@ std::shared_ptr<PyType> CodeGenType::inferCallExprType(
         const std::vector<std::shared_ptr<PyType>>& argTypes)
 {
     // 首先尝试从符号表中获取函数信息
-    auto* moduleGen = codeGen.getModuleGen();
-    FunctionDefInfo* funcInfo = moduleGen->getFunctionInfo(funcName);
+    const FunctionAST* funcAST = getFunctionAST(funcName); // This searches scope and module
 
-    if (funcInfo && funcInfo->returnType)
+    if (funcAST)
     {
-        // 如果有函数信息，使用其返回类型
-        return PyType::fromObjectType(funcInfo->returnType);
+        // 如果找到了 FunctionAST，使用其静态类型信息（注解或推断）
+        // getFunctionObjectType 解析注解，getReturnType 包含注解和推断逻辑
+        std::shared_ptr<PyType> staticReturnType = funcAST->getReturnType(); // Assumes getReturnType is const and handles inference/annotation
+        if (staticReturnType && !staticReturnType->isAny()) { // Prefer static type if available and not Any
+             return staticReturnType;
+        }
+        // 如果静态类型是 Any 或获取失败，继续后续逻辑
     }
 
     // 处理内置函数的返回类型
@@ -494,7 +498,7 @@ std::shared_ptr<PyType> CodeGenType::inferCallExprType(
     }
 
     // 通用函数类型推导 - 根据函数体分析
-    const FunctionAST* funcAST = getFunctionAST(funcName);
+    //const FunctionAST* funcAST = getFunctionAST(funcName);
     if (funcAST)
     {
         // 如果能找到函数定义，分析函数体内的返回语句
@@ -571,42 +575,67 @@ std::shared_ptr<PyType> CodeGenType::analyzeFunctionReturnType(
         const FunctionAST* func,  // <--- 改为 const FunctionAST*
         const std::vector<std::shared_ptr<PyType>>& argTypes)
 {
-    // 如果函数定义了返回类型注解，使用注解类型
+    // 1. 检查返回类型注解 (保持不变)
     if (!func->returnTypeName.empty())
     {
-        // PyType::fromString 应该接受 const string&
-        return PyType::fromString(func->getReturnTypeName());  // 使用 getter
+        std::shared_ptr<PyType> annotatedType = PyTypeParser::parseType(func->getReturnTypeName());
+        if (annotatedType) return annotatedType;
+        // Fallback if parsing fails
     }
 
-    // 从函数中推断返回类型 (inferReturnType 应该是 const 方法)
+    // 2. 尝试使用 FunctionAST 的内部推断 (保持不变)
+    //    (确保 func->inferReturnType() 是 const 且不依赖外部缓存)
     std::shared_ptr<PyType> inferredType = func->inferReturnType();
-    if (inferredType)
+    if (inferredType && !inferredType->isAny()) // Prefer inferred if not Any
     {
         return inferredType;
     }
 
-    // 分析函数体中的返回语句
-    for (const auto& stmt : func->getBody())  // 使用 getter
+    // 3. 分析函数体内的返回语句 (保持不变)
+    //    (analyzeReturnExpr 内部的 inferExprType 会递归调用类型推导)
+    std::shared_ptr<PyType> commonReturnType = nullptr;
+    bool firstReturn = true;
+    for (const auto& stmt : func->getBody())
     {
         if (stmt->kind() == ASTKind::ReturnStmt)
         {
-            // static_cast 可以用于 const 指针
-            auto returnStmt = static_cast<const ReturnStmtAST*>(stmt.get());  // <--- 使用 const*
+            auto returnStmt = static_cast<const ReturnStmtAST*>(stmt.get());
+            std::shared_ptr<PyType> currentReturnType;
             if (returnStmt->getValue())
             {
-                // analyzeReturnExpr 应该接受 const ExprAST*
-                return analyzeReturnExpr(returnStmt->getValue(), argTypes);
+                currentReturnType = analyzeReturnExpr(returnStmt->getValue(), argTypes);
             }
             else
             {
-                // 如果是 'return' 或 'return None'
-                return PyType::getAny();  // 或者 PyType::getNone()，取决于你的语义
+                currentReturnType = PyType::getVoid(); // 'return' or 'return None' -> NoneType
             }
+
+            if (firstReturn) {
+                commonReturnType = currentReturnType;
+                firstReturn = false;
+            } else if (commonReturnType) {
+                commonReturnType = getCommonType(commonReturnType, currentReturnType);
+            }
+            // If commonReturnType becomes Any, we can potentially stop early
+            if (commonReturnType && commonReturnType->isAny()) break;
         }
     }
 
-    // 如果无法从返回语句确定类型，使用函数签名和参数类型推导
-    return inferReturnTypeFromContext(func->getName(), argTypes);  // 使用 getter
+    // 如果分析了返回语句并得到了非空的共同类型
+    if (commonReturnType) {
+        return commonReturnType;
+    }
+
+    // 4. 如果函数没有 return 语句（或只有 return None），则返回 NoneType
+    if (firstReturn) { // No return statements found
+        return PyType::getVoid();
+    }
+
+
+    // 5. 最终回退：如果之前的步骤都无法确定具体类型，则基于上下文推导或返回 Any
+    //    (inferReturnTypeFromContext 保持不变)
+    // return inferReturnTypeFromContext(func->getName(), argTypes); // Or just return Any if context inference is unreliable
+    return PyType::getAny(); // Safer fallback if analysis is complex
 }
 
 // 分析返回表达式类型

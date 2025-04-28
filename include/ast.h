@@ -414,34 +414,33 @@ void StmtASTBase<Derived, K>::endScope(PyCodeGen& codegen)
 /**
  * @brief 数字字面量表达式节点 (例如 123, 4.56, 1.2e3)。
  */
- class NumberExprAST : public ExprASTBase<NumberExprAST, ASTKind::NumberExpr>
- {
-     std::string valueString; ///< 存储数字的原始字符串表示 (用于高精度处理)。
-     std::shared_ptr<PyType> determinedType; ///< 存储解析时确定的类型（int 或 double）。
- 
- public:
-     /** @brief 默认构造函数，用于工厂创建或错误处理。*/
-     NumberExprAST(); // Default constructor moved to ast.cpp
- 
-     /**
+class NumberExprAST : public ExprASTBase<NumberExprAST, ASTKind::NumberExpr>
+{
+    std::string valueString;                 ///< 存储数字的原始字符串表示 (用于高精度处理)。
+    std::shared_ptr<PyType> determinedType;  ///< 存储解析时确定的类型（int 或 double）。
+
+public:
+    /** @brief 默认构造函数，用于工厂创建或错误处理。*/
+    NumberExprAST();  // Default constructor moved to ast.cpp
+
+    /**
       * @brief 构造函数 (由解析器使用)。
       * @param valStr 数字的字符串表示。
       * @param type 解析时确定的 PyType (Int 或 Double)。
       */
-     NumberExprAST(std::string valStr, std::shared_ptr<PyType> type);
-     
- 
-     /** @brief 获取数字的字符串表示 (用于高精度库如 GMP)。*/
-     const std::string& getValueString() const
-     {
-         return valueString;
-     }
- 
-     /**
+    NumberExprAST(std::string valStr, std::shared_ptr<PyType> type);
+
+    /** @brief 获取数字的字符串表示 (用于高精度库如 GMP)。*/
+    const std::string& getValueString() const
+    {
+        return valueString;
+    }
+
+    /**
       * @brief 获取表达式类型（int 或 double），该类型在解析时确定。
       */
-     std::shared_ptr<PyType> getType() const override; // Declaration only, definition in ast.cpp
- };
+    std::shared_ptr<PyType> getType() const override;  // Declaration only, definition in ast.cpp
+};
 
 /**
  * @brief 字符串字面量表达式节点 (例如 "hello", 'world')。
@@ -1185,6 +1184,8 @@ public:
     /** @brief 函数所属的类名，如果为空则表示普通函数。*/
     std::string classContext;
 
+    /** @brief CodeGen生成的唯一的LLVM函数名。*/
+    mutable std::string generatedLLVMName;  // Added generatedLLVMName
     /** @brief 缓存推断或注解的返回类型。*/
     mutable std::shared_ptr<PyType> cachedReturnType;
     /** @brief 标记返回类型是否已解析。*/
@@ -1228,6 +1229,23 @@ public:
     {
         return name;
     }
+    /** @brief 设置函数名 (主要用于代码生成阶段赋予唯一名称)。*/
+/*     void setName(const std::string& newName)  // Added setName
+    {
+        this->name = newName;
+    } */
+
+    /** @brief 获取生成的LLVM函数名。*/
+    const std::string& getGeneratedLLVMName() const  // Added getter
+    {
+        return generatedLLVMName;
+    }
+    /** @brief 设置生成的LLVM函数名。*/
+    void setGeneratedLLVMName(const std::string& llvmName) const  // Added setter (mutable)
+    {
+        this->generatedLLVMName = llvmName;
+    }
+
     /** @brief 获取参数列表。*/
     const std::vector<ParamAST>& getParams() const
     {

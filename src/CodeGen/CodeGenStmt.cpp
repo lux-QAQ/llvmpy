@@ -207,202 +207,280 @@ void CodeGenStmt::endScope()
 // --- 实现 handleFunctionDefStmt ---
 void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
 {
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        const FunctionAST* dbgFuncAST = stmt->getFunctionAST();
-        std::string dbgFuncName = dbgFuncAST ? dbgFuncAST->getName() : "<null AST>";
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Entering handleFunctionDefStmt for '" + dbgFuncName + "'");
-    #endif
-        // --- 获取 AST 信息 ---
-        const FunctionAST* funcAST = stmt->getFunctionAST();
-        if (!funcAST)
-        {
-            codeGen.logError("Null FunctionAST in FunctionDefStmt", stmt->line.value_or(0), stmt->column.value_or(0));
-            return;
-        }
-        std::string funcName = funcAST->getName();
-        int line = stmt->line.value_or(0);
-        int col = stmt->column.value_or(0);
-        
-        
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    const FunctionAST* dbgFuncAST = stmt->getFunctionAST();
+    std::string dbgPyFuncName = dbgFuncAST ? dbgFuncAST->getName() : "<null AST>";
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Entering handleFunctionDefStmt for Python func '" + dbgPyFuncName + "'");
+#endif
+    // --- 获取 AST 信息 ---
+    const FunctionAST* funcAST = stmt->getFunctionAST();
+    if (!funcAST)
+    {
+        codeGen.logError("Null FunctionAST in FunctionDefStmt", stmt->line.value_or(0), stmt->column.value_or(0));
+        return;
+    }
+    std::string pyFuncName = funcAST->getName();  // Python name for binding
+    int line = stmt->line.value_or(0);
+    int col = stmt->column.value_or(0);
 
+    auto& builder = codeGen.getBuilder();
+    auto& context = codeGen.getContext();
+    auto* runtime = codeGen.getRuntimeGen();
+    auto& symTable = codeGen.getSymbolTable();                         // Get symbol table
+    llvm::Type* pyObjectPtrType = llvm::PointerType::get(context, 0);  // PyObject*
 
-        auto& builder = codeGen.getBuilder();
-        auto& context = codeGen.getContext();
-        auto* runtime = codeGen.getRuntimeGen();
-        llvm::Type* pyObjectPtrType = llvm::PointerType::get(context, 0); // PyObject* 类型
-    
-    // --- 步骤 2.0: 在符号表中注册 AST (用于后续查找) ---
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Registering FunctionAST for '" + funcName + "' in symbol table.");
-    #endif
-        codeGen.getSymbolTable().defineFunctionAST(funcName, funcAST);
-    
-    // --- 步骤 2.1: 调用 CodeGenModule 生成 LLVM 函数 ---
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling ModuleGen->handleFunctionDef for '" + funcName + "'...");
-    #endif
-        llvm::Function* llvmFunc = codeGen.getModuleGen()->handleFunctionDef(funcAST);
-        if (!llvmFunc)
+    // --- 将 FunctionAST 注册到符号表 ---
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Defining FunctionAST '" + pyFuncName + "' in current symbol table scope.");
+#endif
+    symTable.defineFunctionAST(pyFuncName, funcAST);
+// --- 步骤 1: 调用 CodeGenModule 生成唯一的 LLVM 函数 ---
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling ModuleGen->handleFunctionDef for '" + pyFuncName + "'...");
+#endif
+    llvm::Function* llvmFunc = codeGen.getModuleGen()->handleFunctionDef(funcAST);  // Gets the unique LLVM function (e.g., @test.L4.C8)
+    if (!llvmFunc)
+    {
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "ModuleGen->handleFunctionDef FAILED for '" + pyFuncName + "'.");
+#endif
+        return;  // Error logged by handleFunctionDef
+    }
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    std::string uniqueLLVMName = llvmFunc->getName().str();
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "ModuleGen->handleFunctionDef SUCCEEDED for '" + pyFuncName + "'. Got LLVM Func: " + llvmObjToString(llvmFunc) + " ('" + uniqueLLVMName + "')");
+#endif
+// --- 步骤 2: 调用 CodeGenType 获取 Python 函数类型 ---
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling TypeGen->getFunctionObjectType for '" + pyFuncName + "'...");
+#endif
+    ObjectType* funcObjectType = codeGen.getTypeGen()->getFunctionObjectType(funcAST);
+    if (!funcObjectType || funcObjectType->getCategory() != ObjectType::Function)
+    {
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "TypeGen->getFunctionObjectType FAILED for '" + pyFuncName + "'.");
+#endif
+        codeGen.logError("Failed to get valid FunctionType for function: " + pyFuncName, line, col);
+        return;
+    }
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "TypeGen->getFunctionObjectType SUCCEEDED for '" + pyFuncName + "'. Type: " + funcObjectType->getName());
+#endif
+// --- 步骤 3: 调用 CodeGenRuntime 创建 Python 函数对象 ---
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling RuntimeGen->createFunctionObject using LLVM func '" + llvmFunc->getName().str() + "'...");
+#endif
+    llvm::Value* pyFuncObj = runtime->createFunctionObject(llvmFunc, funcObjectType);  // Wraps the unique LLVM function
+    if (!pyFuncObj)
+    {
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "RuntimeGen->createFunctionObject FAILED for '" + pyFuncName + "'.");
+#endif
+        codeGen.logError("Failed to create Python function object for: " + pyFuncName, line, col);
+        return;
+    }
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "RuntimeGen->createFunctionObject SUCCEEDED for '" + pyFuncName + "'. Value: " + llvmObjToString(pyFuncObj));
+#endif
+
+    // --- 步骤 4: 确定存储位置 (Alloca 或 GlobalVariable) ---
+    llvm::Function* currentCodeGenFunction = codeGen.getCurrentFunction();
+    bool isTopLevel = !currentCodeGenFunction || currentCodeGenFunction->getName() == "__llvmpy_entry";
+    llvm::Value* storage = nullptr;  // Pointer to the storage location (AllocaInst* or GlobalVariable*)
+
+    if (isTopLevel)
+    {
+// --- 顶层函数：查找或创建 GlobalVariable ---
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Function '" + pyFuncName + "' is top-level. Looking for/Creating GlobalVariable.");
+#endif
+        std::string gvName = pyFuncName + "_obj_gv";  // Name for the global variable pointer
+        storage = codeGen.getModule()->getGlobalVariable(gvName);
+        if (!storage)
         {
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "ModuleGen->handleFunctionDef FAILED for '" + funcName + "'.");
-    #endif
-            return;
-        }
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "ModuleGen->handleFunctionDef SUCCEEDED for '" + funcName + "'. LLVM Func: " + llvmObjToString(llvmFunc));
-    #endif
-    // --- 步骤 2.2: 调用 CodeGenType 获取 Python 函数类型 ---
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling TypeGen->getFunctionObjectType for '" + funcName + "'...");
-    #endif
-        ObjectType* funcObjectType = codeGen.getTypeGen()->getFunctionObjectType(funcAST);
-        if (!funcObjectType || funcObjectType->getCategory() != ObjectType::Function)
-        {
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "TypeGen->getFunctionObjectType FAILED for '" + funcName + "'.");
-    #endif
-            codeGen.logError("Failed to get valid FunctionType for function: " + funcName, line, col);
-            return;
-        }
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "TypeGen->getFunctionObjectType SUCCEEDED for '" + funcName + "'. Type: " + funcObjectType->getName());
-    #endif
-    // --- 步骤 2.3: 调用 CodeGenRuntime 创建 Python 函数对象 ---
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling RuntimeGen->createFunctionObject for '" + funcName + "'...");
-    #endif
-        llvm::Value* pyFuncObj = runtime->createFunctionObject(llvmFunc, funcObjectType);
-        if (!pyFuncObj)
-        {
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "RuntimeGen->createFunctionObject FAILED for '" + funcName + "'.");
-    #endif
-            codeGen.logError("Failed to create Python function object for: " + funcName, line, col);
-            return;
-        }
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "RuntimeGen->createFunctionObject SUCCEEDED for '" + funcName + "'. Value: " + llvmObjToString(pyFuncObj));
-    #endif
-    
-        // --- 步骤 2.4: 根据作用域决定存储方式并绑定到符号表 ---
-        llvm::Function* currentCodeGenFunction = codeGen.getCurrentFunction();
-        // 修正 isTopLevel 判断：当前 CodeGen 函数为 nullptr 或 __llvmpy_entry 时认为是顶层
-        bool isTopLevel = !currentCodeGenFunction || currentCodeGenFunction->getName() == "__llvmpy_entry";
-        llvm::Value* storage = nullptr; // 指向 GlobalVariable* 或 AllocaInst*
-    
-        if (isTopLevel)
-        {
-            // --- 顶层函数：创建 GlobalVariable ---
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Function '" + funcName + "' is top-level. Creating GlobalVariable.");
-    #endif
             llvm::GlobalVariable* funcObjGV = new llvm::GlobalVariable(
                     *codeGen.getModule(),
-                    pyObjectPtrType, // 存储 PyObject*
-                    false,           // isConstant
-                    llvm::GlobalValue::InternalLinkage,
-                    llvm::Constant::getNullValue(pyObjectPtrType), // 初始化为 null
-                    funcName + "_obj_gv");
-            funcObjGV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+                    pyObjectPtrType,                                // Type of the global is PyObject*
+                    false,                                          // isConstant = false (value can change)
+                    llvm::GlobalValue::InternalLinkage,             // Linkage
+                    llvm::Constant::getNullValue(pyObjectPtrType),  // Initializer = null
+                    gvName);
+            // Use None since the name is important for lookup
+            funcObjGV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
             storage = funcObjGV;
-    
-            // 在当前函数（如 __llvmpy_entry）或全局构造函数中存储实际对象
-            llvm::BasicBlock* currentBlock = builder.GetInsertBlock();
-            if (currentBlock && currentCodeGenFunction) // 确保在函数内且有插入点
-            {
-                builder.CreateStore(pyFuncObj, funcObjGV);
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-                DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* into GlobalVariable: " + llvmObjToString(funcObjGV) + " in block " + llvmObjToString(currentBlock));
-    #endif
-            }
-            else
-            {
-                // 尝试在全局构造函数中存储
-                llvm::Function* globalCtor = codeGen.getModule()->getFunction("__llvmpy_global_ctor_func");
-                if (globalCtor && !globalCtor->empty())
-                {
-                    llvm::IRBuilder<> ctorBuilder(&globalCtor->getEntryBlock(), globalCtor->getEntryBlock().getFirstInsertionPt());
-                    ctorBuilder.CreateStore(pyFuncObj, funcObjGV);
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-                    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* into GlobalVariable (in global ctor): " + llvmObjToString(funcObjGV));
-    #endif
-                }
-                else
-                {
-                    codeGen.logError("Cannot find insert block or global constructor to store GlobalVariable for top-level function " + funcName, line, col);
-                    storage = nullptr; // 标记存储失败
-                }
-            }
-            // 顶层函数的引用计数由全局变量持有，pyFuncObj (+1) 被 GV 拥有，不需要额外 IncRef。
-        }
-        else // isTopLevel == false
-        {
-            // --- 嵌套函数：创建 AllocaInst ---
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Function '" + funcName + "' is nested. Creating AllocaInst.");
-    #endif
-            // 1. 使用 CodeGenBase 的辅助函数在当前函数入口创建 alloca
-            llvm::AllocaInst* funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, funcName);
-            if (!funcObjAlloca)
-            {
-                // createEntryBlockAlloca 内部会记录错误
-                return; // 无法创建存储，退出
-            }
-            storage = funcObjAlloca;
-    
-            // 2. 在当前基本块存储 pyFuncObj 到 alloca
-            llvm::BasicBlock* currentBlock = builder.GetInsertBlock();
-            if (currentBlock)
-            {
-                builder.CreateStore(pyFuncObj, funcObjAlloca);
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-                DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* (" + llvmObjToString(pyFuncObj) + ") into AllocaInst: " + llvmObjToString(funcObjAlloca) + " in block " + llvmObjToString(currentBlock));
-    #endif
-                // 3. 增加 pyFuncObj 的引用计数，因为现在 alloca 指向的变量“拥有”了它
-                runtime->incRef(pyFuncObj);
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-                DEBUG_LOG_DETAIL("HdlFuncDefStmt", "IncRef'd PyObject* for nested function storage.");
-    #endif
-            }
-            else
-            {
-                 codeGen.logError("Cannot find insert block to store nested function object " + funcName, line, col);
-                 storage = nullptr; // 标记存储失败
-            }
-        }
-    
-        // --- 步骤 2.5: 调用 PySymbolTable 绑定存储位置 ---
-        if (storage) // 仅当存储创建和初始化成功时才绑定
-        {
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling SymbolTable->setVariable for '" + funcName + "' with storage: " + llvmObjToString(storage));
-    #endif
-            // 将函数名 funcName 绑定到存储位置 (GlobalVariable* 或 AllocaInst*)
-            codeGen.getSymbolTable().setVariable(funcName, storage, funcObjectType);
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "SymbolTable->setVariable SUCCEEDED for '" + funcName + "'.");
-    #endif
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created GlobalVariable: " + llvmObjToString(storage));
+#endif
         }
         else
         {
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Skipping SymbolTable->setVariable for '" + funcName + "' due to storage failure.");
-    #endif
-            // 错误已记录，这里不再重复记录
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Found existing GlobalVariable: " + llvmObjToString(storage));
+#endif
+            // Ensure the type matches if GV already exists
+            if (auto* existingGV = llvm::dyn_cast<llvm::GlobalVariable>(storage))
+            {
+                if (existingGV->getValueType() != pyObjectPtrType)
+                {
+                    codeGen.logError("GlobalVariable '" + gvName + "' exists but holds the wrong type (expected PyObject*).", line, col);
+                    return;
+                }
+            }
+            else
+            {
+                // 如果 storage 不是 GlobalVariable*，这是一个内部错误
+                codeGen.logError("Internal error: Found storage for '" + gvName + "' but it's not a GlobalVariable.", line, col);
+                return;
+            }
         }
-    
-    #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Leaving handleFunctionDefStmt for '" + funcName + "'");
-    #endif
-    
-        // 引用计数总结:
-        // - py_create_function 返回 +1 引用。
-        // - 顶层: GV 持有引用。
-        // - 嵌套: Store 到 alloca 后，对 pyFuncObj 执行 IncRef，alloca 位置持有该引用。
-        // - SymbolTable::popScope 或 updateVariable 应负责在变量生命周期结束时，
-        //   从 storage (alloca/gv) 加载 PyObject* 并执行 DecRef。
+
+        // Store the new function object into the GlobalVariable
+        llvm::BasicBlock* currentBlock = builder.GetInsertBlock();
+        if (currentBlock && currentCodeGenFunction)  // Store in current function if possible
+        {
+            // TODO: Handle DecRef for the *previous* value in the GV if overwriting?
+            // This is complex for GVs initialized potentially by ctors.
+            // For simplicity, assume the GV just holds the latest reference.
+            builder.CreateStore(pyFuncObj, storage);
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* into GlobalVariable: " + llvmObjToString(storage) + " in block " + llvmObjToString(currentBlock));
+#endif
+        }
+        else
+        {
+            // TODO: Store in global constructor if not in a function context.
+            codeGen.logWarning("Cannot find insert block to store GlobalVariable for top-level function " + pyFuncName + ". Storage might be delayed or require global ctor.", line, col);
+            // Fallback: Try to add to global ctor (complex, needs careful handling)
+        }
+        // GV now holds the reference returned by createFunctionObject (+1). No extra IncRef needed here.
     }
+    else  // isTopLevel == false (Nested function)
+    {
+// --- 嵌套函数：查找或创建 AllocaInst ---
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Function '" + pyFuncName + "' is nested. Looking for/Creating AllocaInst.");
+#endif
+
+        llvm::AllocaInst* funcObjAlloca = nullptr;
+
+        // 1. Check if variable already exists in the current or parent scopes
+        if (symTable.hasVariable(pyFuncName))
+        {
+            llvm::Value* existingVar = symTable.getVariable(pyFuncName);
+            // Ensure it's an AllocaInst (could be a function arg or other value)
+            if (llvm::isa<llvm::AllocaInst>(existingVar))
+            {
+                funcObjAlloca = llvm::cast<llvm::AllocaInst>(existingVar);
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+                DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Found existing AllocaInst for '" + pyFuncName + "': " + llvmObjToString(funcObjAlloca));
+#endif
+                // Ensure type matches
+                if (funcObjAlloca->getAllocatedType() != pyObjectPtrType)
+                {
+                    codeGen.logError("AllocaInst '" + pyFuncName + "' exists with wrong type.", line, col);
+                    return;
+                }
+            }
+            else
+            {
+// Variable exists but isn't an Alloca (e.g., function parameter).
+// Python allows shadowing parameters with local defs. Create a *new* alloca.
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+                DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Variable '" + pyFuncName + "' exists but is not Alloca. Creating new Alloca for shadowing.");
+#endif
+                funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName);
+                if (!funcObjAlloca) return;  // Error logged by createEntryBlockAlloca
+            }
+        }
+        else
+        {
+// 2. Variable doesn't exist, create a new AllocaInst
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "No existing variable/AllocaInst found for '" + pyFuncName + "'. Creating new AllocaInst.");
+#endif
+            funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName);
+            if (!funcObjAlloca) return;  // Error logged by createEntryBlockAlloca
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created new AllocaInst for '" + pyFuncName + "': " + llvmObjToString(funcObjAlloca));
+#endif
+        }
+        storage = funcObjAlloca;  // Storage location is the alloca
+
+        // 3. Store the new function object into the alloca, handling overwrites
+        llvm::BasicBlock* currentBlock = builder.GetInsertBlock();
+        if (currentBlock)
+        {
+            // --- Overwrite Handling: DecRef old value ---
+            // Load the current value from the alloca
+            llvm::Value* oldValue = builder.CreateLoad(pyObjectPtrType, funcObjAlloca, pyFuncName + ".old");
+            // Check if the old value is not null before trying to DecRef
+            llvm::Value* isNotNull = builder.CreateIsNotNull(oldValue, "isOldValueNotNull");
+
+            llvm::BasicBlock* decRefBlock = codeGen.createBasicBlock("decRefOldFunc", currentCodeGenFunction);
+            llvm::BasicBlock* storeNewBlock = codeGen.createBasicBlock("storeNewFunc", currentCodeGenFunction);
+
+            builder.CreateCondBr(isNotNull, decRefBlock, storeNewBlock);
+
+            // DecRef Block:
+            builder.SetInsertPoint(decRefBlock);
+            runtime->decRef(oldValue);        // Call py_decref on the old object
+            builder.CreateBr(storeNewBlock);  // Branch to the next step
+
+            // Store New Block: (continuation after potential DecRef)
+            builder.SetInsertPoint(storeNewBlock);
+            // --- End Overwrite Handling ---
+
+            // Store the *new* function object
+            builder.CreateStore(pyFuncObj, funcObjAlloca);
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* (" + llvmObjToString(pyFuncObj) + ") into AllocaInst: " + llvmObjToString(funcObjAlloca) + " in block " + llvmObjToString(currentBlock));
+#endif
+
+            // Increment ref count of the *new* object, as the alloca now holds a reference
+            runtime->incRef(pyFuncObj);
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "IncRef'd new PyObject* (" + llvmObjToString(pyFuncObj) + ") for nested function storage.");
+#endif
+        }
+        else
+        {
+            codeGen.logError("Cannot find insert block to store nested function object " + pyFuncName, line, col);
+            storage = nullptr;  // Mark storage as failed
+        }
+    }
+
+    // --- 步骤 5: 调用 PySymbolTable 绑定/更新存储位置 ---
+    if (storage)
+    {
+// Bind the Python name `pyFuncName` to the `storage` location (AllocaInst* or GlobalVariable*)
+// This handles both initial definition and re-binding (overwriting).
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Binding/Rebinding SymbolTable entry for '" + pyFuncName + "' to storage: " + llvmObjToString(storage));
+#endif
+        symTable.setVariable(pyFuncName, storage, funcObjectType);
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "SymbolTable binding confirmed/updated for '" + pyFuncName + "'.");
+#endif
+    }
+    else
+    {
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Skipping SymbolTable update for '" + pyFuncName + "' due to storage failure.");
+#endif
+    }
+
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Leaving handleFunctionDefStmt for '" + pyFuncName + "'");
+#endif
+
+    // Reference Counting Summary:
+    // - py_create_function returns +1 ref (pyFuncObj).
+    // - Top-level: GV holds the ref. Overwriting GV needs careful DecRef (currently simplified).
+    // - Nested:
+    //    - Overwrite: Load old (+0), DecRef old (-1), Store new (+0), IncRef new (+1). Net: Alloca holds +1 ref to new obj.
+    //    - New: Store new (+0), IncRef new (+1). Net: Alloca holds +1 ref to new obj.
+    // - SymbolTable::popScope needs to load from AllocaInsts and DecRef them.
+}
 
 llvm::Value* CodeGenStmt::handleCondition(const ExprAST* condition)
 {
@@ -831,373 +909,387 @@ void CodeGenStmt::findAssignedVariablesInStmt(StmtAST* stmt, std::set<std::strin
 
 void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 {
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("Entering handleWhileStmt");
-        if (stmt->line) DEBUG_LOG("  Source Line: " + std::to_string(*stmt->line));
-    #endif
-    
-        auto& builder = codeGen.getBuilder();
-        auto* runtime = codeGen.getRuntimeGen();
-        auto& context = codeGen.getContext();
-        auto& symTable = codeGen.getSymbolTable();
-        llvm::Type* pyObjectPtrType = llvm::PointerType::get(context, 0); // PyObject*
-    
-        llvm::Function* func = codeGen.getCurrentFunction();
-        if (!func)
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("Entering handleWhileStmt");
+    if (stmt->line) DEBUG_LOG("  Source Line: " + std::to_string(*stmt->line));
+#endif
+
+    auto& builder = codeGen.getBuilder();
+    auto* runtime = codeGen.getRuntimeGen();
+    auto& context = codeGen.getContext();
+    auto& symTable = codeGen.getSymbolTable();
+    llvm::Type* pyObjectPtrType = llvm::PointerType::get(context, 0);  // PyObject*
+
+    llvm::Function* func = codeGen.getCurrentFunction();
+    if (!func)
+    {
+        codeGen.logError("Cannot generate while loop outside a function.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("  ERROR: Not inside a function. Aborting.");
+#endif
+        return;
+    }
+
+    // --- 1. 创建基本块 ---
+    llvm::BasicBlock* preheaderBB = builder.GetInsertBlock();
+    llvm::BasicBlock* condBB = codeGen.createBasicBlock("while.cond", func);
+    llvm::BasicBlock* bodyBB = codeGen.createBasicBlock("while.body", func);
+    llvm::BasicBlock* endBB = codeGen.createBasicBlock("while.end", func);
+
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [1] Created Basic Blocks:");
+    DEBUG_LOG("      Preheader: " + llvmObjToString(preheaderBB));
+    DEBUG_LOG("      Condition: " + llvmObjToString(condBB));
+    DEBUG_LOG("      Body:      " + llvmObjToString(bodyBB));
+    DEBUG_LOG("      End:       " + llvmObjToString(endBB));
+#endif
+
+    // --- 2. 识别循环中修改的变量 ---
+    std::set<std::string> assignedInBody;
+    for (const auto& bodyStmt : stmt->getBody())
+    {
+        findAssignedVariablesInStmt(bodyStmt.get(), assignedInBody);
+    }
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [2] Variables assigned in body:");
+    if (assignedInBody.empty())
+    {
+        DEBUG_LOG("      None");
+    }
+    else
+    {
+        for (const auto& name : assignedInBody)
         {
-            codeGen.logError("Cannot generate while loop outside a function.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
-    #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("  ERROR: Not inside a function. Aborting.");
-    #endif
-            return;
+            DEBUG_LOG("      - " + name);
         }
-    
-        // --- 1. 创建基本块 ---
-        llvm::BasicBlock* preheaderBB = builder.GetInsertBlock();
-        llvm::BasicBlock* condBB = codeGen.createBasicBlock("while.cond", func);
-        llvm::BasicBlock* bodyBB = codeGen.createBasicBlock("while.body", func);
-        llvm::BasicBlock* endBB = codeGen.createBasicBlock("while.end", func);
-    
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [1] Created Basic Blocks:");
-        DEBUG_LOG("      Preheader: " + llvmObjToString(preheaderBB));
-        DEBUG_LOG("      Condition: " + llvmObjToString(condBB));
-        DEBUG_LOG("      Body:      " + llvmObjToString(bodyBB));
-        DEBUG_LOG("      End:       " + llvmObjToString(endBB));
-    #endif
-    
-        // --- 2. 识别循环中修改的变量 ---
-        std::set<std::string> assignedInBody;
-        for (const auto& bodyStmt : stmt->getBody())
+    }
+#endif
+
+    // 保存循环前的信息
+    std::map<std::string, llvm::Value*> storageBeforeLoop;  // Store AllocaInst* or GlobalVariable*
+    std::map<std::string, ObjectType*> typeBeforeLoop;
+    std::map<std::string, llvm::PHINode*> phiNodes;
+    std::map<std::string, llvm::Value*> initialValueForPHI;  // Store the loaded value for the preheader edge
+
+    // --- 3. 从 Preheader 跳转到 Condition ---
+    builder.CreateBr(condBB);
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [3] Created branch from Preheader (" + llvmObjToString(preheaderBB) + ") to Condition (" + llvmObjToString(condBB) + ")");
+#endif
+
+    // --- 4. Condition Block ---
+    builder.SetInsertPoint(condBB);
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [4] Set insert point to Condition block (" + llvmObjToString(condBB) + ")");
+#endif
+
+    // --- 5. 创建 PHI 节点 ---
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [5] Creating PHI nodes:");
+#endif
+    for (const std::string& varName : assignedInBody)
+    {
+        llvm::Value* storage = symTable.getVariable(varName);  // Get AllocaInst* or GlobalVariable*
+        ObjectType* varType = symTable.getVariableType(varName);
+
+        if (storage && varType)
         {
-            findAssignedVariablesInStmt(bodyStmt.get(), assignedInBody);
-        }
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [2] Variables assigned in body:");
-        if (assignedInBody.empty())
-        {
-            DEBUG_LOG("      None");
-        }
-        else
-        {
-            for (const auto& name : assignedInBody)
+            storageBeforeLoop[varName] = storage;  // Save storage location
+            typeBeforeLoop[varName] = varType;     // Save type
+
+            // Load the initial value *in the preheader* to feed the PHI
+            llvm::Instruction* loadInst = nullptr;
+            llvm::IRBuilder<> preheaderBuilder(preheaderBB->getTerminator());  // Build right before the Br
+            if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(storage))
             {
-                DEBUG_LOG("      - " + name);
-            }
-        }
-    #endif
-    
-        // 保存循环前的信息
-        std::map<std::string, llvm::Value*> storageBeforeLoop; // Store AllocaInst* or GlobalVariable*
-        std::map<std::string, ObjectType*> typeBeforeLoop;
-        std::map<std::string, llvm::PHINode*> phiNodes;
-        std::map<std::string, llvm::Value*> initialValueForPHI; // Store the loaded value for the preheader edge
-    
-        // --- 3. 从 Preheader 跳转到 Condition ---
-        builder.CreateBr(condBB);
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [3] Created branch from Preheader (" + llvmObjToString(preheaderBB) + ") to Condition (" + llvmObjToString(condBB) + ")");
-    #endif
-    
-        // --- 4. Condition Block ---
-        builder.SetInsertPoint(condBB);
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [4] Set insert point to Condition block (" + llvmObjToString(condBB) + ")");
-    #endif
-    
-        // --- 5. 创建 PHI 节点 ---
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [5] Creating PHI nodes:");
-    #endif
-        for (const std::string& varName : assignedInBody)
-        {
-            llvm::Value* storage = symTable.getVariable(varName); // Get AllocaInst* or GlobalVariable*
-            ObjectType* varType = symTable.getVariableType(varName);
-    
-            if (storage && varType)
-            {
-                storageBeforeLoop[varName] = storage; // Save storage location
-                typeBeforeLoop[varName] = varType;    // Save type
-    
-                // Load the initial value *in the preheader* to feed the PHI
-                llvm::Instruction* loadInst = nullptr;
-                llvm::IRBuilder<> preheaderBuilder(preheaderBB->getTerminator()); // Build right before the Br
-                if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(storage)) {
-                     if (allocaInst->getAllocatedType() != pyObjectPtrType) {
-                         codeGen.logError("Internal error: Storage for local variable '" + varName + "' is not PyObject**.", stmt->line.value_or(0), stmt->column.value_or(0));
-                         // Handle error appropriately, maybe skip PHI or return
-                         continue;
-                     }
-                     loadInst = preheaderBuilder.CreateLoad(pyObjectPtrType, allocaInst, varName + "_init");
-                } else if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(storage)) {
-                     if (gv->getValueType() != pyObjectPtrType) {
-                         codeGen.logError("Internal error: Storage for global variable '" + varName + "' is not PyObject**.", stmt->line.value_or(0), stmt->column.value_or(0));
-                         continue;
-                     }
-                     loadInst = preheaderBuilder.CreateLoad(pyObjectPtrType, gv, varName + "_init_global");
-                } else {
-                     // This case (direct PyObject*) shouldn't happen for assignable variables needing PHI
-                     codeGen.logError("Internal error: Unexpected storage type for PHI node variable '" + varName + "'.", stmt->line.value_or(0), stmt->column.value_or(0));
-                     continue;
+                if (allocaInst->getAllocatedType() != pyObjectPtrType)
+                {
+                    codeGen.logError("Internal error: Storage for local variable '" + varName + "' is not PyObject**.", stmt->line.value_or(0), stmt->column.value_or(0));
+                    // Handle error appropriately, maybe skip PHI or return
+                    continue;
                 }
-    
-                initialValueForPHI[varName] = loadInst; // Save the loaded initial value
-    
-    #ifdef DEBUG_WhileSTmt
-                DEBUG_LOG("      Processing variable: '" + varName + "'");
-                DEBUG_LOG("        Storage (from preheader scope): " + llvmObjToString(storage));
-                DEBUG_LOG("        Initial Value (loaded in preheader): " + llvmObjToString(loadInst));
-                DEBUG_LOG("        Initial Type: " + (varType ? varType->getName() : "<null ObjectType>"));
-                DEBUG_LOG("        LLVM Type for PHI: " + llvmObjToString(pyObjectPtrType)); // PHI holds PyObject*
-    #endif
-                // PHI node type should be the value type (PyObject*), not the storage type (PyObject**)
-                llvm::PHINode* phi = builder.CreatePHI(pyObjectPtrType, 2, varName + ".phi");
-    #ifdef DEBUG_WhileSTmt
-                DEBUG_LOG("        Created PHI node: " + llvmObjToString(phi));
-    #endif
-                phi->addIncoming(loadInst, preheaderBB); // Edge 1: From preheaderBB (use loaded value)
-    #ifdef DEBUG_WhileSTmt
-                DEBUG_LOG("        Added incoming edge to PHI: [" + llvmObjToString(loadInst) + ", from " + llvmObjToString(preheaderBB) + "]");
-    #endif
-                phiNodes[varName] = phi;
-    
-                // --- CRITICAL CHANGE: DO NOT update symbol table with PHI here ---
-                // symTable.setVariable(varName, phi, varType); // <<<--- REMOVED
-    #ifdef DEBUG_WhileSTmt
-                // DEBUG_LOG("        Symbol table for '" + varName + "' REMAINS pointing to storage: " + llvmObjToString(storage));
-    #endif
+                loadInst = preheaderBuilder.CreateLoad(pyObjectPtrType, allocaInst, varName + "_init");
+            }
+            else if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(storage))
+            {
+                if (gv->getValueType() != pyObjectPtrType)
+                {
+                    codeGen.logError("Internal error: Storage for global variable '" + varName + "' is not PyObject**.", stmt->line.value_or(0), stmt->column.value_or(0));
+                    continue;
+                }
+                loadInst = preheaderBuilder.CreateLoad(pyObjectPtrType, gv, varName + "_init_global");
             }
             else
             {
-    #ifdef DEBUG_WhileSTmt
-                DEBUG_LOG("      Skipping PHI for variable '" + varName + "' (storage or type missing in preheader scope).");
-    #endif
+                // This case (direct PyObject*) shouldn't happen for assignable variables needing PHI
+                codeGen.logError("Internal error: Unexpected storage type for PHI node variable '" + varName + "'.", stmt->line.value_or(0), stmt->column.value_or(0));
+                continue;
             }
-        }
-    
-        // --- 6. 生成条件判断代码 ---
-        //    The condition might use loop variables. handleVariableExpr needs to load
-        //    the *current* value for this iteration, which comes from the PHI node.
-        //    Temporarily update the symbol table *just for condition generation*.
-        std::map<std::string, llvm::Value*> originalValuesInSymTable;
-        for (const auto& [name, phi] : phiNodes) {
-            originalValuesInSymTable[name] = symTable.getVariable(name); // Save original storage ptr
-            symTable.setVariable(name, phi, typeBeforeLoop[name]); // Temporarily point to PHI
-    #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Temporarily updating symtable for '" + name + "' to PHI for condition generation.");
-    #endif
-        }
-    
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [6] Generating condition code (using PHI values)...");
-    #endif
-        llvm::Value* condValue = handleCondition(stmt->getCondition());
-    
-        // Restore symbol table *after* condition generation
-        for (const auto& [name, originalStorage] : originalValuesInSymTable) {
-            symTable.setVariable(name, originalStorage, typeBeforeLoop[name]); // Restore original storage ptr
-    #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Restoring symtable for '" + name + "' back to storage ptr after condition generation.");
-    #endif
-        }
-    
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("      Generated condition value: " + llvmObjToString(condValue));
-    #endif
-        if (!condValue)
-        {
-    #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      ERROR: Condition generation failed.");
-    #endif
-            // Error handling: No need to restore symbol table here as it was already restored.
-            // Just ensure control flow is correct.
-            if (builder.GetInsertBlock() && !builder.GetInsertBlock()->getTerminator())
-            {
-                builder.CreateBr(endBB);
-            }
-            builder.SetInsertPoint(endBB);
-            codeGen.logError("Failed to generate condition for while loop.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
-    #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Jumped to end block (" + llvmObjToString(endBB) + "). Aborting loop generation.");
-    #endif
-            return;
-        }
-    
-        // --- 7. 创建条件分支 ---
-        llvm::BasicBlock* currentCondExitBlock = builder.GetInsertBlock();
-        builder.CreateCondBr(condValue, bodyBB, endBB);
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [7] Created conditional branch from " + llvmObjToString(currentCondExitBlock) + " based on " + llvmObjToString(condValue) + ":");
-        DEBUG_LOG("      True -> Body (" + llvmObjToString(bodyBB) + ")");
-        DEBUG_LOG("      False -> End (" + llvmObjToString(endBB) + ")");
-    #endif
-    
-        // --- 8. Loop Body Block ---
-        builder.SetInsertPoint(bodyBB);
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [8] Set insert point to Body block (" + llvmObjToString(bodyBB) + ")");
-        DEBUG_LOG("      Processing loop body statements (using storage values)...");
-    #endif
-        // Inside the body, handleVariableExpr and handleAssignStmt will use the
-        // storage pointers (AllocaInst*/GlobalVariable*) still present in the symbol table.
-    
-        // --- 8.1 Update symbol table for body execution ---
-        // The *first* use of a loop variable in the body should get the value from the PHI.
-        // Subsequent uses/assignments within the *same* iteration operate on the storage.
-        // So, load the PHI value and store it into the Alloca at the beginning of the body.
-        for (const auto& [name, phi] : phiNodes) {
-            llvm::Value* storage = storageBeforeLoop[name]; // Get the AllocaInst* or GlobalVariable*
-            llvm::Value* phiValue = phi; // The PHI node itself represents the value at the start of condBB
-    
-            // Need to get the value *from* the PHI node *in the body block*.
-            // The PHI node lives in condBB. We need its value as we enter bodyBB.
-            // This requires careful handling. A simpler approach for now:
-            // Load the value from storage *before* the loop body statements.
-            // This might be incorrect if the first statement *assigns* before reading.
-            // A more robust SSA approach would be needed for perfect handling.
-    
-            // Let's stick to the simpler model: assignments/reads in the body use the storage.
-            // The PHI node is primarily for merging values for the *next* condition check.
-    #ifdef DEBUG_WhileSTmt
-             DEBUG_LOG("      Symtable for '" + name + "' in body points to storage: " + llvmObjToString(storage));
-    #endif
-        }
-    
-    
-        // Process loop body statements
-        for (auto& bodyStmt : stmt->getBody())
-        {
-            handleStmt(bodyStmt.get());
-            llvm::BasicBlock* currentBodyBlock = codeGen.getBuilder().GetInsertBlock();
-            if (!currentBodyBlock || currentBodyBlock->getTerminator())
-            {
-    #ifdef DEBUG_WhileSTmt
-                DEBUG_LOG("      Loop body terminated early (return/break/continue detected in block " + llvmObjToString(currentBodyBlock) + ").");
-    #endif
-                break;
-            }
-        }
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("      Finished processing loop body statements.");
-    #endif
-    
-        // --- 9. Latch Logic ---
-        llvm::BasicBlock* latchBB = builder.GetInsertBlock();
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [9] Latch Logic:");
-        DEBUG_LOG("      Determined Latch block (current insert block after body): " + llvmObjToString(latchBB));
-    #endif
-        std::map<std::string, llvm::Value*> valueFromLatch; // Stores the PyObject* value loaded at the end of the latch
-    
-        bool loopTerminatedNaturally = latchBB && !latchBB->getTerminator();
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("      Checking if Latch block (" + llvmObjToString(latchBB) + ") is valid and has no terminator: " + (loopTerminatedNaturally ? "Yes" : "No"));
-    #endif
-    
-        if (loopTerminatedNaturally)
-        {
-    #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Latch block is valid and has no terminator. Processing back edge:");
-    #endif
-            // Get the final value of variables *at the end of the latch block* by loading from storage
-            for (const auto& [name, phi] : phiNodes)
-            {
-                llvm::Value* storage = storageBeforeLoop[name]; // Get original AllocaInst* or GlobalVariable*
-                llvm::Value* finalVal = nullptr;
-                if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(storage)) {
-                     finalVal = builder.CreateLoad(pyObjectPtrType, allocaInst, name + "_latch_val");
-                } else if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(storage)) {
-                     finalVal = builder.CreateLoad(pyObjectPtrType, gv, name + "_latch_val_global");
-                } else {
-                     codeGen.logError("Internal error: Invalid storage type for '" + name + "' in latch.", stmt->line.value_or(0), stmt->column.value_or(0));
-                     finalVal = llvm::UndefValue::get(pyObjectPtrType); // Use Undef on error
-                }
-    
-    #ifdef DEBUG_WhileSTmt
-                DEBUG_LOG("        Getting final value for PHI '" + name + "' by loading from storage (" + llvmObjToString(storage) + ") in latch block (" + llvmObjToString(latchBB) + "): " + llvmObjToString(finalVal));
-    #endif
-                valueFromLatch[name] = finalVal;
-            }
-    
-            // Clean up temporary objects for this iteration
-    #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Cleaning up temporary objects for this iteration...");
-    #endif
-            runtime->cleanupTemporaryObjects();
-    
-            // Create back edge: Latch -> Cond
-            builder.CreateBr(condBB);
-    #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Created back edge branch from Latch (" + llvmObjToString(latchBB) + ") to Condition (" + llvmObjToString(condBB) + ")");
-    #endif
-        }
-        // else: latchBB invalid or terminated, no back edge needed.
-    
-        // --- 10. 添加 PHI 节点的第二个传入边 (来自 latch) ---
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [10] Adding second incoming edges to PHI nodes (in block " + llvmObjToString(condBB) + "):");
-    #endif
-        if (loopTerminatedNaturally)
-        {
-    #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Loop body finished naturally. Adding edges from Latch (" + llvmObjToString(latchBB) + ")");
-    #endif
-            for (const auto& [name, phi] : phiNodes)
-            {
-                if (valueFromLatch.count(name))
-                {
-                    llvm::Value* latchValue = valueFromLatch[name]; // This is the loaded PyObject*
-    #ifdef DEBUG_WhileSTmt
-                    DEBUG_LOG("        Adding incoming edge to PHI '" + name + "' (" + llvmObjToString(phi) + "): [" + llvmObjToString(latchValue) + ", from " + llvmObjToString(latchBB) + "]");
-    #endif
-                    phi->addIncoming(latchValue, latchBB); // Edge 2: From latchBB
-                }
-                else
-                {
-    #ifdef DEBUG_WhileSTmt
-                    DEBUG_LOG("        ERROR: Latch value missing for PHI node '" + name + "'. Adding UndefValue.");
-    #endif
-                    codeGen.logError("Internal error: Latch value missing for PHI node '" + name + "'.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
-                    phi->addIncoming(llvm::UndefValue::get(phi->getType()), latchBB);
-                }
-            }
+
+            initialValueForPHI[varName] = loadInst;  // Save the loaded initial value
+
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("      Processing variable: '" + varName + "'");
+            DEBUG_LOG("        Storage (from preheader scope): " + llvmObjToString(storage));
+            DEBUG_LOG("        Initial Value (loaded in preheader): " + llvmObjToString(loadInst));
+            DEBUG_LOG("        Initial Type: " + (varType ? varType->getName() : "<null ObjectType>"));
+            DEBUG_LOG("        LLVM Type for PHI: " + llvmObjToString(pyObjectPtrType));  // PHI holds PyObject*
+#endif
+            // PHI node type should be the value type (PyObject*), not the storage type (PyObject**)
+            llvm::PHINode* phi = builder.CreatePHI(pyObjectPtrType, 2, varName + ".phi");
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("        Created PHI node: " + llvmObjToString(phi));
+#endif
+            phi->addIncoming(loadInst, preheaderBB);  // Edge 1: From preheaderBB (use loaded value)
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("        Added incoming edge to PHI: [" + llvmObjToString(loadInst) + ", from " + llvmObjToString(preheaderBB) + "]");
+#endif
+            phiNodes[varName] = phi;
+
+            // --- CRITICAL CHANGE: DO NOT update symbol table with PHI here ---
+            // symTable.setVariable(varName, phi, varType); // <<<--- REMOVED
+#ifdef DEBUG_WhileSTmt
+            // DEBUG_LOG("        Symbol table for '" + varName + "' REMAINS pointing to storage: " + llvmObjToString(storage));
+#endif
         }
         else
         {
-    #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Loop body terminated early or latch block invalid. No second incoming edges added from latch block " + llvmObjToString(latchBB) + ".");
-    #endif
-            // If the loop might *never* complete naturally, the PHI node might
-            // only have one incoming edge. LLVM might optimize this, but it's
-            // good practice to ensure PHIs have entries for all *reachable* predecessors.
-            // If latchBB is truly unreachable to condBB, not adding the edge is correct.
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("      Skipping PHI for variable '" + varName + "' (storage or type missing in preheader scope).");
+#endif
         }
-    
-        // --- 11. 循环结束块 (endBB) ---
+    }
+
+    // --- 6. 生成条件判断代码 ---
+    //    The condition might use loop variables. handleVariableExpr needs to load
+    //    the *current* value for this iteration, which comes from the PHI node.
+    //    Temporarily update the symbol table *just for condition generation*.
+    std::map<std::string, llvm::Value*> originalValuesInSymTable;
+    for (const auto& [name, phi] : phiNodes)
+    {
+        originalValuesInSymTable[name] = symTable.getVariable(name);  // Save original storage ptr
+        symTable.setVariable(name, phi, typeBeforeLoop[name]);        // Temporarily point to PHI
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Temporarily updating symtable for '" + name + "' to PHI for condition generation.");
+#endif
+    }
+
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [6] Generating condition code (using PHI values)...");
+#endif
+    llvm::Value* condValue = handleCondition(stmt->getCondition());
+
+    // Restore symbol table *after* condition generation
+    for (const auto& [name, originalStorage] : originalValuesInSymTable)
+    {
+        symTable.setVariable(name, originalStorage, typeBeforeLoop[name]);  // Restore original storage ptr
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Restoring symtable for '" + name + "' back to storage ptr after condition generation.");
+#endif
+    }
+
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("      Generated condition value: " + llvmObjToString(condValue));
+#endif
+    if (!condValue)
+    {
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      ERROR: Condition generation failed.");
+#endif
+        // Error handling: No need to restore symbol table here as it was already restored.
+        // Just ensure control flow is correct.
+        if (builder.GetInsertBlock() && !builder.GetInsertBlock()->getTerminator())
+        {
+            builder.CreateBr(endBB);
+        }
         builder.SetInsertPoint(endBB);
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [11] Set insert point to End block (" + llvmObjToString(endBB) + ")");
-    #endif
-    
-        // --- 12. Update Symbol Table for Code After Loop ---
-        // After the loop, the value of the variable is represented by the PHI node.
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [12] Updating symbol table for variables modified in loop to use PHI nodes for code after loop:");
-    #endif
+        codeGen.logError("Failed to generate condition for while loop.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Jumped to end block (" + llvmObjToString(endBB) + "). Aborting loop generation.");
+#endif
+        return;
+    }
+
+    // --- 7. 创建条件分支 ---
+    llvm::BasicBlock* currentCondExitBlock = builder.GetInsertBlock();
+    builder.CreateCondBr(condValue, bodyBB, endBB);
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [7] Created conditional branch from " + llvmObjToString(currentCondExitBlock) + " based on " + llvmObjToString(condValue) + ":");
+    DEBUG_LOG("      True -> Body (" + llvmObjToString(bodyBB) + ")");
+    DEBUG_LOG("      False -> End (" + llvmObjToString(endBB) + ")");
+#endif
+
+    // --- 8. Loop Body Block ---
+    builder.SetInsertPoint(bodyBB);
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [8] Set insert point to Body block (" + llvmObjToString(bodyBB) + ")");
+    DEBUG_LOG("      Processing loop body statements (using storage values)...");
+#endif
+    // Inside the body, handleVariableExpr and handleAssignStmt will use the
+    // storage pointers (AllocaInst*/GlobalVariable*) still present in the symbol table.
+
+    // --- 8.1 Update symbol table for body execution ---
+    // The *first* use of a loop variable in the body should get the value from the PHI.
+    // Subsequent uses/assignments within the *same* iteration operate on the storage.
+    // So, load the PHI value and store it into the Alloca at the beginning of the body.
+    for (const auto& [name, phi] : phiNodes)
+    {
+        llvm::Value* storage = storageBeforeLoop[name];  // Get the AllocaInst* or GlobalVariable*
+        llvm::Value* phiValue = phi;                     // The PHI node itself represents the value at the start of condBB
+
+        // Need to get the value *from* the PHI node *in the body block*.
+        // The PHI node lives in condBB. We need its value as we enter bodyBB.
+        // This requires careful handling. A simpler approach for now:
+        // Load the value from storage *before* the loop body statements.
+        // This might be incorrect if the first statement *assigns* before reading.
+        // A more robust SSA approach would be needed for perfect handling.
+
+        // Let's stick to the simpler model: assignments/reads in the body use the storage.
+        // The PHI node is primarily for merging values for the *next* condition check.
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Symtable for '" + name + "' in body points to storage: " + llvmObjToString(storage));
+#endif
+    }
+
+    // Process loop body statements
+    for (auto& bodyStmt : stmt->getBody())
+    {
+        handleStmt(bodyStmt.get());
+        llvm::BasicBlock* currentBodyBlock = codeGen.getBuilder().GetInsertBlock();
+        if (!currentBodyBlock || currentBodyBlock->getTerminator())
+        {
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("      Loop body terminated early (return/break/continue detected in block " + llvmObjToString(currentBodyBlock) + ").");
+#endif
+            break;
+        }
+    }
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("      Finished processing loop body statements.");
+#endif
+
+    // --- 9. Latch Logic ---
+    llvm::BasicBlock* latchBB = builder.GetInsertBlock();
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [9] Latch Logic:");
+    DEBUG_LOG("      Determined Latch block (current insert block after body): " + llvmObjToString(latchBB));
+#endif
+    std::map<std::string, llvm::Value*> valueFromLatch;  // Stores the PyObject* value loaded at the end of the latch
+
+    bool loopTerminatedNaturally = latchBB && !latchBB->getTerminator();
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("      Checking if Latch block (" + llvmObjToString(latchBB) + ") is valid and has no terminator: " + (loopTerminatedNaturally ? "Yes" : "No"));
+#endif
+
+    if (loopTerminatedNaturally)
+    {
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Latch block is valid and has no terminator. Processing back edge:");
+#endif
+        // Get the final value of variables *at the end of the latch block* by loading from storage
         for (const auto& [name, phi] : phiNodes)
         {
-            symTable.setVariable(name, phi, typeBeforeLoop[name]); // Update symbol table to point to PHI
-    #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Updated symbol table for '" + name + "' to use PHI node: " + llvmObjToString(phi));
-    #endif
+            llvm::Value* storage = storageBeforeLoop[name];  // Get original AllocaInst* or GlobalVariable*
+            llvm::Value* finalVal = nullptr;
+            if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(storage))
+            {
+                finalVal = builder.CreateLoad(pyObjectPtrType, allocaInst, name + "_latch_val");
+            }
+            else if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(storage))
+            {
+                finalVal = builder.CreateLoad(pyObjectPtrType, gv, name + "_latch_val_global");
+            }
+            else
+            {
+                codeGen.logError("Internal error: Invalid storage type for '" + name + "' in latch.", stmt->line.value_or(0), stmt->column.value_or(0));
+                finalVal = llvm::UndefValue::get(pyObjectPtrType);  // Use Undef on error
+            }
+
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("        Getting final value for PHI '" + name + "' by loading from storage (" + llvmObjToString(storage) + ") in latch block (" + llvmObjToString(latchBB) + "): " + llvmObjToString(finalVal));
+#endif
+            valueFromLatch[name] = finalVal;
         }
-    
-    #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("Exiting handleWhileStmt");
-    #endif
-        // Code generation continues in endBB. Subsequent uses of loop variables
-        // will now correctly use the PHI nodes.
+
+        // Clean up temporary objects for this iteration
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Cleaning up temporary objects for this iteration...");
+#endif
+        runtime->cleanupTemporaryObjects();
+
+        // Create back edge: Latch -> Cond
+        builder.CreateBr(condBB);
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Created back edge branch from Latch (" + llvmObjToString(latchBB) + ") to Condition (" + llvmObjToString(condBB) + ")");
+#endif
     }
+    // else: latchBB invalid or terminated, no back edge needed.
+
+    // --- 10. 添加 PHI 节点的第二个传入边 (来自 latch) ---
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [10] Adding second incoming edges to PHI nodes (in block " + llvmObjToString(condBB) + "):");
+#endif
+    if (loopTerminatedNaturally)
+    {
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Loop body finished naturally. Adding edges from Latch (" + llvmObjToString(latchBB) + ")");
+#endif
+        for (const auto& [name, phi] : phiNodes)
+        {
+            if (valueFromLatch.count(name))
+            {
+                llvm::Value* latchValue = valueFromLatch[name];  // This is the loaded PyObject*
+#ifdef DEBUG_WhileSTmt
+                DEBUG_LOG("        Adding incoming edge to PHI '" + name + "' (" + llvmObjToString(phi) + "): [" + llvmObjToString(latchValue) + ", from " + llvmObjToString(latchBB) + "]");
+#endif
+                phi->addIncoming(latchValue, latchBB);  // Edge 2: From latchBB
+            }
+            else
+            {
+#ifdef DEBUG_WhileSTmt
+                DEBUG_LOG("        ERROR: Latch value missing for PHI node '" + name + "'. Adding UndefValue.");
+#endif
+                codeGen.logError("Internal error: Latch value missing for PHI node '" + name + "'.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
+                phi->addIncoming(llvm::UndefValue::get(phi->getType()), latchBB);
+            }
+        }
+    }
+    else
+    {
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Loop body terminated early or latch block invalid. No second incoming edges added from latch block " + llvmObjToString(latchBB) + ".");
+#endif
+        // If the loop might *never* complete naturally, the PHI node might
+        // only have one incoming edge. LLVM might optimize this, but it's
+        // good practice to ensure PHIs have entries for all *reachable* predecessors.
+        // If latchBB is truly unreachable to condBB, not adding the edge is correct.
+    }
+
+    // --- 11. 循环结束块 (endBB) ---
+    builder.SetInsertPoint(endBB);
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [11] Set insert point to End block (" + llvmObjToString(endBB) + ")");
+#endif
+
+    // --- 12. Update Symbol Table for Code After Loop ---
+    // After the loop, the value of the variable is represented by the PHI node.
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("  [12] Updating symbol table for variables modified in loop to use PHI nodes for code after loop:");
+#endif
+    for (const auto& [name, phi] : phiNodes)
+    {
+        symTable.setVariable(name, phi, typeBeforeLoop[name]);  // Update symbol table to point to PHI
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("      Updated symbol table for '" + name + "' to use PHI node: " + llvmObjToString(phi));
+#endif
+    }
+
+#ifdef DEBUG_WhileSTmt
+    DEBUG_LOG("Exiting handleWhileStmt");
+#endif
+    // Code generation continues in endBB. Subsequent uses of loop variables
+    // will now correctly use the PHI nodes.
+}
 
 void CodeGenStmt::handlePrintStmt(PrintStmtAST* stmt)
 {

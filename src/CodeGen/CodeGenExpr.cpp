@@ -168,44 +168,53 @@ llvm::Value* CodeGenExpr::handleVariableExpr(VariableExprAST* expr)
     auto& symTable = codeGen.getSymbolTable();
     auto& builder = codeGen.getBuilder();
     auto& context = codeGen.getContext();
-    llvm::Type* pyObjectPtrType = llvm::PointerType::get(context, 0); // PyObject*
+    llvm::Type* pyObjectPtrType = llvm::PointerType::get(context, 0);  // PyObject*
 
     llvm::Value* valueOrStorage = symTable.getVariable(name);
-    ObjectType* type = symTable.getVariableType(name); // 获取类型信息
+    ObjectType* type = symTable.getVariableType(name);  // 获取类型信息
 
-    if (!valueOrStorage) {
+    if (!valueOrStorage)
+    {
         // --- 尝试查找函数 AST (作为函数对象) ---
         const FunctionAST* funcAST = symTable.findFunctionAST(name);
-        if (funcAST) {
+        if (funcAST)
+        {
 #ifdef DEBUG_CODEGEN_handleVariableExpr
             DEBUG_LOG_DETAIL("HdlVarExpr", "Found FunctionAST for '" + name + "'. Treating as function object.");
 #endif
             // 获取代表函数对象的全局变量
-            std::string gvName = name + "_obj_gv"; // 与 CodeGenModule 中创建 GV 的名称一致
+            std::string gvName = name + "_obj_gv";  // 与 CodeGenModule 中创建 GV 的名称一致
             llvm::GlobalVariable* funcObjGV = codeGen.getModule()->getGlobalVariable(gvName);
 
-            if (!funcObjGV) {
+            if (!funcObjGV)
+            {
                 return codeGen.logError("Cannot find global variable '" + gvName + "' for function object '" + name + "'.",
                                         expr->line.value_or(0), expr->column.value_or(0));
             }
-             if (funcObjGV->getValueType() != pyObjectPtrType) {
-                 return codeGen.logError("Global variable '" + gvName + "' for function object '" + name + "' does not hold PyObject*.",
-                                         expr->line.value_or(0), expr->column.value_or(0));
-             }
+            if (funcObjGV->getValueType() != pyObjectPtrType)
+            {
+                return codeGen.logError("Global variable '" + gvName + "' for function object '" + name + "' does not hold PyObject*.",
+                                        expr->line.value_or(0), expr->column.value_or(0));
+            }
 
             // 加载函数对象
             llvm::Value* loadedFuncObj = builder.CreateLoad(pyObjectPtrType, funcObjGV, name + "_func_obj_loaded");
 
             // 设置类型
             ObjectType* funcObjType = codeGen.getTypeGen()->getFunctionObjectType(funcAST);
-            if (funcObjType) {
-                 expr->setType(PyType::fromObjectType(funcObjType));
-            } else {
-                 expr->setType(PyType::getAny());
-                 codeGen.logWarning("Could not determine ObjectType for function '" + name + "'. Assuming Any.", expr->line.value_or(0), expr->column.value_or(0));
+            if (funcObjType)
+            {
+                expr->setType(PyType::fromObjectType(funcObjType));
+            }
+            else
+            {
+                expr->setType(PyType::getAny());
+                codeGen.logWarning("Could not determine ObjectType for function '" + name + "'. Assuming Any.", expr->line.value_or(0), expr->column.value_or(0));
             }
             return loadedFuncObj;
-        } else {
+        }
+        else
+        {
             // 既不是变量也不是函数 AST
             return codeGen.logError("Unknown variable or function '" + name + "'",
                                     expr->line.value_or(0), expr->column.value_or(0));
@@ -215,9 +224,11 @@ llvm::Value* CodeGenExpr::handleVariableExpr(VariableExprAST* expr)
     // --- 变量存在于符号表中 ---
     llvm::Value* loadedValue = nullptr;
 
-    if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(valueOrStorage)) {
+    if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(valueOrStorage))
+    {
         // --- 局部变量 (AllocaInst*) ---
-        if (allocaInst->getAllocatedType() != pyObjectPtrType) {
+        if (allocaInst->getAllocatedType() != pyObjectPtrType)
+        {
             return codeGen.logError("Internal error: Storage for local variable '" + name + "' is not PyObject**.",
                                     expr->line.value_or(0), expr->column.value_or(0));
         }
@@ -226,9 +237,12 @@ llvm::Value* CodeGenExpr::handleVariableExpr(VariableExprAST* expr)
 #ifdef DEBUG_CODEGEN_handleVariableExpr
         DEBUG_LOG_DETAIL("HdlVarExpr", "Loaded value from AllocaInst '" + name + "': " + llvmObjToString(loadedValue));
 #endif
-    } else if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(valueOrStorage)) {
+    }
+    else if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(valueOrStorage))
+    {
         // --- 全局变量 (GlobalVariable*) ---
-        if (gv->getValueType() != pyObjectPtrType) {
+        if (gv->getValueType() != pyObjectPtrType)
+        {
             return codeGen.logError("Internal error: Storage for global variable '" + name + "' is not PyObject**.",
                                     expr->line.value_or(0), expr->column.value_or(0));
         }
@@ -237,29 +251,35 @@ llvm::Value* CodeGenExpr::handleVariableExpr(VariableExprAST* expr)
 #ifdef DEBUG_CODEGEN_handleVariableExpr
         DEBUG_LOG_DETAIL("HdlVarExpr", "Loaded value from GlobalVariable '" + name + "': " + llvmObjToString(loadedValue));
 #endif
-    } else if (valueOrStorage->getType() == pyObjectPtrType) {
-         // --- 直接是 PyObject* (例如函数参数) ---
-         // 不需要 load
-         loadedValue = valueOrStorage;
+    }
+    else if (valueOrStorage->getType() == pyObjectPtrType)
+    {
+        // --- 直接是 PyObject* (例如函数参数) ---
+        // 不需要 load
+        loadedValue = valueOrStorage;
 #ifdef DEBUG_CODEGEN_handleVariableExpr
-         DEBUG_LOG_DETAIL("HdlVarExpr", "Using direct PyObject* for variable '" + name + "': " + llvmObjToString(loadedValue));
+        DEBUG_LOG_DETAIL("HdlVarExpr", "Using direct PyObject* for variable '" + name + "': " + llvmObjToString(loadedValue));
 #endif
     }
-    else {
+    else
+    {
         // 符号表中的值类型未知或不正确
         return codeGen.logError("Internal error: Unexpected value type in symbol table for variable '" + name + "'.",
                                 expr->line.value_or(0), expr->column.value_or(0));
     }
 
     // 设置表达式的类型
-    if (type) {
+    if (type)
+    {
         expr->setType(PyType::fromObjectType(type));
-    } else {
-        expr->setType(PyType::getAny()); // 回退
+    }
+    else
+    {
+        expr->setType(PyType::getAny());  // 回退
         codeGen.logWarning("Type information missing for variable '" + name + "'. Assuming Any.", expr->line.value_or(0), expr->column.value_or(0));
     }
 
-    return loadedValue; // 返回加载后的 PyObject*
+    return loadedValue;  // 返回加载后的 PyObject*
 }
 
 // 处理二元操作表达式
@@ -303,9 +323,9 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
 
     const std::string& calleeName = expr->getCallee();
 
-    llvm::Value* callableValue = nullptr; // Can be llvm::Function* or PyObject* GV
+    llvm::Value* callableValue = nullptr;  // Can be llvm::Function* or PyObject* GV
     std::shared_ptr<PyType> callableType = nullptr;
-    bool isDirectCall = false; // Flag to indicate direct LLVM call
+    bool isDirectCall = false;  // Flag to indicate direct LLVM call
 
     // 1. Check if it's a variable in the symbol table
     if (symTable.hasVariable(calleeName))
@@ -325,7 +345,7 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
         }
         else
         {
-            callableValue = varValue; // Should already be PyObject* (e.g., nested func)
+            callableValue = varValue;  // Should already be PyObject* (e.g., nested func)
         }
 
         if (!callableType->isFunction() && !callableType->isAny())
@@ -346,60 +366,50 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
             DEBUG_LOG_DETAIL("HdlCallExpr", "Found FunctionAST for '" + calleeName + "' in symbol table.");
 #endif
             // Get LLVM function info from the module cache
-            FunctionDefInfo* funcInfo = codeGen.getModuleGen()->getFunctionInfo(calleeName);
-            llvm::Function* llvmFunc = funcInfo ? funcInfo->function : nullptr;
+            llvm::Function* llvmFunc = codeGen.getModuleGen()->getCachedFunction(funcAST);
 
-            if (!llvmFunc) {
-                 // This error should not happen now with the pre-caching
-                 return codeGen.logError("Internal Error: Found FunctionAST for '" + calleeName + "' but failed to get LLVM function from cache (should be pre-cached).",
-                                         expr->line.value_or(0), expr->column.value_or(0));
+            if (!llvmFunc)
+            {
+                // This error should not happen now with the pre-caching
+                return codeGen.logError("Internal Error: Found FunctionAST for '" + calleeName + "' but failed to get LLVM function from cache (should be pre-cached).",
+                                        expr->line.value_or(0), expr->column.value_or(0));
             }
 
             // Get the function's type
             ObjectType* funcObjType = codeGen.getTypeGen()->getFunctionObjectType(funcAST);
-            if (!funcObjType || funcObjType->getCategory() != ObjectType::Function) {
-                 return codeGen.logError("Found FunctionAST for '" + calleeName + "' but failed to get valid ObjectType.",
-                                         expr->line.value_or(0), expr->column.value_or(0));
+            if (!funcObjType || funcObjType->getCategory() != ObjectType::Function)
+            {
+                return codeGen.logError("Found FunctionAST for '" + calleeName + "' but failed to get valid ObjectType.",
+                                        expr->line.value_or(0), expr->column.value_or(0));
             }
             callableType = PyType::fromObjectType(funcObjType);
 
-            // --- NEW LOGIC: Check for Recursion ---
-            if (llvmFunc == codeGen.getCurrentFunction()) {
-                // RECURSION DETECTED! Prepare for a direct LLVM call.
-                isDirectCall = true;
-                callableValue = llvmFunc; // Store the llvm::Function* itself
+            // --- REVISED LOGIC ---
+            // If we found the FunctionAST and its corresponding LLVM Function,
+            // we can perform a direct call. No need to load from _obj_gv here.
+            isDirectCall = true;
+            callableValue = llvmFunc;  // Store the llvm::Function* itself
 #ifdef DEBUG_CODEGEN_handleCallExpr
+            if (llvmFunc == codeGen.getCurrentFunction())
+            {
                 DEBUG_LOG_DETAIL("HdlCallExpr", "Detected RECURSIVE call to '" + calleeName + "'. Will generate direct call.");
-#endif
-            } else {
-                // Not recursion, treat as a call to another defined function.
-                // Load the PyObject* from the global variable.
-                isDirectCall = false;
-                std::string gvName = calleeName + "_obj_gv";
-                llvm::GlobalVariable* funcObjGV = codeGen.getModule()->getGlobalVariable(gvName);
-
-                if (funcObjGV) {
-                     callableValue = builder.CreateLoad(funcObjGV->getValueType(), funcObjGV, calleeName + "_callable_loaded_from_ast");
-#ifdef DEBUG_CODEGEN_handleCallExpr
-                     DEBUG_LOG_DETAIL("HdlCallExpr", "Loaded callable object for '" + calleeName + "' from GlobalVariable: " + llvmObjToString(callableValue));
-#endif
-                } else {
-                     // This might still happen if called before the GV is initialized in __llvmpy_entry
-                     // or if there's a forward declaration scenario not yet handled.
-                     return codeGen.logError("Found FunctionAST for '" + calleeName + "' but could not find its GlobalVariable '" + gvName + "'. Forward call or initialization order issue?",
-                                             expr->line.value_or(0), expr->column.value_or(0));
-                }
             }
+            else
+            {
+                DEBUG_LOG_DETAIL("HdlCallExpr", "Detected call to known function '" + calleeName + "' (possibly outer scope). Will generate direct call.");
+            }
+#endif
+            // --- END REVISED LOGIC ---
         }
         else
         {
-             // --- MODIFICATION: Print symbol table on lookup failure ---
-             std::cerr << "--- Symbol Table Dump (Variable and AST Lookup Failed for '" << calleeName << "') ---" << std::endl;
-             symTable.dump(std::cerr);
-             std::cerr << "---------------------------------------------------------" << std::endl;
-             // --- End Modification ---
-             return codeGen.logError("Unknown function or variable: " + calleeName,
-                                     expr->line.value_or(0), expr->column.value_or(0));
+            // --- MODIFICATION: Print symbol table on lookup failure ---
+            std::cerr << "--- Symbol Table Dump (Variable and AST Lookup Failed for '" << calleeName << "') ---" << std::endl;
+            symTable.dump(std::cerr);
+            std::cerr << "---------------------------------------------------------" << std::endl;
+            // --- End Modification ---
+            return codeGen.logError("Unknown function or variable: " + calleeName,
+                                    expr->line.value_or(0), expr->column.value_or(0));
         }
     }
 
@@ -422,31 +432,37 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
 
     // 5. Prepare arguments based on call type
     std::vector<llvm::Value*> preparedArgs;
-    if (isDirectCall) {
+    if (isDirectCall)
+    {
         // For direct calls, arguments should match the LLVM function signature (likely ptr)
         // Assuming prepareArgument handles this or we adjust here.
         // Let's assume prepareArgument is smart enough for now, or returns the ptr directly.
         llvm::Function* targetFunc = llvm::cast<llvm::Function>(callableValue);
         llvm::FunctionType* funcType = targetFunc->getFunctionType();
-        if (args.size() != funcType->getNumParams()) {
-             return codeGen.logError("Argument count mismatch for direct call to '" + calleeName + "'. Expected "
-                                     + std::to_string(funcType->getNumParams()) + ", got " + std::to_string(args.size()) + ".",
-                                     expr->line.value_or(0), expr->column.value_or(0));
+        if (args.size() != funcType->getNumParams())
+        {
+            return codeGen.logError("Argument count mismatch for direct call to '" + calleeName + "'. Expected "
+                                            + std::to_string(funcType->getNumParams()) + ", got " + std::to_string(args.size()) + ".",
+                                    expr->line.value_or(0), expr->column.value_or(0));
         }
-        for (size_t i = 0; i < args.size(); ++i) {
-             // We need to ensure the argument is a PyObject* (ptr) for the direct call
-             // Assuming handleExpr returns PyObject* and prepareArgument doesn't change it unnecessarily.
-             // A simple pass-through might be sufficient if handleExpr guarantees PyObject*.
-             llvm::Value* preparedArg = runtime->prepareArgument(args[i], argTypes[i], nullptr); // Pass nullptr for expected type? Or get from funcType?
-             if (!preparedArg || preparedArg->getType() != funcType->getParamType(i)) {
-                 return codeGen.logError("Failed to prepare or type mismatch for argument " + std::to_string(i + 1) + " in direct call to '" + calleeName + "'. Expected " + llvmObjToString(funcType->getParamType(i)) + ".",
-                                         expr->line.value_or(0), expr->column.value_or(0));
-             }
-             preparedArgs.push_back(preparedArg);
+        for (size_t i = 0; i < args.size(); ++i)
+        {
+            // We need to ensure the argument is a PyObject* (ptr) for the direct call
+            // Assuming handleExpr returns PyObject* and prepareArgument doesn't change it unnecessarily.
+            // A simple pass-through might be sufficient if handleExpr guarantees PyObject*.
+            llvm::Value* preparedArg = runtime->prepareArgument(args[i], argTypes[i], nullptr);  // Pass nullptr for expected type? Or get from funcType?
+            if (!preparedArg || preparedArg->getType() != funcType->getParamType(i))
+            {
+                return codeGen.logError("Failed to prepare or type mismatch for argument " + std::to_string(i + 1) + " in direct call to '" + calleeName + "'. Expected " + llvmObjToString(funcType->getParamType(i)) + ".",
+                                        expr->line.value_or(0), expr->column.value_or(0));
+            }
+            preparedArgs.push_back(preparedArg);
         }
-    } else {
+    }
+    else
+    {
         // For runtime calls, prepare arguments for py_call_function (usually PyObject*)
-        std::vector<std::shared_ptr<PyType>> expectedParamTypes; // TODO: Get from callableType if possible
+        std::vector<std::shared_ptr<PyType>> expectedParamTypes;  // TODO: Get from callableType if possible
         for (size_t i = 0; i < args.size(); ++i)
         {
             std::shared_ptr<PyType> expectedType = (i < expectedParamTypes.size()) ? expectedParamTypes[i] : nullptr;
@@ -460,16 +476,18 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
         }
     }
 
-
     // 6. Generate the call instruction
     llvm::Value* callResult = nullptr;
-    if (isDirectCall) {
+    if (isDirectCall)
+    {
 #ifdef DEBUG_CODEGEN_handleCallExpr
         DEBUG_LOG_DETAIL("HdlCallExpr", "Generating direct LLVM call instruction to '" + calleeName + "'");
 #endif
         llvm::Function* targetFunc = llvm::cast<llvm::Function>(callableValue);
         callResult = builder.CreateCall(targetFunc->getFunctionType(), targetFunc, preparedArgs, "direct_call_res");
-    } else {
+    }
+    else
+    {
 #ifdef DEBUG_CODEGEN_handleCallExpr
         DEBUG_LOG_DETAIL("HdlCallExpr", "Generating runtime call via py_call_function for '" + calleeName + "'");
 #endif
@@ -1231,14 +1249,13 @@ llvm::Value* CodeGenExpr::createListWithValues(const std::vector<llvm::Value*>& 
     // --- FIX 1: Use getObjectType() ---
     int elemTypeIdInt = OperationCodeGenerator::getTypeId(elemType->getObjectType());  // 获取元素类型ID
 
-    #ifdef DEBUG_CODEGEN_createListWithValues
+#ifdef DEBUG_CODEGEN_createListWithValues
     // --- DEBUGGING START ---
     std::cerr << "DEBUG [createListWithValues]: Inferred elemType: " << elemType->toString()
               << ", ObjectType: " << (elemType->getObjectType() ? elemType->getObjectType()->getName() : "null")
               << ", Got elemTypeIdInt: " << elemTypeIdInt << std::endl;
-    // --- DEBUGGING END ---
-    #endif
-
+// --- DEBUGGING END ---
+#endif
 
     llvm::Value* elemTypeIdValue = llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), elemTypeIdInt);
     // --- 修改 CodeGenRuntime::createList 的调用签名以匹配 ---

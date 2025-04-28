@@ -45,6 +45,7 @@
 #define DEBUG_CODEGEN_handleFunctionDef
 #define DEBUG_CODEGEN_handleFunctionDefStmt
 #define DEBUG_CODEGEN_STMT
+//#define DEBUG_CODEGEN_getCachedFunction
 
 //#define DEBUG_CODEGEN_createListWithValues
 //#define DEBUG_CODEGEN_getCommonType

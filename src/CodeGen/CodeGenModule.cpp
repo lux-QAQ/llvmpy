@@ -422,7 +422,6 @@ bool CodeGenModule::generateModule(ModuleAST* module, bool isEntryPoint)
     return true;  // Module generated and verified successfully
 }
 
-
 void CodeGenModule::createAndRegisterRuntimeInitializer()
 {
     llvm::LLVMContext& context = codeGen.getContext();
@@ -648,12 +647,12 @@ void CodeGenModule::addRuntimeFunctions()
     }
 
     codeGen.getOrCreateExternalFunction(
-        "py_object_compare",
-        llvm::PointerType::get(codeGen.getContext(), 0),    // Return PyObject*
-        {llvm::PointerType::get(codeGen.getContext(), 0),  // PyObject* a
-         llvm::PointerType::get(codeGen.getContext(), 0),  // PyObject* b
-         llvm::Type::getInt32Ty(codeGen.getContext())},    // PyCompareOp op (i32)
-        false); // isVarArg
+            "py_object_compare",
+            llvm::PointerType::get(codeGen.getContext(), 0),   // Return PyObject*
+            {llvm::PointerType::get(codeGen.getContext(), 0),  // PyObject* a
+             llvm::PointerType::get(codeGen.getContext(), 0),  // PyObject* b
+             llvm::Type::getInt32Ty(codeGen.getContext())},    // PyCompareOp op (i32)
+            false);                                            // isVarArg
 
     // 引用计数管理函数
     {
@@ -840,8 +839,8 @@ void CodeGenModule::addRuntimeFunctions()
 llvm::Function* CodeGenModule::handleFunctionDef(const FunctionAST* funcAST)  // 接受 const*
 {
 #ifdef DEBUG_CODEGEN_handleFunctionDef
-    std::string dbgFuncName = funcAST ? funcAST->getName() : "<null AST>";
-    DEBUG_LOG_DETAIL("HdlFuncDef", "Entering handleFunctionDef for '" + dbgFuncName + "'");
+    std::string dbgPyFuncName = funcAST ? funcAST->getName() : "<null AST>";
+    DEBUG_LOG_DETAIL("HdlFuncDef", "Entering handleFunctionDef for Python func '" + dbgPyFuncName + "'");
 #endif
     if (!funcAST)
     {
@@ -849,7 +848,16 @@ llvm::Function* CodeGenModule::handleFunctionDef(const FunctionAST* funcAST)  //
         return nullptr;
     }
 
-    std::string funcName = funcAST->getName();  // Get name early for logging
+    std::string pyFuncName = funcAST->getName();  // Original Python name
+
+    // --- 生成唯一的 LLVM 函数名 ---
+    std::string uniqueFuncName = pyFuncName + ".L" + std::to_string(funcAST->line.value_or(0))
+                                 + ".C" + std::to_string(funcAST->column.value_or(0));
+    funcAST->setGeneratedLLVMName(uniqueFuncName);  // Store in AST (mutable member)
+
+#ifdef DEBUG_CODEGEN_handleFunctionDef
+    DEBUG_LOG_DETAIL("HdlFuncDef", "Generated unique LLVM name: '" + uniqueFuncName + "' for Python name '" + pyFuncName + "'");
+#endif
 
     // --- 保存当前上下文 ---
 #ifdef DEBUG_CODEGEN_handleFunctionDef
@@ -864,112 +872,101 @@ llvm::Function* CodeGenModule::handleFunctionDef(const FunctionAST* funcAST)  //
 
     // --- 解析类型 ---
 #ifdef DEBUG_CODEGEN_handleFunctionDef
-    DEBUG_LOG_DETAIL("HdlFuncDef", "Resolving return and param types for '" + funcName + "'...");
+    DEBUG_LOG_DETAIL("HdlFuncDef", "Resolving return and param types for '" + pyFuncName + "'...");
 #endif
+    // Resolve types *before* creating the LLVM function type
+    // Ensure resolveReturnType and resolveParamTypes are const or handle mutability
+    // funcAST->resolveParamTypes(); // Assuming this resolves types in-place (needs to be const-compatible or called earlier)
     std::shared_ptr<PyType> returnType = resolveReturnType(funcAST);
     std::vector<std::shared_ptr<PyType>> paramTypes;
-    // Ensure getParams() is a const method in FunctionAST
-    // Also ensure ParamAST::resolvedType is accessible or has a const getter
-    // Assuming resolveParamTypes() was called earlier or types are already resolved
-    for (const auto& param : funcAST->getParams())  // funcAST->getParams() must be const
+    for (const auto& param : funcAST->getParams())
     {
+        // Assuming ParamAST::resolvedType is populated correctly beforehand or by resolveParamTypes()
         paramTypes.push_back(param.resolvedType ? param.resolvedType : PyType::getAny());
     }
 #ifdef DEBUG_CODEGEN_handleFunctionDef
     DEBUG_LOG_DETAIL("HdlFuncDef", "Resolved return type: " + returnType->toString());
-    // Log param types if needed
     std::string paramTypeStr = "";
     for (const auto& pt : paramTypes)
     {
         paramTypeStr += pt->toString() + ", ";
     }
-    if (!paramTypeStr.empty()) paramTypeStr.pop_back();  // Remove trailing comma+space
+    if (!paramTypeStr.empty())
+    {
+        paramTypeStr.pop_back();
+        paramTypeStr.pop_back();
+    }
     DEBUG_LOG_DETAIL("HdlFuncDef", "Resolved param types: [" + paramTypeStr + "]");
 #endif
 
     // --- 创建 LLVM 函数类型和函数 ---
 #ifdef DEBUG_CODEGEN_handleFunctionDef
-    DEBUG_LOG_DETAIL("HdlFuncDef", "Creating LLVM function type and function for '" + funcName + "'...");
+    DEBUG_LOG_DETAIL("HdlFuncDef", "Creating LLVM function type and function using unique name '" + uniqueFuncName + "'...");
 #endif
     llvm::FunctionType* fnType = createFunctionType(returnType, paramTypes);
     if (!fnType)
     {
-        codeGen.logError("Failed to create LLVM function type for: " + funcName);
-        // Restore context before returning
-        codeGen.setCurrentFunction(savedFunction);
+        codeGen.logError("Failed to create LLVM function type for: " + pyFuncName, funcAST->line.value_or(0), funcAST->column.value_or(0));
+        codeGen.setCurrentFunction(savedFunction);  // Restore context
         codeGen.setCurrentReturnType(savedReturnTypeCtx);
         if (savedIP.getBlock()) codeGen.getBuilder().restoreIP(savedIP);
         return nullptr;
     }
 
-    // Use getOrCreateFunction with InternalLinkage for user-defined functions
+    // 使用 uniqueFuncName 创建或获取函数
     llvm::Function* function = codeGen.getOrCreateFunction(
-            funcName,
+            uniqueFuncName,  // <<<--- Use unique name
             fnType,
-            llvm::GlobalValue::InternalLinkage);  // Internal linkage for user functions
+            llvm::GlobalValue::InternalLinkage);  // User functions are internal
 
     if (!function)
     {
-        // getOrCreateFunction logs errors internally if creation/retrieval fails
-        // Restore context before returning
-        codeGen.setCurrentFunction(savedFunction);
+        // Error logged by getOrCreateFunction
+        codeGen.setCurrentFunction(savedFunction);  // Restore context
         codeGen.setCurrentReturnType(savedReturnTypeCtx);
         if (savedIP.getBlock()) codeGen.getBuilder().restoreIP(savedIP);
         return nullptr;
     }
 #ifdef DEBUG_CODEGEN_handleFunctionDef
-    DEBUG_LOG_DETAIL("HdlFuncDef", "Got LLVM function: " + llvmObjToString(function));
+    DEBUG_LOG_DETAIL("HdlFuncDef", "Got LLVM function: " + llvmObjToString(function) + " with name '" + function->getName().str() + "'");
 #endif
-    // --- 添加：提前将函数引用添加到缓存 ---
-    // 这允许在生成函数体期间的递归调用能够找到 llvm::Function*
-    std::vector<ObjectType*> paramObjectTypes;
-    for (const auto& pt : paramTypes)
-    {
-        // 确保 getObjectType() 返回有效的 ObjectType*
-        paramObjectTypes.push_back(pt->getObjectType());
-    }
-    // 使用当前解析的返回类型和参数类型添加引用
-    addFunctionReference(funcName, function, returnType->getObjectType(), paramObjectTypes, false /*isExternal*/);
-#ifdef DEBUG_CODEGEN_handleFunctionDef
-    DEBUG_LOG_DETAIL("HdlFuncDef", "Added preliminary function reference to cache for '" + funcName + "'");
-#endif
-    // --- 结束添加 ---
-    // --- 检查函数是否已存在且非空 (健壮性检查) ---
+
+    // --- 检查函数是否为空 (健壮性检查) ---
+    // Since we use unique names, this should ideally only be true if getOrCreateFunction returned an existing *empty* function.
+    // If it has a body, it's an internal error (e.g., name collision despite unique naming attempt).
     if (!function->empty())
     {
-        // Function already exists and has content. Avoid redefining.
-        codeGen.logWarning("Function '" + funcName + "' already has a body. Skipping redefinition.",
-                           funcAST->line.value_or(0), funcAST->column.value_or(0));
-        // **重要：恢复上下文，因为我们没有改变它**
-        codeGen.setCurrentFunction(savedFunction);
+        codeGen.logError("Internal Error: LLVM function '" + uniqueFuncName + "' already has a body unexpectedly.",
+                         funcAST->line.value_or(0), funcAST->column.value_or(0));
+        codeGen.setCurrentFunction(savedFunction);  // Restore context
         codeGen.setCurrentReturnType(savedReturnTypeCtx);
         if (savedIP.getBlock()) codeGen.getBuilder().restoreIP(savedIP);
-#ifdef DEBUG_CODEGEN_handleFunctionDef
-        DEBUG_LOG_DETAIL("HdlFuncDef", "Restored context without changes as function body exists.");
-#endif
-        return function;  // Return the existing function
+        return nullptr;  // Return error
     }
+
+    functionCache[funcAST] = function; // 加入缓存
+
+    #ifdef DEBUG_CODEGEN_handleFunctionDef
+        DEBUG_LOG_DETAIL("HdlFuncDef", "Added/Updated functionCache for AST node " + std::to_string(reinterpret_cast<uintptr_t>(funcAST)) + " -> LLVM Func " + llvmObjToString(function));
+    #endif
 
     // --- 函数是新创建的或为空，继续生成 ---
 #ifdef DEBUG_CODEGEN_handleFunctionDef
-    DEBUG_LOG_DETAIL("HdlFuncDef", "Setting up entry block and params for '" + funcName + "'...");
+    DEBUG_LOG_DETAIL("HdlFuncDef", "Setting up entry block and params for '" + uniqueFuncName + "'...");
 #endif
     llvm::BasicBlock* entryBB = createFunctionEntry(function);
     if (!entryBB)
-    {  // createFunctionEntry might fail if function is invalid
-        codeGen.logError("Failed to create entry block for function: " + funcName);
-        // Restore context
-        codeGen.setCurrentFunction(savedFunction);
+    {
+        codeGen.logError("Failed to create entry block for function: " + uniqueFuncName, funcAST->line.value_or(0), funcAST->column.value_or(0));
+        codeGen.setCurrentFunction(savedFunction);  // Restore context
         codeGen.setCurrentReturnType(savedReturnTypeCtx);
         if (savedIP.getBlock()) codeGen.getBuilder().restoreIP(savedIP);
-        // Consider erasing the potentially problematic function?
-        // function->eraseFromParent();
         return nullptr;
     }
 
-    codeGen.getBuilder().SetInsertPoint(entryBB);               // **改变插入点**
-    codeGen.setCurrentFunction(function);                       // **改变当前函数**
-    codeGen.setCurrentReturnType(returnType->getObjectType());  // **改变返回类型上下文**
+    codeGen.getBuilder().SetInsertPoint(entryBB);
+    codeGen.setCurrentFunction(function);  // Set context for body generation
+    codeGen.setCurrentReturnType(returnType->getObjectType());
 #ifdef DEBUG_CODEGEN_handleFunctionDef
     DEBUG_LOG_DETAIL("HdlFuncDef", "Set insert point to new entry block: " + llvmObjToString(entryBB));
     DEBUG_LOG_DETAIL("HdlFuncDef", "Set current function to: " + llvmObjToString(function));
@@ -977,78 +974,72 @@ llvm::Function* CodeGenModule::handleFunctionDef(const FunctionAST* funcAST)  //
 
     // --- 生成函数体 ---
     auto* stmtGen = codeGen.getStmtGen();
-    stmtGen->beginScope();  // <--- Push scope FIRST for function body
+    stmtGen->beginScope();  // Push scope for function body (params + locals)
 #ifdef DEBUG_CODEGEN_handleFunctionDef
     DEBUG_LOG_DETAIL("HdlFuncDef", "Scope pushed. Depth: " + std::to_string(codeGen.getSymbolTable().getCurrentScopeDepth()) + ". Handling params...");
 #endif
 
-    // Ensure getParams() is const
-    handleFunctionParams(function, funcAST->getParams(), paramTypes);  // <--- Handle params AFTER pushing scope
+    // Pass resolved paramTypes to handleFunctionParams
+    handleFunctionParams(function, funcAST->getParams(), paramTypes);  // Handle params AFTER pushing scope
 
 #ifdef DEBUG_CODEGEN_handleFunctionDef
     DEBUG_LOG_DETAIL("HdlFuncDef", "Params handled. Generating body stmts...");
 #endif
-    // Ensure getBody() is const
-    for (const auto& stmt : funcAST->getBody())  // funcAST->getBody() must be const
+    for (const auto& stmt : funcAST->getBody())
     {
-        // Check if the current block is still valid and reachable
         llvm::BasicBlock* currentBlock = codeGen.getBuilder().GetInsertBlock();
         if (!currentBlock || currentBlock->getParent() != function)
         {
-            codeGen.logError("Builder left the current function '" + funcName + "' unexpectedly during body generation.", stmt->line.value_or(0), stmt->column.value_or(0));
-            // Attempt to restore context partially before failing
-            stmtGen->endScope();  // Pop the scope we pushed
-            codeGen.setCurrentFunction(savedFunction);
+            codeGen.logError("Builder left the current function '" + uniqueFuncName + "' unexpectedly during body generation.", stmt->line.value_or(0), stmt->column.value_or(0));
+            stmtGen->endScope();                        // Pop scope before returning
+            codeGen.setCurrentFunction(savedFunction);  // Restore context
             codeGen.setCurrentReturnType(savedReturnTypeCtx);
             if (savedIP.getBlock()) codeGen.getBuilder().restoreIP(savedIP);
-            return nullptr;  // Abort generation for this function
+            return nullptr;
         }
         if (currentBlock->getTerminator())
         {
 #ifdef DEBUG_CODEGEN_handleFunctionDef
             DEBUG_LOG_DETAIL("HdlFuncDef", "Body generation stopped early (block terminated before statement at line " + std::to_string(stmt->line.value_or(0)) + ").");
 #endif
-            codeGen.logWarning("Statement unreachable after block termination in function '" + funcName + "'.", stmt->line.value_or(0), stmt->column.value_or(0));
-            break;  // Stop processing statements in this block
+            codeGen.logWarning("Statement unreachable after block termination in function '" + uniqueFuncName + "'.", stmt->line.value_or(0), stmt->column.value_or(0));
+            break;
         }
 #ifdef DEBUG_CODEGEN_handleFunctionDef
         DEBUG_LOG_DETAIL("HdlFuncDef", "Body: Handling Stmt Kind " + std::to_string(static_cast<int>(stmt->kind())) + " at line " + std::to_string(stmt->line.value_or(0)));
 #endif
-        stmtGen->handleStmt(stmt.get());  // Generate code for the statement
+        stmtGen->handleStmt(stmt.get());
     }
 #ifdef DEBUG_CODEGEN_handleFunctionDef
     DEBUG_LOG_DETAIL("HdlFuncDef", "Finished handling body stmts. Popping scope...");
 #endif
-    stmtGen->endScope();  // <--- Pop scope AFTER body generation
+    stmtGen->endScope();  // Pop function body scope
 
     // --- 添加默认返回 (如果需要) ---
     llvm::BasicBlock* lastBlock = codeGen.getBuilder().GetInsertBlock();
 #ifdef DEBUG_CODEGEN_handleFunctionDef
-    DEBUG_LOG_DETAIL("HdlFuncDef", "Checking for default return for '" + funcName + "'. Last block: " + llvmObjToString(lastBlock));
+    DEBUG_LOG_DETAIL("HdlFuncDef", "Checking for default return for '" + uniqueFuncName + "'. Last block: " + llvmObjToString(lastBlock));
 #endif
-    // Ensure the builder is still inside the function we are generating
     if (lastBlock && lastBlock->getParent() == function && !lastBlock->getTerminator())
     {
-        codeGen.getBuilder().SetInsertPoint(lastBlock);  // Ensure we are at the end
+        codeGen.getBuilder().SetInsertPoint(lastBlock);
 #ifdef DEBUG_CODEGEN_handleFunctionDef
         DEBUG_LOG_DETAIL("HdlFuncDef", "Adding default return to block " + llvmObjToString(lastBlock));
 #endif
-        if (returnType->isVoid())
+        if (returnType->isVoid())  // Should not happen for Python functions, they always return something
         {
             codeGen.getBuilder().CreateRetVoid();
         }
         else
         {
-            // Default return for non-void functions is None
-            llvm::Value* noneValue = codeGen.getExprGen()->createNoneLiteral();  // Assuming CodeGenExpr has createNoneLiteral
+            llvm::Value* noneValue = codeGen.getExprGen()->createNoneLiteral();
             if (noneValue)
             {
                 codeGen.getBuilder().CreateRet(noneValue);
             }
             else
             {
-                codeGen.logError("Failed to create default 'None' return value for function: " + funcName);
-                // No return added, verification will likely fail.
+                codeGen.logError("Failed to create default 'None' return value for function: " + uniqueFuncName, funcAST->line.value_or(0), funcAST->column.value_or(0));
             }
         }
 #ifdef DEBUG_CODEGEN_handleFunctionDef
@@ -1058,7 +1049,7 @@ llvm::Function* CodeGenModule::handleFunctionDef(const FunctionAST* funcAST)  //
 #ifdef DEBUG_CODEGEN_handleFunctionDef
     else if (!lastBlock || lastBlock->getParent() != function)
     {
-        DEBUG_LOG_DETAIL("HdlFuncDef", "No default return needed (builder not in current function '" + funcName + "').");
+        DEBUG_LOG_DETAIL("HdlFuncDef", "No default return needed (builder not in current uniqueFunc '" + uniqueFuncName + "').");
     }
     else  // lastBlock->getTerminator() is true
     {
@@ -1068,20 +1059,19 @@ llvm::Function* CodeGenModule::handleFunctionDef(const FunctionAST* funcAST)  //
 
     // --- 清理函数资源 ---
 #ifdef DEBUG_CODEGEN_handleFunctionDef
-    DEBUG_LOG_DETAIL("HdlFuncDef", "Cleaning up function resources for '" + funcName + "'...");
+    DEBUG_LOG_DETAIL("HdlFuncDef", "Cleaning up function resources for '" + uniqueFuncName + "'...");
 #endif
-    cleanupFunction();  // Release temps, etc.
+    cleanupFunction();
 
-    // --- 恢复之前的上下文 ---
+// --- 恢复之前的上下文 ---
 #ifdef DEBUG_CODEGEN_handleFunctionDef
     DEBUG_LOG_DETAIL("HdlFuncDef", "Restoring context. Target IP: {" + ipToString(savedIP) + "}, Target Func: " + llvmObjToString(savedFunction));
 #endif
     codeGen.setCurrentFunction(savedFunction);
     codeGen.setCurrentReturnType(savedReturnTypeCtx);
-    // 只有在 savedIP 有效时才恢复
     if (savedIP.getBlock())
     {
-        codeGen.getBuilder().restoreIP(savedIP);  // **恢复插入点**
+        codeGen.getBuilder().restoreIP(savedIP);
 #ifdef DEBUG_CODEGEN_handleFunctionDef
         DEBUG_LOG_DETAIL("HdlFuncDef", "Restored IP.");
 #endif
@@ -1089,39 +1079,32 @@ llvm::Function* CodeGenModule::handleFunctionDef(const FunctionAST* funcAST)  //
     else
     {
 #ifdef DEBUG_CODEGEN_handleFunctionDef
-        DEBUG_LOG_DETAIL("HdlFuncDef", "Skipped restoring IP (savedIP was invalid). Builder might be in unexpected state if savedFunction is null.");
-        if (!savedFunction && codeGen.getBuilder().GetInsertBlock())
-        {
-            DEBUG_LOG_DETAIL("HdlFuncDef", "WARNING: Builder has insert block but no current function after restore!");
-        }
-        // It's often normal for the builder to have no insert block if savedFunction was null (global context)
+        DEBUG_LOG_DETAIL("HdlFuncDef", "Skipped restoring IP (savedIP was invalid).");
 #endif
     }
 #ifdef DEBUG_CODEGEN_handleFunctionDef
     DEBUG_LOG_DETAIL("HdlFuncDef", "Context restored. Current function: " + llvmObjToString(codeGen.getCurrentFunction()));
 #endif
 
-    // --- 验证生成的函数 ---
+// --- 验证生成的函数 ---
 #ifdef DEBUG_CODEGEN_handleFunctionDef
-    DEBUG_LOG_DETAIL("HdlFuncDef", "Verifying function '" + funcName + "'...");
+    DEBUG_LOG_DETAIL("HdlFuncDef", "Verifying function '" + uniqueFuncName + "'...");
 #endif
-    if (verifyFunction(*function))  // Using the helper function
+    if (verifyFunction(*function))  // Use helper
     {
-        codeGen.logError("LLVM Function '" + funcName + "' verification failed. See stderr for details.");
+        // Error already printed by helper
 #ifdef DEBUG_CODEGEN_handleFunctionDef
-        DEBUG_LOG_DETAIL("HdlFuncDef", "!!! Function verification FAILED for '" + funcName + "' !!!");
-        function->print(llvm::errs());  // 打印 IR 到 stderr
+        DEBUG_LOG_DETAIL("HdlFuncDef", "!!! Function verification FAILED for '" + uniqueFuncName + "' !!!");
 #endif
-        // Consider erasing the invalid function to prevent further issues
-        // function->eraseFromParent();
         return nullptr;  // Indicate failure
     }
 #ifdef DEBUG_CODEGEN_handleFunctionDef
-    DEBUG_LOG_DETAIL("HdlFuncDef", "Function verification PASSED for '" + funcName + "'.");
-    DEBUG_LOG_DETAIL("HdlFuncDef", "Leaving handleFunctionDef for '" + funcName + "'");
+    DEBUG_LOG_DETAIL("HdlFuncDef", "Function verification PASSED for '" + uniqueFuncName + "'.");
+    DEBUG_LOG_DETAIL("HdlFuncDef", "Leaving handleFunctionDef for '" + pyFuncName + "' (LLVM: " + uniqueFuncName + ")");
 #endif
 
-    return function;  // Return the successfully generated and verified function
+
+    return function;  // Return the unique LLVM function
 }
 
 // 创建函数类型
@@ -1297,8 +1280,20 @@ void CodeGenModule::cleanupFunction()
     codeGen.releaseTempObjects();
     codeGen.getVariableUpdateContext().clearLoopVariables();
 }
-
-// 添加函数引用
+llvm::Function* CodeGenModule::getCachedFunction(const FunctionAST* funcAST) const
+{
+    auto it = functionCache.find(funcAST);
+    if (it != functionCache.end())
+    {
+        return it->second;
+    }
+    #ifdef DEBUG_CODEGEN_getCachedFunction
+    
+    DEBUG_LOG_DETAIL("[error]GetCachedFunc", "FunctionAST not found in cache: " + std::to_string(reinterpret_cast<uintptr_t>(funcAST)));
+    #endif
+    return nullptr;  // 不在缓存中
+}
+/* // 添加函数引用
 void CodeGenModule::addFunctionReference(
         const std::string& name,
         llvm::Function* function,
@@ -1316,9 +1311,9 @@ void CodeGenModule::addFunctionReference(
 
     // 添加到函数定义映射
     functionDefs[name] = info;
-}
+} */
 
-// 查找函数引用
+/* // 查找函数引用
 FunctionDefInfo* CodeGenModule::getFunctionInfo(const std::string& name)
 {
     auto it = functionDefs.find(name);
@@ -1327,6 +1322,6 @@ FunctionDefInfo* CodeGenModule::getFunctionInfo(const std::string& name)
         return &it->second;
     }
     return nullptr;
-}
+} */
 
 }  // namespace llvmpy

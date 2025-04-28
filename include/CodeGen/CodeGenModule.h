@@ -32,7 +32,7 @@ private:
     CodeGenBase& codeGen;
 
     // 函数定义缓存
-    std::unordered_map<std::string, FunctionDefInfo> functionDefs;
+    std::unordered_map<const FunctionAST*, llvm::Function*> functionCache;
 
     // 模块初始化标志
     bool moduleInitialized;
@@ -95,14 +95,14 @@ public:
     // 清理函数资源 (临时对象等)
     void cleanupFunction();
 
-    // 添加函数引用
+   /*  // 添加函数引用
     void addFunctionReference(const std::string& name, llvm::Function* function,
                               ObjectType* returnType,
                               const std::vector<ObjectType*>& paramTypes,
-                              bool isExternal = false);
+                              bool isExternal = false); */
 
-    // 查找函数引用
-    FunctionDefInfo* getFunctionInfo(const std::string& name);
+   /*  // 查找函数引用
+    FunctionDefInfo* getFunctionInfo(const std::string& name); */
 
     // 辅助方法
     CodeGenBase& getCodeGen()
@@ -111,7 +111,7 @@ public:
     }
 
 
-
+    llvm::Function* getCachedFunction(const FunctionAST* funcAST) const;
     // 设置当前模块
     void setCurrentModule(ModuleAST* module)
     {
