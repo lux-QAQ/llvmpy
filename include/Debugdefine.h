@@ -58,7 +58,8 @@
 //#define DEBUG_RUNTIME_CONTAINER
 //#define DEBUG_RUNTIME_print
 //#define DEBUG_RUNTIME_print_double
-
+#define DEBUG_RUNTIME_py_call_function
+#define DEBUG_RUNTIME_py_call_function_noargs
 
 
 // 定义DEBUG_PRINT宏来启用调试打印

@@ -200,7 +200,7 @@ void CodeGenStmt::beginScope()
 
 void CodeGenStmt::endScope()
 {
-    codeGen.getSymbolTable().popScope();
+    codeGen.getSymbolTable().popScope(codeGen);
 }
 
 // --- 实现 handleFunctionDefStmt ---

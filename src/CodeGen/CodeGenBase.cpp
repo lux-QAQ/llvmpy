@@ -240,20 +240,47 @@ size_t PySymbolTable::getCurrentScopeDepth() const
 {
     return scopes.size(); // 直接返回栈的大小即可
 }
-void PySymbolTable::popScope()
+void PySymbolTable::popScope(CodeGenBase& codeGen) // <--- 修改签名
 {
-    // 删除当前作用域
     if (!scopes.empty())
     {
-        // 在弹出作用域前，可以添加逻辑来处理作用域内变量的生命周期（例如 decref）
-        // PyScope* scopeToPop = scopes.top().get();
-        // for (auto const& [name, val] : scopeToPop->getVariables()) {
-        //     ObjectType* type = scopeToPop->getVariableType(name);
-        //     if (type && type->isReference()) {
-        //         // 需要 CodeGenRuntime 的引用来调用 decref
-        //         // codeGen.getRuntimeGen()->decRef(val);
-        //     }
-        // }
+        PyScope* scopeToPop = scopes.top().get();
+        auto* runtime = codeGen.getRuntimeGen(); // 获取 RuntimeGen
+        auto& builder = codeGen.getBuilder();
+        llvm::Type* pyObjectPtrType = llvm::PointerType::get(codeGen.getContext(), 0);
+
+        // 遍历当前作用域的变量，为 PyObject* 生成 decref
+        for (const auto& pair : scopeToPop->getVariables())
+        {
+            const std::string& name = pair.first;
+            llvm::Value* storage = pair.second; // 存储位置 (AllocaInst* or GlobalVariable*)
+            ObjectType* type = scopeToPop->getVariableType(name); // 获取变量类型
+
+            // 只处理存储在 AllocaInst 中的引用类型 (局部变量)
+            // 全局变量的生命周期不同，通常在程序结束时处理
+            if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(storage))
+            {
+                // 检查存储的是否是 PyObject* 并且类型是引用类型
+                // (假设所有 Python 对象都是引用类型，或者有一个更精确的检查)
+                if (allocaInst->getAllocatedType() == pyObjectPtrType /* && type && type->isReference() */)
+                {
+                    // 确保 builder 在有效的基本块内
+                    if (builder.GetInsertBlock()) {
+#ifdef DEBUG_CODEGEN_SCOPE_CLEANUP
+                        DEBUG_LOG_DETAIL("ScopePop", "Decreffing local var '" + name + "' stored in " + llvmObjToString(allocaInst));
+#endif
+                        // 加载 PyObject*
+                        llvm::Value* objToDecref = builder.CreateLoad(pyObjectPtrType, allocaInst, name + "_scope_end_load");
+                        // 调用 py_decref (通过 CodeGenRuntime)
+                        runtime->decRef(objToDecref);
+                    } else {
+                        // 如果 builder 不在有效块内 (例如，之前的块已终止)，则无法插入 decref
+                        // 这可能表示代码生成逻辑有问题，或者作用域弹出时机不对
+                         codeGen.logWarning("Cannot insert decref for '" + name + "' at scope end: Builder has no valid insert block.", 0, 0);
+                    }
+                }
+            }
+        }
         scopes.pop();
     }
 }

@@ -45,7 +45,7 @@ public:
     // 弹出当前作用域
     void popScope()
     {
-        getSymbolTable().popScope();
+        getSymbolTable().popScope(*this);
     }
 
     llvm::Value* prepareAssignmentTarget(llvm::Value* value, ObjectType* targetType,const ExprAST* expr);

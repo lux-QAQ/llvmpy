@@ -108,7 +108,7 @@ public:
 
     PyScope* currentScope();
     void pushScope();
-    void popScope();
+    void popScope(CodeGenBase& codeGen);
 
     bool hasVariable(const std::string& name) const;
     llvm::Value* getVariable(const std::string& name);

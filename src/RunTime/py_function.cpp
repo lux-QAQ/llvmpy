@@ -63,6 +63,11 @@ static bool get_ffi_signature(int signature_id, int num_args,
 }
 
 PyObject* py_call_function(PyObject* callable, int num_args, PyObject** args_array) {
+
+#ifdef DEBUG_RUNTIME_py_call_function
+    fprintf(stderr, "Debug: py_call_function called with %d arguments.\n", num_args);
+#endif
+
     // 1. 检查 callable (同之前)
     if (!callable) {
         fprintf(stderr, "Runtime Error: Attempted to call null object.\n");
@@ -83,7 +88,29 @@ PyObject* py_call_function(PyObject* callable, int num_args, PyObject** args_arr
          fprintf(stderr, "Runtime Error: Function object contains null function pointer.\n");
          return NULL;
     }
-
+    if (num_args == 0) {
+        typedef PyObject* (*LLVMFunctionNoArgs)();
+        LLVMFunctionNoArgs llvm_func_ptr = (LLVMFunctionNoArgs)generic_func_ptr;
+        PyObject* result = nullptr;
+        try {
+            fprintf(stderr, "Debug: Calling 0-arg function directly (bypassing libffi).\n"); // 添加调试输出
+            result = llvm_func_ptr();
+            if (!result) {
+                fprintf(stderr, "Runtime Warning: Called function returned NULL. Returning None.\n");
+                result = py_get_none();
+                py_incref(result);
+            }
+            return result; // 返回新引用
+        } catch (const std::exception& e) {
+            fprintf(stderr, "Runtime Error: Exception during direct 0-arg function call: %s\n", e.what());
+            if (result) py_decref(result);
+            return NULL;
+        } catch (...) {
+            fprintf(stderr, "Runtime Error: Unknown exception during direct 0-arg function call.\n");
+            if (result) py_decref(result);
+            return NULL;
+        }
+    }
     PyObject* result = nullptr; // 用于存储 ffi_call 的返回值
     ffi_cif cif; // 调用接口结构体
     ffi_type* ffi_return_type_ptr;
@@ -175,6 +202,10 @@ PyObject* py_create_function(void* func_ptr, int signature_type_id) {
 
 
 PyObject* py_call_function_noargs(PyObject* func_obj) {
+#ifdef DEBUG_RUNTIME_py_call_function_noargs
+    fprintf(stderr, "Debug: py_call_function_noargs called.\n");
+#endif
+
     // 可以用 ffi 实现，但对于 0 参数，直接调用更简单
     if (!func_obj) {
         std::cerr << "Runtime Error: Attempted to call null function object." << std::endl;
