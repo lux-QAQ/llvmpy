@@ -109,6 +109,7 @@ public:
     PyScope* currentScope();
     void pushScope();
     void popScope(CodeGenBase& codeGen);
+    void generateScopeCleanups(CodeGenBase& codeGen); // New method for generating decrefs
 
     bool hasVariable(const std::string& name) const;
     llvm::Value* getVariable(const std::string& name);

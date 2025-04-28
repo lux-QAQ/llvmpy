@@ -187,45 +187,38 @@ bool CodeGenModule::generateModule(ModuleAST* module, bool isEntryPoint)
             codeGen.getBuilder().SetInsertPoint(lastBlock);  // Ensure we are at the end
 
             // 5.1 Look up the Python 'main' function object from the symbol table
-            llvm::Value* pyMainFuncObj = codeGen.getSymbolTable().getVariable("main");
-            ObjectType* pyMainFuncType = codeGen.getSymbolTable().getVariableType("main");
+            // IMPORTANT: Use the correct name used for the global variable storage
+            std::string mainGvName = "main_obj_gv";  // Assuming this is the convention from CodeGenStmt
 
-            // Check if 'main' exists and is a function
-            if (!pyMainFuncObj || !pyMainFuncType || pyMainFuncType->getCategory() != ObjectType::Function)
+#ifdef DEBUG_CODEGEN_generateModule
+            // --- ADD DEBUG LOG ---
+            DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Looking up GlobalVariable '" + mainGvName + "' in Module@ " + std::to_string(reinterpret_cast<uintptr_t>(codeGen.getModule())));
+            // --- END DEBUG LOG ---
+#endif
+llvm::Value* pyMainFuncGv = codeGen.getModule()->getGlobalVariable(mainGvName, true); 
+            // ObjectType* pyMainFuncType = codeGen.getSymbolTable().getVariableType("main"); // Type check might be less critical here
+
+            // Check if 'main_obj_gv' exists
+            if (!pyMainFuncGv)
             {
-                // If 'main' is not found or not a function, log error and return exit code 1
-                codeGen.logError("Python function 'main' not found or is not a function.", 0, 0);
+                // If 'main' GV is not found, log error and return exit code 1
+                codeGen.logError("Python function 'main' (GlobalVariable '" + mainGvName + "') not found.", 0, 0);
                 codeGen.getBuilder().CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(codeGen.getContext()), 1));
             }
             else
             {
-// If 'main' is found
+                // If 'main' GV is found
 #ifdef DEBUG_CODEGEN_generateModule
-                DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Found Python main function object: " + llvmObjToString(pyMainFuncObj));
-                // Check if pyMainFuncObj is a GlobalVariable, if so, it needs loading
-                llvm::Value* funcObjToCall = pyMainFuncObj;  // Assume it's already loaded unless it's a GV
-                if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(pyMainFuncObj))
-                {
-                    DEBUG_LOG_DETAIL("GenMod", "[EntryPt] 'main' object is a GlobalVariable, needs loading before call.");
-                    // Load the actual PyObject* from the GlobalVariable
-                    funcObjToCall = codeGen.getBuilder().CreateLoad(gv->getValueType(), gv, "main_func_loaded");  // <--- Load happens here
-                    DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Loaded 'main' object: " + llvmObjToString(funcObjToCall));
-                }
-                else
-                {
-                    DEBUG_LOG_DETAIL("GenMod", "[EntryPt] 'main' object is not a GlobalVariable, using directly.");
-                }
-#else
-                // Non-debug: Load if it's a GlobalVariable
-                llvm::Value* funcObjToCall = pyMainFuncObj;
-                if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(pyMainFuncObj))
-                {
-                    funcObjToCall = codeGen.getBuilder().CreateLoad(gv->getValueType(), gv, "main_func_loaded");  // <--- Load happens here
-                }
+                DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Found Python main function GlobalVariable: " + llvmObjToString(pyMainFuncGv));
 #endif
+                // Load the actual PyObject* from the GlobalVariable
+                llvm::Value* funcObjToCall = codeGen.getBuilder().CreateLoad(llvm::PointerType::get(codeGen.getContext(), 0), pyMainFuncGv, "main_func_loaded");
+#ifdef DEBUG_CODEGEN_generateModule
+                DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Loaded 'main' object: " + llvmObjToString(funcObjToCall));
+#endif
+
                 // 5.2 Call the runtime function 'py_call_function_noargs'
-                // Pass the potentially loaded function object
-                llvm::Value* pyResultObj = codeGen.getRuntimeGen()->createCallFunctionNoArgs(funcObjToCall);  // <--- CORRECTED: Use funcObjToCall here
+                llvm::Value* pyResultObj = codeGen.getRuntimeGen()->createCallFunctionNoArgs(funcObjToCall);
                 if (!pyResultObj)
                 {
                     // If the call generation fails, log error and return exit code 1
@@ -251,15 +244,21 @@ bool CodeGenModule::generateModule(ModuleAST* module, bool isEntryPoint)
                         DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Generated conversion to exit code: " + llvmObjToString(exitCode));
 #endif
                         // 5.4 Return the resulting i32 exit code
-                        codeGen.getBuilder().CreateRet(exitCode);
+                        codeGen.getBuilder().CreateRet(exitCode);  // <<<--- CORRECT RETURN
 #ifdef DEBUG_CODEGEN_generateModule
                         DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Added return instruction for exit code.");
 #endif
                     }
                     // Decrement ref count of pyResultObj if necessary (depends on runtime conventions)
-                    // codeGen.getRuntimeGen()->decRef(pyResultObj);
+                    // codeGen.getRuntimeGen()->decRef(pyResultObj); // Add if py_call returns +1 ref and exit code doesn't consume it
                 }
             }
+        }
+        // Add default return if the block was already terminated or invalid
+        else if (lastBlock && lastBlock->getParent() == entryFn && !lastBlock->getTerminator())
+        {
+            // Should not happen if the above logic is correct, but as a safeguard
+            codeGen.getBuilder().CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(codeGen.getContext()), 1));  // Error exit
         }
 #ifdef DEBUG_CODEGEN_generateModule
         // Log why the call to main might not happen
@@ -944,11 +943,11 @@ llvm::Function* CodeGenModule::handleFunctionDef(const FunctionAST* funcAST)  //
         return nullptr;  // Return error
     }
 
-    functionCache[funcAST] = function; // 加入缓存
+    functionCache[funcAST] = function;  // 加入缓存
 
-    #ifdef DEBUG_CODEGEN_handleFunctionDef
-        DEBUG_LOG_DETAIL("HdlFuncDef", "Added/Updated functionCache for AST node " + std::to_string(reinterpret_cast<uintptr_t>(funcAST)) + " -> LLVM Func " + llvmObjToString(function));
-    #endif
+#ifdef DEBUG_CODEGEN_handleFunctionDef
+    DEBUG_LOG_DETAIL("HdlFuncDef", "Added/Updated functionCache for AST node " + std::to_string(reinterpret_cast<uintptr_t>(funcAST)) + " -> LLVM Func " + llvmObjToString(function));
+#endif
 
     // --- 函数是新创建的或为空，继续生成 ---
 #ifdef DEBUG_CODEGEN_handleFunctionDef
@@ -1102,7 +1101,6 @@ llvm::Function* CodeGenModule::handleFunctionDef(const FunctionAST* funcAST)  //
     DEBUG_LOG_DETAIL("HdlFuncDef", "Function verification PASSED for '" + uniqueFuncName + "'.");
     DEBUG_LOG_DETAIL("HdlFuncDef", "Leaving handleFunctionDef for '" + pyFuncName + "' (LLVM: " + uniqueFuncName + ")");
 #endif
-
 
     return function;  // Return the unique LLVM function
 }
@@ -1287,10 +1285,10 @@ llvm::Function* CodeGenModule::getCachedFunction(const FunctionAST* funcAST) con
     {
         return it->second;
     }
-    #ifdef DEBUG_CODEGEN_getCachedFunction
-    
+#ifdef DEBUG_CODEGEN_getCachedFunction
+
     DEBUG_LOG_DETAIL("[error]GetCachedFunc", "FunctionAST not found in cache: " + std::to_string(reinterpret_cast<uintptr_t>(funcAST)));
-    #endif
+#endif
     return nullptr;  // 不在缓存中
 }
 /* // 添加函数引用

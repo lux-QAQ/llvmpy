@@ -51,6 +51,9 @@
 //#define DEBUG_CODEGEN_getCommonType
 //#define DEBUG_CODEGEN_inferListElementType
 
+#define DEBUG_SYMBOL_TABLE
+
+
 
 // RUNTIME
 //#define DEBUG_RUNTIME_py_object_set_index

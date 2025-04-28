@@ -177,6 +177,12 @@ void CodeGenStmt::handleBlock(const std::vector<std::unique_ptr<StmtAST>>& stmts
         }
     }
 
+// --- ADDED: Generate cleanups if scope ends normally ---
+    llvm::BasicBlock* finalBlock = codeGen.getBuilder().GetInsertBlock();
+    if (createNewScope && finalBlock && !finalBlock->getTerminator()) {
+         codeGen.getSymbolTable().generateScopeCleanups(codeGen);
+    }
+
     // 关闭作用域 (可选)
     if (createNewScope)
     {
@@ -309,7 +315,7 @@ void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
             funcObjGV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
             storage = funcObjGV;
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created GlobalVariable: " + llvmObjToString(storage));
+DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created GlobalVariable: " + llvmObjToString(storage) + " in Module@ " + std::to_string(reinterpret_cast<uintptr_t>(codeGen.getModule())));
 #endif
         }
         else

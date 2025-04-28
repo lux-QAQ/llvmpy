@@ -10,16 +10,15 @@
 
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Module.h>
-#include <llvm/IR/Instructions.h> // 包含 AllocaInst
-#include <llvm/Support/Casting.h> // For llvm::dyn_cast
+#include <llvm/IR/Instructions.h>  // 包含 AllocaInst
+#include <llvm/Support/Casting.h>  // For llvm::dyn_cast
 #include <llvm/Support/raw_ostream.h>
-
 
 #include <iostream>
 #include <sstream>
-#include <vector> // Include vector
-#include <stack>  // Keep stack include if needed elsewhere, or remove if not
-#include <memory> // For unique_ptr
+#include <vector>  // Include vector
+#include <stack>   // Keep stack include if needed elsewhere, or remove if not
+#include <memory>  // For unique_ptr
 
 namespace llvmpy
 {
@@ -32,9 +31,9 @@ void PyScope::defineFunctionAST(const std::string& name, const FunctionAST* ast)
 {
     // 允许覆盖，以便处理内部函数覆盖外部同名函数的情况
     functionDefinitions[name] = ast;
-    #ifdef DEBUG_SYMBOL_TABLE // 假设有这样的宏
+#ifdef DEBUG_SYMBOL_TABLE  // 假设有这样的宏
     std::cerr << "Debug [PyScope]: Defined FunctionAST '" << name << "' in this scope." << std::endl;
-    #endif
+#endif
 }
 
 void PySymbolTable::dump(std::ostream& out) const
@@ -42,28 +41,30 @@ void PySymbolTable::dump(std::ostream& out) const
     out << "Symbol Table Dump (Top is Current Scope):\n";
     out << "=========================================\n";
 
-    if (scopes.empty()) {
+    if (scopes.empty())
+    {
         out << "(Symbol table is empty)\n";
         out << "=========================================\n";
         return;
     }
 
     // --- 修改开始: 使用 parent 指针遍历 ---
-    std::vector<const PyScope*> scopePtrsInReverseOrder; // Store pointers from current up to global
-    const PyScope* currentScopePtr = scopes.top().get(); // Start from the top (current) scope
+    std::vector<const PyScope*> scopePtrsInReverseOrder;  // Store pointers from current up to global
+    const PyScope* currentScopePtr = scopes.top().get();  // Start from the top (current) scope
 
-    while (currentScopePtr != nullptr) {
+    while (currentScopePtr != nullptr)
+    {
         scopePtrsInReverseOrder.push_back(currentScopePtr);
-        currentScopePtr = currentScopePtr->parent; // Move up to the parent scope
+        currentScopePtr = currentScopePtr->parent;  // Move up to the parent scope
     }
     // scopePtrsInReverseOrder now contains [current, parent, grandparent, ..., global]
 
     // --- 修改结束 ---
 
-
     // 从顶部（当前）作用域向下迭代到全局作用域
     // scopePtrsInReverseOrder 的顺序正好是从当前作用域开始，所以直接迭代即可
-    for (size_t i = 0; i < scopePtrsInReverseOrder.size(); ++i) {
+    for (size_t i = 0; i < scopePtrsInReverseOrder.size(); ++i)
+    {
         const PyScope* scope = scopePtrsInReverseOrder[i];
         // 作用域深度：总深度是 scopePtrsInReverseOrder.size()
         // 当前深度是 size() - i (1-based, 1 is global if present)
@@ -76,48 +77,67 @@ void PySymbolTable::dump(std::ostream& out) const
         const auto& vars = scope->getVariables();
         const auto& types = scope->getVariableTypes();
 
-        if (vars.empty() && types.empty()) {
-             out << "    (No variables defined directly in this scope)\n";
-        } else {
-            for (const auto& pair : vars) {
+        if (vars.empty() && types.empty())
+        {
+            out << "    (No variables defined directly in this scope)\n";
+        }
+        else
+        {
+            for (const auto& pair : vars)
+            {
                 const std::string& name = pair.first;
                 llvm::Value* value = pair.second;
                 out << "    - Var: " << name << ": ";
-                if (value) {
-                    out << llvmObjToString(value); // 打印 LLVM Value
-                } else {
+                if (value)
+                {
+                    out << llvmObjToString(value);  // 打印 LLVM Value
+                }
+                else
+                {
                     out << "<nullptr Value>";
                 }
                 // 查找此作用域中定义的类型
                 auto typeIt = types.find(name);
-                if (typeIt != types.end() && typeIt->second) {
-                     out << " (Type: " << typeIt->second->getName() << ")";
-                } else {
-                     // 类型可能定义在父作用域，dump 主要关注当前作用域的定义
-                     out << " (Type: <defined in outer scope or unknown>)";
+                if (typeIt != types.end() && typeIt->second)
+                {
+                    out << " (Type: " << typeIt->second->getName() << ")";
+                }
+                else
+                {
+                    // 类型可能定义在父作用域，dump 主要关注当前作用域的定义
+                    out << " (Type: <defined in outer scope or unknown>)";
                 }
                 out << "\n";
             }
-             // 打印仅有类型但无值的条目
-             for (const auto& pair : types) {
-                 if (vars.find(pair.first) == vars.end()) {
-                     out << "    - TypeOnly: " << pair.first << ": " << (pair.second ? pair.second->getName() : "<nullptr Type>") << "\n";
-                 }
-             }
+            // 打印仅有类型但无值的条目
+            for (const auto& pair : types)
+            {
+                if (vars.find(pair.first) == vars.end())
+                {
+                    out << "    - TypeOnly: " << pair.first << ": " << (pair.second ? pair.second->getName() : "<nullptr Type>") << "\n";
+                }
+            }
         }
 
         // --- Function ASTs (Defined directly in this scope) ---
         out << "  Function ASTs (Defined in this scope):\n";
         // 使用之前添加的访问器
         const auto& funcDefs = scope->getFunctionDefinitions();
-        if (funcDefs.empty()) {
+        if (funcDefs.empty())
+        {
             out << "    (None)\n";
-        } else {
-            for (const auto& pair : funcDefs) {
+        }
+        else
+        {
+            for (const auto& pair : funcDefs)
+            {
                 out << "    - " << pair.first << ": ";
-                if (pair.second) {
+                if (pair.second)
+                {
                     out << "<FunctionAST @" << static_cast<const void*>(pair.second) << ">";
-                } else {
+                }
+                else
+                {
                     out << "<nullptr AST>";
                 }
                 out << "\n";
@@ -200,26 +220,26 @@ ObjectType* PyScope::getVariableType(const std::string& name)
 /**
  * @brief 在当前作用域定义一个函数 AST。
  */
- void PySymbolTable::defineFunctionAST(const std::string& name, const FunctionAST* ast)
- {
-     if (!scopes.empty())
-     {
-         scopes.top()->defineFunctionAST(name, ast);
-     }
-     else
-     {
-         // 应该总是有作用域，记录错误
-         std::cerr << "Error: Cannot define function AST '" << name << "': No active scope in symbol table." << std::endl;
-     }
- }
- 
- /**
+void PySymbolTable::defineFunctionAST(const std::string& name, const FunctionAST* ast)
+{
+    if (!scopes.empty())
+    {
+        scopes.top()->defineFunctionAST(name, ast);
+    }
+    else
+    {
+        // 应该总是有作用域，记录错误
+        std::cerr << "Error: Cannot define function AST '" << name << "': No active scope in symbol table." << std::endl;
+    }
+}
+
+/**
   * @brief 从当前作用域开始向上查找函数 AST 定义。
   */
- const FunctionAST* PySymbolTable::findFunctionAST(const std::string& name) const
- {
-     return scopes.empty() ? nullptr : scopes.top()->findFunctionAST(name);
- }
+const FunctionAST* PySymbolTable::findFunctionAST(const std::string& name) const
+{
+    return scopes.empty() ? nullptr : scopes.top()->findFunctionAST(name);
+}
 PyScope* PySymbolTable::currentScope()
 {
     // 确保至少有一个作用域
@@ -238,53 +258,68 @@ void PySymbolTable::pushScope()
 }
 size_t PySymbolTable::getCurrentScopeDepth() const
 {
-    return scopes.size(); // 直接返回栈的大小即可
+    return scopes.size();  // 直接返回栈的大小即可
 }
-void PySymbolTable::popScope(CodeGenBase& codeGen) // <--- 修改签名
+void PySymbolTable::popScope(CodeGenBase& codeGen) // 确保传递了 codeGen
 {
-    if (!scopes.empty())
-    {
-        PyScope* scopeToPop = scopes.top().get();
-        auto* runtime = codeGen.getRuntimeGen(); // 获取 RuntimeGen
-        auto& builder = codeGen.getBuilder();
-        llvm::Type* pyObjectPtrType = llvm::PointerType::get(codeGen.getContext(), 0);
+    if (scopes.empty()) {
+        std::cerr << "Error: Attempted to pop scope from empty symbol table." << std::endl;
+        return;
+    }
 
-        // 遍历当前作用域的变量，为 PyObject* 生成 decref
-        for (const auto& pair : scopeToPop->getVariables())
-        {
-            const std::string& name = pair.first;
-            llvm::Value* storage = pair.second; // 存储位置 (AllocaInst* or GlobalVariable*)
-            ObjectType* type = scopeToPop->getVariableType(name); // 获取变量类型
+    // *** 在弹出作用域之前生成清理代码 ***
+    generateScopeCleanups(codeGen);
 
-            // 只处理存储在 AllocaInst 中的引用类型 (局部变量)
-            // 全局变量的生命周期不同，通常在程序结束时处理
-            if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(storage))
-            {
-                // 检查存储的是否是 PyObject* 并且类型是引用类型
-                // (假设所有 Python 对象都是引用类型，或者有一个更精确的检查)
-                if (allocaInst->getAllocatedType() == pyObjectPtrType /* && type && type->isReference() */)
-                {
-                    // 确保 builder 在有效的基本块内
-                    if (builder.GetInsertBlock()) {
-#ifdef DEBUG_CODEGEN_SCOPE_CLEANUP
-                        DEBUG_LOG_DETAIL("ScopePop", "Decreffing local var '" + name + "' stored in " + llvmObjToString(allocaInst));
+#ifdef DEBUG_SYMBOL_TABLE
+    std::cerr << "Debug [PySymbolTable]: Popping scope level " << scopes.size() << std::endl;
 #endif
-                        // 加载 PyObject*
-                        llvm::Value* objToDecref = builder.CreateLoad(pyObjectPtrType, allocaInst, name + "_scope_end_load");
-                        // 调用 py_decref (通过 CodeGenRuntime)
-                        runtime->decRef(objToDecref);
-                    } else {
-                        // 如果 builder 不在有效块内 (例如，之前的块已终止)，则无法插入 decref
-                        // 这可能表示代码生成逻辑有问题，或者作用域弹出时机不对
-                         codeGen.logWarning("Cannot insert decref for '" + name + "' at scope end: Builder has no valid insert block.", 0, 0);
-                    }
-                }
+    scopes.pop();
+}
+// New method to generate decrefs for the current scope
+void PySymbolTable::generateScopeCleanups(CodeGenBase& codeGen)
+{
+    if (scopes.empty()) return;
+
+    PyScope* currentScope = scopes.top().get();
+    auto& builder = codeGen.getBuilder();
+    auto* runtime = codeGen.getRuntimeGen();
+    llvm::Type* pyObjectPtrType = llvm::PointerType::get(codeGen.getContext(), 0);
+
+    llvm::BasicBlock* currentBlock = builder.GetInsertBlock();
+    if (!currentBlock || currentBlock->getTerminator())
+    {
+#ifdef DEBUG_SYMBOL_TABLE
+        std::cerr << "Debug [PySymbolTable]: Skipping cleanups for scope level "
+                  << scopes.size() << " (block terminated or invalid)." << std::endl;
+#endif
+        return;  // 直接返回，不添加任何指令
+    }
+
+#ifdef DEBUG_SYMBOL_TABLE
+    std::cerr << "Debug [PySymbolTable]: Generating cleanups for scope level "
+              << scopes.size() << " in block " << llvmObjToString(currentBlock) << std::endl;
+#endif
+
+    // Iterate ONLY through variables defined in THIS scope
+    for (const auto& pair : currentScope->getVariables())  // Use accessor
+    {
+        const std::string& name = pair.first;
+        llvm::Value* storage = pair.second;
+
+        // Only decref if it's a local variable stored in an AllocaInst
+        if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(storage))
+        {
+            if (allocaInst->getAllocatedType() == pyObjectPtrType)
+            {
+#ifdef DEBUG_SYMBOL_TABLE
+                std::cerr << "Debug [PySymbolTable]: Generating DecRef for local var '" << name << "' in scope " << scopes.size() << std::endl;
+#endif
+                llvm::Value* valueToDecRef = builder.CreateLoad(pyObjectPtrType, allocaInst, name + "_scope_end_load");
+                runtime->decRef(valueToDecRef);  // Generate py_decref call
             }
         }
-        scopes.pop();
     }
 }
-
 bool PySymbolTable::hasVariable(const std::string& name) const
 {
     // 检查变量是否存在于作用域链中
@@ -435,10 +470,6 @@ CodeGenBase::~CodeGenBase()
 
 void CodeGenBase::initializeComponents()
 {
-
-
-   
-
     // 如果LLVM对象未初始化，创建它们
     if (!context)
     {
@@ -466,7 +497,8 @@ void CodeGenBase::initializeComponents()
 llvm::AllocaInst* CodeGenBase::createEntryBlockAlloca(llvm::Type* type, const std::string& varName)
 {
     llvm::Function* func = getCurrentFunction();
-    if (!func) {
+    if (!func)
+    {
         logError("Cannot create alloca: not inside a function.", 0, 0);
         return nullptr;
     }
@@ -481,16 +513,17 @@ void CodeGenBase::logWarning(const std::string& message, int line, int column)
     // 格式化警告信息并输出到 cerr
     std::stringstream ss;
     ss << "Warning";
-    if (line > 0) {
+    if (line > 0)
+    {
         ss << " at line " << line;
-        if (column > 0) {
+        if (column > 0)
+        {
             ss << ", column " << column;
         }
     }
     ss << ": " << message;
     std::cerr << ss.str() << std::endl;
 }
-
 
 llvm::Value* CodeGenBase::logError(const std::string& message, int line, int column)
 {
@@ -612,10 +645,10 @@ bool CodeGenBase::verifyModule()
 }
 
 llvm::Function* CodeGenBase::getOrCreateFunction(
-    const std::string& name,
-    llvm::FunctionType* funcType,
-    llvm::GlobalValue::LinkageTypes linkage,
-    const llvm::AttributeList& attributes)
+        const std::string& name,
+        llvm::FunctionType* funcType,
+        llvm::GlobalValue::LinkageTypes linkage,
+        const llvm::AttributeList& attributes)
 {
     // 尝试获取或插入函数
     // getOrInsertFunction 返回一个 Constant*，需要转换
@@ -624,7 +657,8 @@ llvm::Function* CodeGenBase::getOrCreateFunction(
     // 尝试将 Constant* 转换为 Function*
     llvm::Function* func = llvm::dyn_cast<llvm::Function>(funcCallee.getCallee());
 
-    if (!func) {
+    if (!func)
+    {
         // 如果转换失败，可能是因为已存在同名但类型不兼容的全局对象 (例如全局变量)
         logError("Failed to get or create function '" + name + "'. A global object with the same name but incompatible type might exist.", 0, 0);
         return nullptr;
@@ -632,16 +666,18 @@ llvm::Function* CodeGenBase::getOrCreateFunction(
 
     // 检查返回的函数类型是否与请求的类型完全匹配
     // getOrInsertFunction 会处理类型转换，但最好还是显式检查以防万一
-    if (func->getFunctionType() != funcType) {
+    if (func->getFunctionType() != funcType)
+    {
         // 这通常发生在函数已存在但签名不匹配的情况下
         logError("Function '" + name + "' already exists with a different signature. Requested: " + llvmObjToString(funcType) + ", Found: " + llvmObjToString(func->getFunctionType()), 0, 0);
         // 打印现有函数的 IR 以帮助调试
         // func->print(llvm::errs());
-        return nullptr; // 返回 nullptr 表示失败
+        return nullptr;  // 返回 nullptr 表示失败
     }
 
     // 如果函数是新创建的，设置链接类型 (getOrInsertFunction 默认使用 ExternalLinkage)
-    if (func->empty()) { // 新创建的函数没有基本块
+    if (func->empty())
+    {  // 新创建的函数没有基本块
         func->setLinkage(linkage);
         // 可以设置其他属性，如 UnnamedAddr 等
         // func->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
