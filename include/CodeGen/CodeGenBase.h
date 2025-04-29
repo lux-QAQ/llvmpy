@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <functional>
 
-//#include "ast.h"
+#include "Ast.h"
 #include "ObjectType.h"
 #include "TypeIDs.h"
 #include "CodeGen/VariableUpdateContext.h"

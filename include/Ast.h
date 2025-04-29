@@ -27,7 +27,7 @@ class PyType;
 #include <llvm/IR/Value.h>
 #include <llvm/IR/LLVMContext.h>
 
-#include "lexer.h"
+#include "Lexer.h"
 #include <ObjectType.h>
 
 namespace llvmpy
@@ -46,6 +46,8 @@ enum class ASTKind
     Function,         ///< 函数定义节点
     IfStmt,           ///< if 语句节点
     WhileStmt,        ///< while 语句节点
+    BreakStmt,        ///< break 语句节点
+    ContinueStmt,     ///< continue 语句节点
     ReturnStmt,       ///< return 语句节点
     PrintStmt,        ///< print 语句节点 (可能未来会被函数调用替代)
     AssignStmt,       ///< 变量赋值语句节点
@@ -1046,6 +1048,44 @@ public:
     void endScope(PyCodeGen& codegen) override;
 };
 
+// Break 语句 AST
+class BreakStmtAST : public StmtASTBase<BreakStmtAST, ASTKind::BreakStmt>
+{
+public:
+    // 构造函数不再需要显式调用 StmtAST 构造函数
+    BreakStmtAST() = default;  // 或者 {}
+
+    // kind() 方法由 StmtASTBase 提供
+
+    // isLValue 和 toString 可以保留，但 isLValue 实际上属于 ExprAST 接口，
+    // 放在 StmtAST 中有点奇怪，不过暂时保留也无妨。
+    // toString 对于调试很有用。
+
+    // 移除或注释掉 isLValue，因为它不适用于语句
+    // bool isLValue() const override { return false; }
+    std::string toString() const
+    {
+        return "BreakStmt";
+    }  // 可以保留用于调试
+};
+
+// Continue 语句 AST
+class ContinueStmtAST : public StmtASTBase<ContinueStmtAST, ASTKind::ContinueStmt>
+{
+public:
+    // 构造函数不再需要显式调用 StmtAST 构造函数
+    ContinueStmtAST() = default;  // 或者 {}
+
+    // kind() 方法由 StmtASTBase 提供
+
+    // 移除或注释掉 isLValue
+    // bool isLValue() const override { return false; }
+    std::string toString() const
+    {
+        return "ContinueStmt";
+    }  // 可以保留用于调试
+};
+
 /**
  * @brief print 语句节点。
  * @todo 这是 Python 2 的语法，print 是 语法级别的关键字它直接在 编译阶段 被处理，不是一个普通的函数或对象，目前这样设计是为了方便调试和立刻看到成效但同时埋下了很多坑，version2到version3做到一半才发现这些问题。在 Python 3 中，print 是一个函数。
@@ -1230,7 +1270,7 @@ public:
         return name;
     }
     /** @brief 设置函数名 (主要用于代码生成阶段赋予唯一名称)。*/
-/*     void setName(const std::string& newName)  // Added setName
+    /*     void setName(const std::string& newName)  // Added setName
     {
         this->name = newName;
     } */

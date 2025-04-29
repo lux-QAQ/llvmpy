@@ -29,7 +29,7 @@
 
 
 
-//#define DEBUG_WhileSTmt
+#define DEBUG_WhileSTmt
 
 #define DEBUG_CODEGEN_handleCallExpr
 
@@ -45,6 +45,7 @@
 #define DEBUG_CODEGEN_handleFunctionDef
 #define DEBUG_CODEGEN_handleFunctionDefStmt
 #define DEBUG_CODEGEN_STMT
+#define DEBUG_WhileSTmt_terminated
 //#define DEBUG_CODEGEN_getCachedFunction
 
 //#define DEBUG_CODEGEN_createListWithValues

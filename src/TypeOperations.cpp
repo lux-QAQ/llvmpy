@@ -4,7 +4,7 @@
 #include "CodeGen/CodeGenRuntime.h"
 //#include "codegen.h"
 #include "TypeIDs.h"
-#include "lexer.h"
+#include "Lexer.h"
 #include "ObjectType.h"  // 确保包含 ObjectType.h
 
 #include <iostream>

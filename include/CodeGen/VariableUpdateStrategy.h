@@ -5,7 +5,7 @@
 #include <memory>
 #include <llvm/IR/Value.h>
 #include "ObjectType.h"
-#include "ast.h"
+#include "Ast.h"
 
 namespace llvmpy {
 

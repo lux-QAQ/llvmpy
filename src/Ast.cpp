@@ -1,20 +1,18 @@
-#include "ast.h"
-#include "parser.h"
+#include "Ast.h"
+#include "Parser.h"
 
 #include "ObjectType.h"
 #include "TypeIDs.h"
-#include "TypeOperations.h"  // Include for TypeInferencer
-#include "ObjectLifecycle.h" // Include for ObjectLifecycleManager
-#include "CodeGen/PyCodeGen.h" // <--- 添加这一行，包含 PyCodeGen 的完整定义
+#include "TypeOperations.h"     // Include for TypeInferencer
+#include "ObjectLifecycle.h"    // Include for ObjectLifecycleManager
+#include "CodeGen/PyCodeGen.h"  // <--- 添加这一行，包含 PyCodeGen 的完整定义
 //#include "ObjectRuntime.h"   // Include for ObjectRuntime
-
-
 
 #include <algorithm>
 #include <stdexcept>
 #include <iostream>
-#include <utility> // For std::pair
-#include <cmath>  // 添加这一行，确保可以使用modf函数
+#include <utility>  // For std::pair
+#include <cmath>    // 添加这一行，确保可以使用modf函数
 namespace llvmpy
 {
 
@@ -24,12 +22,11 @@ PyType::PyType(ObjectType* objType) : objectType(objType)
 {
 }
 
-bool PyType::isFunction() const {
+bool PyType::isFunction() const
+{
     // 检查 objectType 是否有效，并且其类型 ID 是 PY_TYPE_FUNC
     // 或者如果函数有更具体的类型 ID (>= PY_TYPE_FUNC_BASE)，也应视为函数
-    return objectType &&
-           (objectType->getTypeId() == PY_TYPE_FUNC ||
-            objectType->getTypeId() >= PY_TYPE_FUNC_BASE);
+    return objectType && (objectType->getTypeId() == PY_TYPE_FUNC || objectType->getTypeId() >= PY_TYPE_FUNC_BASE);
     // 或者更简单地，如果 ObjectType 有 category() 方法:
     // return objectType && objectType->category() == ObjectType::Function;
 }
@@ -184,7 +181,7 @@ std::shared_ptr<PyType> PyType::getDict(const std::shared_ptr<PyType>& keyType,
 {
     auto& registry = TypeRegistry::getInstance();
     return std::make_shared<PyType>(
-        registry.getDictType(keyType->getObjectType(), valueType->getObjectType()));
+            registry.getDictType(keyType->getObjectType(), valueType->getObjectType()));
 }
 
 std::shared_ptr<PyType> PyType::fromString(const std::string& typeName)
@@ -197,7 +194,6 @@ std::shared_ptr<PyType> PyType::fromString(const std::string& typeName)
     }
     return std::make_shared<PyType>(objType);
 }
-
 
 std::shared_ptr<PyType> PyType::fromObjectType(ObjectType* objType)
 {
@@ -218,22 +214,26 @@ std::shared_ptr<PyType> PyType::getListElementType(const std::shared_ptr<PyType>
     return nullptr;
 }
 
-std::shared_ptr<PyType> PyType::getDictKeyType(const std::shared_ptr<PyType>& dictType) {
+std::shared_ptr<PyType> PyType::getDictKeyType(const std::shared_ptr<PyType>& dictType)
+{
     if (!dictType || !dictType->isDict()) return nullptr;
-    
+
     const DictType* dt = dynamic_cast<const DictType*>(dictType->getObjectType());
-    if (dt) {
+    if (dt)
+    {
         return std::make_shared<PyType>(const_cast<ObjectType*>(dt->getKeyType()));
     }
     return nullptr;
 }
 
 // 获取字典值类型
-std::shared_ptr<PyType> PyType::getDictValueType(const std::shared_ptr<PyType>& dictType) {
+std::shared_ptr<PyType> PyType::getDictValueType(const std::shared_ptr<PyType>& dictType)
+{
     if (!dictType || !dictType->isDict()) return nullptr;
-    
+
     const DictType* dt = dynamic_cast<const DictType*>(dictType->getObjectType());
-    if (dt) {
+    if (dt)
+    {
         return std::make_shared<PyType>(const_cast<ObjectType*>(dt->getValueType()));
     }
     return nullptr;
@@ -342,14 +342,6 @@ std::shared_ptr<PyType> getCommonType(const std::shared_ptr<PyType>& t1, const s
 
 //========== ASTFactory 实现 ==========
 
-
-
-
-
-
-
-
-
 //========== 表达式节点方法实现 ==========
 
 // 工厂注册模板函数
@@ -361,30 +353,26 @@ void registerNodeWithFactory(ASTKind kind) {
     });
 } */
 
-NumberExprAST::NumberExprAST() : valueString("0"), determinedType(PyType::getInt()) // Default to integer 0
+NumberExprAST::NumberExprAST() : valueString("0"), determinedType(PyType::getInt())  // Default to integer 0
 {
     // Note: Default constructor might need adjustment depending on factory usage
 }
 
 NumberExprAST::NumberExprAST(std::string valStr, std::shared_ptr<PyType> type)
-: valueString(std::move(valStr)), determinedType(std::move(type))
+    : valueString(std::move(valStr)), determinedType(std::move(type))
 {
-// Basic validation: ensure type is not null
-if (!determinedType) {
-     std::cerr << "Warning: NumberExprAST created with null type for value '" << valueString << "'. Defaulting to int." << std::endl;
-     determinedType = PyType::getInt(); // Fallback
-}
+    // Basic validation: ensure type is not null
+    if (!determinedType)
+    {
+        std::cerr << "Warning: NumberExprAST created with null type for value '" << valueString << "'. Defaulting to int." << std::endl;
+        determinedType = PyType::getInt();  // Fallback
+    }
 }
 
 std::shared_ptr<PyType> NumberExprAST::getType() const
 {
-
     return determinedType ? determinedType : PyType::getInt();
 }
-
-
-
-
 
 std::shared_ptr<PyType> VariableExprAST::getType() const
 {
@@ -398,10 +386,6 @@ std::shared_ptr<PyType> VariableExprAST::getType() const
     return PyType::getAny();
 }
 
-
-
-
-
 std::shared_ptr<PyType> BinaryExprAST::getType() const
 {
     if (cachedType)
@@ -410,9 +394,7 @@ std::shared_ptr<PyType> BinaryExprAST::getType() const
     }
 
     // 对于比较操作符，直接返回布尔值
-    if (opType == TOK_LT || opType == TOK_GT || opType == TOK_LE || opType == TOK_GE ||
-        opType == TOK_EQ || opType == TOK_NEQ || opType == TOK_IS || opType == TOK_IS_NOT ||
-        opType == TOK_IN || opType == TOK_NOT_IN)
+    if (opType == TOK_LT || opType == TOK_GT || opType == TOK_LE || opType == TOK_GE || opType == TOK_EQ || opType == TOK_NEQ || opType == TOK_IS || opType == TOK_IS_NOT || opType == TOK_IN || opType == TOK_NOT_IN)
     {
         cachedType = PyType::getBool();
         return cachedType;
@@ -422,16 +404,18 @@ std::shared_ptr<PyType> BinaryExprAST::getType() const
     auto lhsType = lhs->getType();
     auto rhsType = rhs->getType();
 
-    if (!lhsType || !rhsType) {
-        cachedType = PyType::getAny(); // Fallback if operand types are unknown
+    if (!lhsType || !rhsType)
+    {
+        cachedType = PyType::getAny();  // Fallback if operand types are unknown
         return cachedType;
     }
 
     ObjectType* lhsObjType = lhsType->getObjectType();
     ObjectType* rhsObjType = rhsType->getObjectType();
 
-    if (!lhsObjType || !rhsObjType) {
-        cachedType = PyType::getAny(); // Fallback if ObjectTypes are invalid
+    if (!lhsObjType || !rhsObjType)
+    {
+        cachedType = PyType::getAny();  // Fallback if ObjectTypes are invalid
         return cachedType;
     }
 
@@ -439,54 +423,42 @@ std::shared_ptr<PyType> BinaryExprAST::getType() const
     // 使用 TypeInferencer 进行推导，它返回 ObjectType*
     ObjectType* resultObjType = TypeInferencer::inferBinaryOpResultType(lhsObjType, rhsObjType, opType);
 
-    if (!resultObjType) {
-         // 如果 TypeInferencer 推断失败，返回 Any
-         cachedType = PyType::getAny();
-         std::cerr << "Warning [BinaryExprAST::getType]: Type inference failed for binary operator "
-                   << opType << ". Defaulting to Any." << std::endl;
-    } else {
-         // 从推断出的 ObjectType 创建 PyType
-         cachedType = PyType::fromObjectType(resultObjType);
-         if (!cachedType) { // Double check in case fromObjectType fails
-             cachedType = PyType::getAny();
-             std::cerr << "Warning [BinaryExprAST::getType]: Failed to create PyType from inferred ObjectType. Defaulting to Any." << std::endl;
-         }
+    if (!resultObjType)
+    {
+        // 如果 TypeInferencer 推断失败，返回 Any
+        cachedType = PyType::getAny();
+        std::cerr << "Warning [BinaryExprAST::getType]: Type inference failed for binary operator "
+                  << opType << ". Defaulting to Any." << std::endl;
+    }
+    else
+    {
+        // 从推断出的 ObjectType 创建 PyType
+        cachedType = PyType::fromObjectType(resultObjType);
+        if (!cachedType)
+        {  // Double check in case fromObjectType fails
+            cachedType = PyType::getAny();
+            std::cerr << "Warning [BinaryExprAST::getType]: Failed to create PyType from inferred ObjectType. Defaulting to Any." << std::endl;
+        }
     }
     // --- 结束修改 ---
 
     return cachedType;
 }
 
-
-
-
-
-
-
 std::shared_ptr<PyType> StringExprAST::getType() const
 {
     return PyType::getString();
 }
-
-
-
-
 
 std::shared_ptr<PyType> BoolExprAST::getType() const
 {
     return PyType::getBool();
 }
 
-
-
-
-
 std::shared_ptr<PyType> NoneExprAST::getType() const
 {
     return PyType::getVoid();
 }
-
-
 
 std::shared_ptr<PyType> UnaryExprAST::getType() const
 {
@@ -496,35 +468,34 @@ std::shared_ptr<PyType> UnaryExprAST::getType() const
     }
 
     auto operandType = operand->getType();
-    if (!operandType) {
-        cachedType = PyType::getAny(); // Fallback if operand type unknown
+    if (!operandType)
+    {
+        cachedType = PyType::getAny();  // Fallback if operand type unknown
         return cachedType;
     }
 
     // Use TypeInferencer for consistency
     ObjectType* resultObjType = TypeInferencer::inferUnaryOpResultType(operandType->getObjectType(), opType);
-    if (!resultObjType) {
-         cachedType = PyType::getAny(); // Fallback if inference fails
-         return cachedType;
+    if (!resultObjType)
+    {
+        cachedType = PyType::getAny();  // Fallback if inference fails
+        return cachedType;
     }
 
     cachedType = PyType::fromObjectType(resultObjType);
     return cachedType;
 }
 
-
-
-
-
-
 // getType: Infers the dictionary type based on key/value pairs
 std::shared_ptr<PyType> DictExprAST::getType() const
 {
-    if (cachedType) {
+    if (cachedType)
+    {
         return cachedType;
     }
 
-    if (pairs.empty()) {
+    if (pairs.empty())
+    {
         // Empty dictionary defaults to dict[any, any]
         cachedType = PyType::getDict(PyType::getAny(), PyType::getAny());
         return cachedType;
@@ -533,61 +504,68 @@ std::shared_ptr<PyType> DictExprAST::getType() const
     std::shared_ptr<PyType> commonKeyType = nullptr;
     std::shared_ptr<PyType> commonValueType = nullptr;
 
-    for (const auto& pair : pairs) {
-        if (!pair.first || !pair.second) {
-             // Should not happen with a valid parser, but handle defensively
-             commonKeyType = PyType::getAny();
-             commonValueType = PyType::getAny();
-             std::cerr << "Warning: Invalid key or value expression in DictExprAST." << std::endl;
-             break;
+    for (const auto& pair : pairs)
+    {
+        if (!pair.first || !pair.second)
+        {
+            // Should not happen with a valid parser, but handle defensively
+            commonKeyType = PyType::getAny();
+            commonValueType = PyType::getAny();
+            std::cerr << "Warning: Invalid key or value expression in DictExprAST." << std::endl;
+            break;
         }
         auto keyType = pair.first->getType();
         auto valueType = pair.second->getType();
 
-        if (!keyType || !valueType) { // If any expression fails type inference
+        if (!keyType || !valueType)
+        {  // If any expression fails type inference
             commonKeyType = PyType::getAny();
             commonValueType = PyType::getAny();
             std::cerr << "Warning: Could not infer type for key or value in DictExprAST." << std::endl;
             break;
         }
 
-        if (!commonKeyType) { // First element
+        if (!commonKeyType)
+        {  // First element
             commonKeyType = keyType;
-        } else if (!commonKeyType->isAny()) {
+        }
+        else if (!commonKeyType->isAny())
+        {
             commonKeyType = getCommonType(commonKeyType, keyType);
-             if (!commonKeyType) { // If getCommonType returns nullptr
-                 commonKeyType = PyType::getAny(); // Fallback if no common type
-                 std::cerr << "Warning: Incompatible key types found in DictExprAST, defaulting to Any." << std::endl;
-             }
+            if (!commonKeyType)
+            {                                      // If getCommonType returns nullptr
+                commonKeyType = PyType::getAny();  // Fallback if no common type
+                std::cerr << "Warning: Incompatible key types found in DictExprAST, defaulting to Any." << std::endl;
+            }
         }
 
-        if (!commonValueType) { // First element
+        if (!commonValueType)
+        {  // First element
             commonValueType = valueType;
-        } else if (!commonValueType->isAny()) {
+        }
+        else if (!commonValueType->isAny())
+        {
             commonValueType = getCommonType(commonValueType, valueType);
-             if (!commonValueType) { // If getCommonType returns nullptr
-                 commonValueType = PyType::getAny(); // Fallback if no common type
-                 std::cerr << "Warning: Incompatible value types found in DictExprAST, defaulting to Any." << std::endl;
-             }
+            if (!commonValueType)
+            {                                        // If getCommonType returns nullptr
+                commonValueType = PyType::getAny();  // Fallback if no common type
+                std::cerr << "Warning: Incompatible value types found in DictExprAST, defaulting to Any." << std::endl;
+            }
         }
 
         // If we already defaulted to Any, no need to check further
-        if (commonKeyType->isAny() && commonValueType->isAny()) {
+        if (commonKeyType->isAny() && commonValueType->isAny())
+        {
             break;
         }
     }
-     // Ensure we have valid types, default to Any if inference failed during loop init
+    // Ensure we have valid types, default to Any if inference failed during loop init
     if (!commonKeyType) commonKeyType = PyType::getAny();
     if (!commonValueType) commonValueType = PyType::getAny();
 
     cachedType = PyType::getDict(commonKeyType, commonValueType);
     return cachedType;
 }
-
-
-
-
-
 
 std::shared_ptr<PyType> CallExprAST::getType() const
 {
@@ -600,12 +578,6 @@ std::shared_ptr<PyType> CallExprAST::getType() const
     // 这里只能返回一个临时类型
     return PyType::getAny();
 }
-
-
-
-
-
-
 
 std::shared_ptr<PyType> ListExprAST::getType() const
 {
@@ -622,19 +594,16 @@ std::shared_ptr<PyType> ListExprAST::getType() const
     return cachedType;
 }
 
-
-
-
-
 std::shared_ptr<PyType> IndexExprAST::getType() const
 {
     if (cachedType)
         return cachedType;
 
     auto targetTypePtr = target->getType();
-    auto indexTypePtr = index->getType(); // 获取索引表达式的类型
+    auto indexTypePtr = index->getType();  // 获取索引表达式的类型
 
-    if (!targetTypePtr || !indexTypePtr) {
+    if (!targetTypePtr || !indexTypePtr)
+    {
         // 如果目标或索引类型无法推断，则返回 Any
         cachedType = PyType::getAny();
         std::cerr << "Warning: Could not infer type for target or index in IndexExprAST." << std::endl;
@@ -642,18 +611,20 @@ std::shared_ptr<PyType> IndexExprAST::getType() const
     }
 
     ObjectType* targetObjType = targetTypePtr->getObjectType();
-    ObjectType* indexObjType = indexTypePtr->getObjectType(); // 获取索引的 ObjectType
+    ObjectType* indexObjType = indexTypePtr->getObjectType();  // 获取索引的 ObjectType
 
-    if (!targetObjType || !indexObjType) {
+    if (!targetObjType || !indexObjType)
+    {
         // 如果无法获取 ObjectType，则返回 Any
         cachedType = PyType::getAny();
-         std::cerr << "Warning: Could not get ObjectType for target or index in IndexExprAST." << std::endl;
+        std::cerr << "Warning: Could not get ObjectType for target or index in IndexExprAST." << std::endl;
         return cachedType;
     }
 
     // 使用 TypeInferencer 来推断索引操作的结果类型
     ObjectType* resultObjType = TypeInferencer::inferIndexOpResultType(targetObjType, indexObjType);
-    if (!resultObjType) {
+    if (!resultObjType)
+    {
         // 如果 TypeInferencer 推断失败，则返回 Any
         cachedType = PyType::getAny();
         std::cerr << "Warning: Type inference failed for index operation in IndexExprAST." << std::endl;
@@ -665,28 +636,7 @@ std::shared_ptr<PyType> IndexExprAST::getType() const
     return cachedType;
 }
 
-
 //========== 语句节点方法实现 ==========
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 void WhileStmtAST::beginScope(PyCodeGen& codegen)
 {
@@ -698,152 +648,167 @@ void WhileStmtAST::endScope(PyCodeGen& codegen)
     codegen.popScope();
 }
 
-
-
-
-
-
-
-
-
 //========== 类和模块方法实现 ==========
 
-
-
-
-
-
-
-std::shared_ptr<PyType> FunctionAST::inferReturnType() const {
+std::shared_ptr<PyType> FunctionAST::inferReturnType() const
+{
     // 1. 优先使用显式声明的返回类型
-    if (!returnTypeName.empty()) {
+    if (!returnTypeName.empty())
+    {
         TypeRegistry::getInstance().ensureBasicTypesRegistered();
         ObjectType* declaredType = TypeRegistry::getInstance().getType(returnTypeName);
-        if (declaredType) {
+        if (declaredType)
+        {
             return std::make_shared<PyType>(declaredType);
         }
     }
-    
+
     // 2. 构建参数类型映射表，用于检测参数透传
     std::unordered_map<std::string, ObjectType*> paramTypeMap;
-    for (const auto& param : params) {
+    for (const auto& param : params)
+    {
         ObjectType* paramType = nullptr;
-        if (!param.typeName.empty()) {
+        if (!param.typeName.empty())
+        {
             paramType = TypeRegistry::getInstance().getType(param.typeName);
         }
         // 尝试从符号表获取类型信息
-        if (!paramType) {
+        if (!paramType)
+        {
             paramType = TypeRegistry::getInstance().getSymbolType(param.name);
         }
         // 如果还是没有，使用any类型
-        if (!paramType) {
+        if (!paramType)
+        {
             paramType = TypeRegistry::getInstance().getType("any");
         }
-        
+
         paramTypeMap[param.name] = paramType;
     }
-    
+
     // 3. 分析所有return语句
-    for (const auto& stmt : body) {
-        if (auto retStmt = dynamic_cast<const ReturnStmtAST*>(stmt.get())) {
+    for (const auto& stmt : body)
+    {
+        if (auto retStmt = dynamic_cast<const ReturnStmtAST*>(stmt.get()))
+        {
             const ExprAST* retExpr = retStmt->getValue();
-            
+
             // 3.1 处理无返回值的情况
-            if (!retExpr) {
+            if (!retExpr)
+            {
                 return std::make_shared<PyType>(TypeRegistry::getInstance().getType("none"));
             }
-            
+
             // 3.2 检查是否是直接返回参数的情况（如 return a）
-            if (auto varExpr = dynamic_cast<const VariableExprAST*>(retExpr)) {
+            if (auto varExpr = dynamic_cast<const VariableExprAST*>(retExpr))
+            {
                 const std::string& varName = varExpr->getName();
                 auto paramIt = paramTypeMap.find(varName);
-                
-                if (paramIt != paramTypeMap.end()) {
+
+                if (paramIt != paramTypeMap.end())
+                {
                     // 这是直接参数透传的情况，优先保留参数类型
                     ObjectType* paramType = paramIt->second;
-                    
+
                     // 检查参数是否是容器类型
                     int typeId = paramType->getTypeId();
-                    if (typeId == PY_TYPE_LIST || 
-                        (typeId >= PY_TYPE_LIST_BASE && typeId < PY_TYPE_DICT_BASE) ||
-                        TypeFeatureChecker::hasFeature(paramType, "container") ||
-                        TypeFeatureChecker::hasFeature(paramType, "sequence")) {
+                    if (typeId == PY_TYPE_LIST || (typeId >= PY_TYPE_LIST_BASE && typeId < PY_TYPE_DICT_BASE) || TypeFeatureChecker::hasFeature(paramType, "container") || TypeFeatureChecker::hasFeature(paramType, "sequence"))
+                    {
                         // 对于容器类型，保留其完整类型信息
                         return std::make_shared<PyType>(paramType);
                     }
-                    
+
                     // 对于浮点数等，也保留原始类型
-                    if (typeId == PY_TYPE_DOUBLE || typeId == PY_TYPE_INT) {
+                    if (typeId == PY_TYPE_DOUBLE || typeId == PY_TYPE_INT)
+                    {
                         return std::make_shared<PyType>(paramType);
                     }
-                    
+
                     // 对于其他参数类型，也直接返回参数类型
                     return std::make_shared<PyType>(paramType);
                 }
-                
+
                 // 检查是否是局部变量
                 ObjectType* varType = TypeRegistry::getInstance().getSymbolType(varName);
-                if (varType) {
+                if (varType)
+                {
                     return std::make_shared<PyType>(varType);
                 }
             }
-            
+
             // 3.3 检查是否是特定类型表达式
-            if (dynamic_cast<const ListExprAST*>(retExpr)) {
+            if (dynamic_cast<const ListExprAST*>(retExpr))
+            {
                 // 是列表字面量
                 return PyType::getList(PyType::getAny());
             }
-            
+
             // 3.4 如果是函数调用，尝试获取函数返回类型
-            if (auto callExpr = dynamic_cast<const CallExprAST*>(retExpr)) {
+            if (auto callExpr = dynamic_cast<const CallExprAST*>(retExpr))
+            {
                 FunctionType* funcType = TypeRegistry::getInstance().getFunctionType(callExpr->getCallee());
-                if (funcType) {
+                if (funcType)
+                {
                     ObjectType* returnType = const_cast<ObjectType*>(funcType->getReturnType());
-                    if (returnType) {
+                    if (returnType)
+                    {
                         return std::make_shared<PyType>(returnType);
                     }
                 }
             }
-            
+
             // 3.5 使用表达式自身的类型
-            if (retExpr->getType()) {
+            if (retExpr->getType())
+            {
                 // 优先使用表达式自身类型
                 auto exprType = retExpr->getType();
-                
+
                 // 特别处理容器类型，确保类型信息完整保留
                 ObjectType* objType = exprType->getObjectType();
-                if (objType) {
+                if (objType)
+                {
                     int typeId = objType->getTypeId();
-                    if (typeId == PY_TYPE_LIST || 
-                        (typeId >= PY_TYPE_LIST_BASE && typeId < PY_TYPE_DICT_BASE) ||
-                        TypeFeatureChecker::hasFeature(objType, "container")) {
+                    if (typeId == PY_TYPE_LIST || (typeId >= PY_TYPE_LIST_BASE && typeId < PY_TYPE_DICT_BASE) || TypeFeatureChecker::hasFeature(objType, "container"))
+                    {
                         return std::make_shared<PyType>(objType);
                     }
                 }
-                
+
                 return exprType;
             }
         }
     }
-    
+
     // 4. 如果无法从return语句推断，尝试通过函数名推断
-    if (name.find("get_") == 0 || name.find("create_") == 0) {
+    if (name.find("get_") == 0 || name.find("create_") == 0)
+    {
         std::string typeName = name.substr(name.find("_") + 1);
-        if (typeName == "list" || typeName == "array") {
+        if (typeName == "list" || typeName == "array")
+        {
             return PyType::getList(PyType::getAny());
-        } else if (typeName == "dict" || typeName == "map") {
+        }
+        else if (typeName == "dict" || typeName == "map")
+        {
             return PyType::getDict(PyType::getAny(), PyType::getAny());
-        } else if (typeName == "int") {
+        }
+        else if (typeName == "int")
+        {
             return PyType::getInt();
-        } else if (typeName == "float" || typeName == "double") {
+        }
+        else if (typeName == "float" || typeName == "double")
+        {
             return PyType::getDouble();
-        } else if (typeName == "bool") {
+        }
+        else if (typeName == "bool")
+        {
             return PyType::getBool();
-        } else if (typeName == "str" || typeName == "string") {
+        }
+        else if (typeName == "str" || typeName == "string")
+        {
             return PyType::getString();
         }
     }
-    
+
     // 5. 如果所有推断方法都失败，默认使用Any类型
     return std::make_shared<PyType>(TypeRegistry::getInstance().getType("any"));
 }
@@ -896,8 +861,6 @@ void FunctionAST::resolveParamTypes()
     allParamsResolved = true;
 }
 
-
-
 // 模块
 
 /* // 为ModuleAST添加必要的方法
@@ -915,10 +878,6 @@ void ModuleAST::addStatement(std::unique_ptr<StmtAST> stmt)
         statements.push_back(std::move(stmt));
     }
 } */
-
-
-
-
 
 //========== 模板方法实现 ==========
 
@@ -961,10 +920,5 @@ bool ExprASTBase<Derived, K>::isReference() const
     auto type = static_cast<const Derived*>(this)->getType();
     return type && type->isReference();
 }
-
-
-
-
-
 
 }  // namespace llvmpy

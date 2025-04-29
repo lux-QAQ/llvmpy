@@ -6,7 +6,7 @@
 #include "TypeOperations.h"
 #include "ObjectLifecycle.h"
 #include "TypeIDs.h"
-#include "parser.h"
+#include "Parser.h"
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <iostream>

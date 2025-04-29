@@ -9,7 +9,7 @@
 #include <llvm/IR/Value.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/IRBuilder.h>
-#include "ast.h"
+#include "Ast.h"
 #include "ObjectType.h"
 
 namespace llvmpy

@@ -1,8 +1,8 @@
 #ifndef PARSER_H
 #define PARSER_H
 
-#include "lexer.h"
-//#include "ast.h"
+#include "Lexer.h"
+//#include "Ast.h"
 #include "TypeIDs.h"
 #include "ObjectType.h"
 #include "TypeOperations.h"

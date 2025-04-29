@@ -6,15 +6,19 @@ def func_list(em):
     return [em]
 def func_dict(em):
     return {1.2:em}
-def func_fib(em):
-    if em <= 0:
-        return 0
-    elif em == 1:
-        return 1
-    elif em == 2:
-        return 1
-    else:
-        return func_fib(em-1) + func_fib(em-2)
+def fib(a):
+    if a <=2:
+        def _fib(a):
+            if a == 0:
+                return 0
+            elif a == 1:
+                return 1
+            elif a==2:
+                return 1
+    else :
+        def _fib(a):
+            return fib(a-1) + fib(a-2)
+    return _fib(a)
 def arr_test1():
     print("arr_test1")
     tmp = [1,2,3]*2
@@ -27,6 +31,15 @@ def arr_test2():
     print(tmp[0][3])
     print(tmp[5][1.2])
     return 0
+def func_redefine():
+    def test():
+        print("not me")
+        return "not me"
+    def test():
+        print("its me")
+        return "its me"
+    test() # 打印一次
+    return test
     
 
 
@@ -230,9 +243,10 @@ def main():
     print(test3)
     test4= func_dict(5)
     print(test4)
-    print(func_fib(5))
-    # print(func_fib(6)) # 注释掉一些减少输出
-    # print(func_fib(7))
+    print("--- Fibonacci Tests ---")
+    print(fib(5))
+    print(fib(6)) # 注释掉一些减少输出
+    print(fib(7))
 
     print("\n--- Array/List Tests ---")
     arr_test1()
@@ -243,6 +257,9 @@ def main():
     dict_modification_test()
     nested_container_access_test()
     container_assignment_test()
+    print("\n--- Redefine Function Test ---")
+    fun = func_redefine() # 第一次打印
+    print(fun()) # 第二、三次打印
 
     print("\n--- Complex Loop & Interaction Tests ---")
     complex_list_while_test()

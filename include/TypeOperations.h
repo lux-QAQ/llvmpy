@@ -2,7 +2,7 @@
 #define TYPE_OPERATIONS_H
 
 #include "TypeIDs.h"
-#include "lexer.h"
+#include "Lexer.h"
 #include "ObjectType.h"
 #include "CodeGen/CodeGenBase.h"
 #include "ObjectType.h"

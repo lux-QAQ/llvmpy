@@ -17,8 +17,8 @@
 #include "Debugdefine.h"
 #include "TypeIDs.h"
 #include "ObjectType.h"
-#include "lexer.h"
-#include "parser.h"
+#include "Lexer.h"
+#include "Parser.h"
 
 #include "RunTime/runtime.h"           // 包含运行时头文件
 #include "RunTime/py_type_dispatch.h"  // 包含类型分派头文件

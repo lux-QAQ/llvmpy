@@ -62,9 +62,9 @@ file(GLOB RUNTIME_SOURCES
 add_executable(llvmpy
     main.cpp
     #src/runtime.cpp # 假设这些是旧文件或不需要了
-    src/lexer.cpp
-    src/parser.cpp
-    src/ast.cpp
+    src/Lexer.cpp
+    src/Parser.cpp
+    src/Ast.cpp
     src/ObjectType.cpp
     #src/ObjectRuntime.cpp
     src/TypeOperations.cpp

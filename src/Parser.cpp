@@ -1,9 +1,9 @@
-#include "parser.h"
+#include "Parser.h"
 #include <iostream>
 #include <memory>
 #include <sstream>
 #include "Debugdefine.h"
-//#include "ast.h"
+//#include "Ast.h"
 #include <stdexcept>  // 添加头文件以使用 std::runtime_error 或其他异常
 namespace llvmpy
 {
@@ -101,6 +101,32 @@ void PyParser::initializeRegistries()
                        { return p.parseImportStmt(); });
     registerStmtParser(TOK_PASS, [](PyParser& p)
                        { return p.parsePassStmt(); });
+
+
+    // --- 添加 Break 和 Continue 解析器 ---
+    registerStmtParser(TOK_BREAK, [](PyParser& p) -> std::unique_ptr<StmtAST> {
+        int line = p.getCurrentToken().line;
+        int col = p.getCurrentToken().column;
+        p.nextToken(); // Consume 'break'
+        auto breakStmt = std::make_unique<BreakStmtAST>();
+        breakStmt->setLocation(line, col);
+        if (!p.expectStatementEnd("break")) {
+            return nullptr; // Error logged by expectStatementEnd
+        }
+        return breakStmt;
+    });
+
+    registerStmtParser(TOK_CONTINUE, [](PyParser& p) -> std::unique_ptr<StmtAST> {
+        int line = p.getCurrentToken().line;
+        int col = p.getCurrentToken().column;
+        p.nextToken(); // Consume 'continue'
+        auto continueStmt = std::make_unique<ContinueStmtAST>();
+        continueStmt->setLocation(line, col);
+        if (!p.expectStatementEnd("continue")) {
+            return nullptr; // Error logged by expectStatementEnd
+        }
+        return continueStmt;
+    });
 
     //    标识符启动的语句 (复杂情况：赋值、复合赋值、索引赋值、表达式语句)
     registerStmtParser(TOK_IDENTIFIER, [](PyParser& p) -> std::unique_ptr<StmtAST>
