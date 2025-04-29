@@ -177,10 +177,11 @@ void CodeGenStmt::handleBlock(const std::vector<std::unique_ptr<StmtAST>>& stmts
         }
     }
 
-// --- ADDED: Generate cleanups if scope ends normally ---
+    // --- ADDED: Generate cleanups if scope ends normally ---
     llvm::BasicBlock* finalBlock = codeGen.getBuilder().GetInsertBlock();
-    if (createNewScope && finalBlock && !finalBlock->getTerminator()) {
-         codeGen.getSymbolTable().generateScopeCleanups(codeGen);
+    if (createNewScope && finalBlock && !finalBlock->getTerminator())
+    {
+        codeGen.getSymbolTable().generateScopeCleanups(codeGen);
     }
 
     // 关闭作用域 (可选)
@@ -315,7 +316,7 @@ void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
             funcObjGV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
             storage = funcObjGV;
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created GlobalVariable: " + llvmObjToString(storage) + " in Module@ " + std::to_string(reinterpret_cast<uintptr_t>(codeGen.getModule())));
+            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created GlobalVariable: " + llvmObjToString(storage) + " in Module@ " + std::to_string(reinterpret_cast<uintptr_t>(codeGen.getModule())));
 #endif
         }
         else
@@ -368,6 +369,7 @@ DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created GlobalVariable: " + llvmObjToString(
 #endif
 
         llvm::AllocaInst* funcObjAlloca = nullptr;
+        bool isNewAlloca = false;  // <<<--- 添加标志位
 
         // 1. Check if variable already exists in the current or parent scopes
         if (symTable.hasVariable(pyFuncName))
@@ -386,6 +388,7 @@ DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created GlobalVariable: " + llvmObjToString(
                     codeGen.logError("AllocaInst '" + pyFuncName + "' exists with wrong type.", line, col);
                     return;
                 }
+                isNewAlloca = false;  // <<<--- 标记为复用
             }
             else
             {
@@ -396,6 +399,7 @@ DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created GlobalVariable: " + llvmObjToString(
 #endif
                 funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName);
                 if (!funcObjAlloca) return;  // Error logged by createEntryBlockAlloca
+                isNewAlloca = true;          // <<<--- 标记为新建
             }
         }
         else
@@ -409,6 +413,7 @@ DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created GlobalVariable: " + llvmObjToString(
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
             DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created new AllocaInst for '" + pyFuncName + "': " + llvmObjToString(funcObjAlloca));
 #endif
+            isNewAlloca = true;  // <<<--- 标记为新建
         }
         storage = funcObjAlloca;  // Storage location is the alloca
 
@@ -416,33 +421,36 @@ DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created GlobalVariable: " + llvmObjToString(
         llvm::BasicBlock* currentBlock = builder.GetInsertBlock();
         if (currentBlock)
         {
-            // --- Overwrite Handling: DecRef old value ---
-            // Load the current value from the alloca
-            llvm::Value* oldValue = builder.CreateLoad(pyObjectPtrType, funcObjAlloca, pyFuncName + ".old");
-            // Check if the old value is not null before trying to DecRef
-            llvm::Value* isNotNull = builder.CreateIsNotNull(oldValue, "isOldValueNotNull");
+            // --- MODIFICATION: Only handle overwrite if alloca is NOT new ---
+            if (!isNewAlloca)
+            {
+                // --- Overwrite Handling: DecRef old value ---
+                llvm::Value* oldValue = builder.CreateLoad(pyObjectPtrType, funcObjAlloca, pyFuncName + ".old");
+                llvm::Value* isNotNull = builder.CreateIsNotNull(oldValue, "isOldValueNotNull");
+                llvm::BasicBlock* decRefBlock = codeGen.createBasicBlock("decRefOldFunc", currentCodeGenFunction);
+                llvm::BasicBlock* storeNewBlock = codeGen.createBasicBlock("storeNewFunc", currentCodeGenFunction); // Need continuation block regardless
 
-            llvm::BasicBlock* decRefBlock = codeGen.createBasicBlock("decRefOldFunc", currentCodeGenFunction);
-            llvm::BasicBlock* storeNewBlock = codeGen.createBasicBlock("storeNewFunc", currentCodeGenFunction);
+                builder.CreateCondBr(isNotNull, decRefBlock, storeNewBlock); // Branch to decref or directly to store
 
-            builder.CreateCondBr(isNotNull, decRefBlock, storeNewBlock);
+                // DecRef Block:
+                builder.SetInsertPoint(decRefBlock);
+                runtime->decRef(oldValue);
+                builder.CreateBr(storeNewBlock); // Branch to store after decref
 
-            // DecRef Block:
-            builder.SetInsertPoint(decRefBlock);
-            runtime->decRef(oldValue);        // Call py_decref on the old object
-            builder.CreateBr(storeNewBlock);  // Branch to the next step
-
-            // Store New Block: (continuation after potential DecRef)
-            builder.SetInsertPoint(storeNewBlock);
-            // --- End Overwrite Handling ---
+                // Store New Block: (Builder now points here)
+                builder.SetInsertPoint(storeNewBlock);
+            }
+            // --- END MODIFICATION ---
+            // If it was a new alloca, the builder's insert point is still where it was,
+            // and we directly proceed to store the new value without the decref logic.
 
             // Store the *new* function object
             builder.CreateStore(pyFuncObj, funcObjAlloca);
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* (" + llvmObjToString(pyFuncObj) + ") into AllocaInst: " + llvmObjToString(funcObjAlloca) + " in block " + llvmObjToString(currentBlock));
+            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* (" + llvmObjToString(pyFuncObj) + ") into AllocaInst: " + llvmObjToString(funcObjAlloca) + " in block " + llvmObjToString(builder.GetInsertBlock())); // Use current block
 #endif
 
-            // Increment ref count of the *new* object, as the alloca now holds a reference
+            // Increment ref count of the *new* object...
             runtime->incRef(pyFuncObj);
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
             DEBUG_LOG_DETAIL("HdlFuncDefStmt", "IncRef'd new PyObject* (" + llvmObjToString(pyFuncObj) + ") for nested function storage.");

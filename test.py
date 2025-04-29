@@ -1,8 +1,8 @@
 def main():
-    def test():
-        print("test")
-        return 0
-    func = test
-    print(func())
-    return 0
+    a=0
+    while True:
+        if a>10:
+            break
+        print(a)
+        a+=1
     

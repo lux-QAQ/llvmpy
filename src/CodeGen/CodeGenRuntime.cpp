@@ -1,6 +1,8 @@
 #include "CodeGen/CodeGenRuntime.h"
 #include "CodeGen/CodeGenBase.h"
 #include "CodeGen/CodeGenType.h"
+#include "CodeGen/CodeGenUtil.h"
+
 #include "ObjectType.h"
 #include "CodeGen/PyCodeGen.h"
 #include "TypeOperations.h"
@@ -87,7 +89,7 @@ llvm::Value* CodeGenRuntime::createCallFunction(
 
 llvm::Value* CodeGenRuntime::createCallFunctionNoArgs(llvm::Value* funcObj)
 {
-#ifdef DEBUG_CODEGEN_RUNTIME
+#ifdef DEBUG_CODEGEN_RUNTIME_createCallFunctionNoArgs
     DEBUG_LOG_DETAIL("RuntimeGen", "Creating call to py_call_function_noargs for: " + llvmObjToString(funcObj));
 #endif
     llvm::Function* callFunc = codeGen.getOrCreateExternalFunction(
