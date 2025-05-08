@@ -102,7 +102,7 @@ else
     else
         for check_script in $CHECKNEEDS_SCRIPTS; do
             script_basename=$(basename "$check_script")
-            echo -e "${BLUE}--- Running Pre-check Script: $script_basename ---${NC}"
+            # echo -e "${BLUE}--- Running Pre-check Script: $script_basename ---${NC}" # 修改：注释掉此行以获得更简洁的输出
             chmod +x "$check_script" # Ensure it's executable
             
             # Execute the script. It will print its own PASSED/FAILED status.
