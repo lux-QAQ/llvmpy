@@ -270,5 +270,3 @@ def main():
 
     print("\n--- All Tests Done ---")
     return 0
-
-main()

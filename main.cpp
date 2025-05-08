@@ -54,7 +54,14 @@ int main(int argc, char** argv)
 #endif
 
 #ifdef DEBUG
-    std::string inputFile = "/home/ljs/code/llvmpy/test.py";
+    std::string inputFile;
+    if (argc < 2) {
+        inputFile = "/home/ljs/code/llvmpy/test.py";
+        std::cout << "DEBUG Mode: No input file provided, using default: " << inputFile << std::endl;
+    } else {
+        inputFile = argv[1];
+        std::cout << "DEBUG Mode: Using provided input file: " << inputFile << std::endl;
+    }
 #endif
 
     std::string outputFile = (argc > 2) ? argv[2] : "output.ll";

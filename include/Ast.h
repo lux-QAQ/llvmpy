@@ -1019,34 +1019,43 @@ public:
  */
 class WhileStmtAST : public StmtASTBase<WhileStmtAST, ASTKind::WhileStmt>
 {
-private:
-    std::unique_ptr<ExprAST> condition;          ///< 循环条件表达式。
-    std::vector<std::unique_ptr<StmtAST>> body;  ///< 循环体语句块。
-    // @note 不支持 while...else 结构。
-
-public:
-    /** @brief 构造函数。*/
-    WhileStmtAST(std::unique_ptr<ExprAST> cond, std::vector<std::unique_ptr<StmtAST>> b)
-        : condition(std::move(cond)), body(std::move(b))
-    {
-    }
-
-    /** @brief 获取条件表达式。*/
-    const ExprAST* getCondition() const
-    {
-        return condition.get();
-    }
-    /** @brief 获取循环体语句块。*/
-    const std::vector<std::unique_ptr<StmtAST>>& getBody() const
-    {
-        return body;
-    }
-
-    /** @brief while 循环体开始时需要创建新作用域。*/
-    void beginScope(PyCodeGen& codegen) override;
-    /** @brief while 循环体结束时需要销毁作用域。*/
-    void endScope(PyCodeGen& codegen) override;
-};
+    private:
+        std::unique_ptr<ExprAST> condition;          ///< 循环条件表达式。
+        std::vector<std::unique_ptr<StmtAST>> body;  ///< 循环体语句块。
+        std::unique_ptr<StmtAST> elseStmt;           ///< else 分支语句 (如果循环正常结束则执行)。 <-- 新增
+    
+    public:
+        /** @brief 构造函数。*/
+        WhileStmtAST(std::unique_ptr<ExprAST> cond,
+                     std::vector<std::unique_ptr<StmtAST>> b,
+                     std::unique_ptr<StmtAST> elseS = nullptr) // <-- 修改：添加 else 参数，默认为 nullptr
+            : condition(std::move(cond)),
+              body(std::move(b)),
+              elseStmt(std::move(elseS)) // <-- 新增：初始化 elseStmt
+        {
+        }
+    
+        /** @brief 获取条件表达式。*/
+        const ExprAST* getCondition() const
+        {
+            return condition.get();
+        }
+        /** @brief 获取循环体语句块。*/
+        const std::vector<std::unique_ptr<StmtAST>>& getBody() const
+        {
+            return body;
+        }
+        /** @brief 获取 else 分支语句。*/ // <-- 新增
+        StmtAST* getElseStmt() const
+        {
+            return elseStmt.get();
+        }
+    
+        /** @brief while 循环体开始时需要创建新作用域。*/
+        // void beginScope(PyCodeGen& codegen) override; // Declaration likely exists or is handled by base/codegen
+        /** @brief while 循环体结束时需要销毁作用域。*/
+        // void endScope(PyCodeGen& codegen) override;   // Declaration likely exists or is handled by base/codegen
+    };
 
 // Break 语句 AST
 class BreakStmtAST : public StmtASTBase<BreakStmtAST, ASTKind::BreakStmt>

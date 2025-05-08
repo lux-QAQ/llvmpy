@@ -316,6 +316,7 @@ void PyParser::initializeRegistries()
                        { return p.parseExpressionStmt(); });  // e.g., -x
     registerStmtParser(TOK_NOT, [](PyParser& p)
                        { return p.parseExpressionStmt(); });  // e.g., not flag
+    
     registerStmtParser(TOK_BOOL, [](PyParser& p)
                        { return p.parseExpressionStmt(); });  // e.g., True
     registerStmtParser(TOK_NONE, [](PyParser& p)
@@ -1358,6 +1359,8 @@ std::unique_ptr<StmtAST> PyParser::parseElsePart(std::vector<std::unique_ptr<Stm
 
 std::unique_ptr<StmtAST> PyParser::parseWhileStmt()
 {
+    int line = currentToken.line; // Capture start location
+    int col = currentToken.column;
     nextToken();  // 消费'while'
 
     // 解析条件表达式
@@ -1379,8 +1382,43 @@ std::unique_ptr<StmtAST> PyParser::parseWhileStmt()
 
     // 解析while语句体
     auto body = parseBlock();
+    if (body.empty()) {
+        // Assuming parseBlock logs errors for missing INDENT/DEDENT.
+        // Add specific error if the block itself is required but empty.
+        return logParseError<StmtAST>("Expected an indented block after 'while' statement");
+    }
 
-    return makeStmt<WhileStmtAST>(std::move(condition), std::move(body));
+    // --- NEW: Check for and parse the optional 'else' block ---
+    std::unique_ptr<StmtAST> elseNode = nullptr;
+    if (currentToken.type == TOK_ELSE)
+    {
+        int elseLine = currentToken.line;
+        int elseCol = currentToken.column;
+        nextToken(); // Consume 'else'
+
+        if (!expectToken(TOK_COLON, "Expected ':' after 'else'"))
+            return nullptr;
+
+        if (!expectToken(TOK_NEWLINE, "Expected newline after ':' in else statement"))
+            return nullptr;
+
+        // Parse the else block
+        auto elseBodyStmts = parseBlock();
+        if (elseBodyStmts.empty()) {
+            return logParseError<StmtAST>("Expected an indented block after 'else' statement");
+        }
+
+        // Wrap the else statements in a BlockStmtAST
+        // Note: WhileStmtAST expects a single StmtAST for the else part.
+        elseNode = std::make_unique<BlockStmtAST>(std::move(elseBodyStmts));
+        elseNode->setLocation(elseLine, elseCol); // Set location for the else block itself
+    }
+    // --- END NEW ---
+
+    // Create WhileStmtAST, passing the optional elseNode
+    auto whileStmt = makeStmt<WhileStmtAST>(std::move(condition), std::move(body), std::move(elseNode));
+    whileStmt->setLocation(line, col); // Set location to the 'while' keyword
+    return whileStmt;
 }
 
 std::unique_ptr<StmtAST> PyParser::parsePrintStmt()

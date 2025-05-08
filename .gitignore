@@ -43,3 +43,9 @@ build/
 
 # build
 CMakePresets.json
+
+# 构建的临时文件
+recovered_source.*
+
+# 日志
+logs/*

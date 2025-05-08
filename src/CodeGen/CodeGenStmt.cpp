@@ -1032,19 +1032,33 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
     llvm::BasicBlock* preheaderBB = builder.GetInsertBlock();
     llvm::BasicBlock* condBB = codeGen.createBasicBlock("while.cond", func);
     llvm::BasicBlock* bodyBB = codeGen.createBasicBlock("while.body", func);
-    llvm::BasicBlock* latchBB = codeGen.createBasicBlock("while.latch", func);  // <-- 创建 Latch 块
+    llvm::BasicBlock* latchBB = codeGen.createBasicBlock("while.latch", func);
+    llvm::BasicBlock* elseBB = nullptr;  // <-- 新增：else 块 (如果存在)
     llvm::BasicBlock* endBB = codeGen.createBasicBlock("while.end", func);
 
+    // --- NEW: 创建 else 块 (如果 AST 中存在) ---
+    if (stmt->getElseStmt())
+    {
+        elseBB = codeGen.createBasicBlock("while.else", func);
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("  [1a] Created Else block: " + llvmObjToString(elseBB));
+#endif
+    }
+
     // --- Loop control flow targets ---
-    llvm::BasicBlock* continueTargetBB = latchBB;  // <-- 'continue' 跳转到 Latch 块
-    llvm::BasicBlock* breakTargetBB = endBB;       // 'break' 跳转到 End 块
+    llvm::BasicBlock* continueTargetBB = latchBB;
+    llvm::BasicBlock* breakTargetBB = endBB;  // 'break' 始终跳过 else 块，直接到 end
 
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("  [1] Created Basic Blocks:");
     DEBUG_LOG("      Preheader: " + llvmObjToString(preheaderBB));
     DEBUG_LOG("      Condition: " + llvmObjToString(condBB));
     DEBUG_LOG("      Body:      " + llvmObjToString(bodyBB));
-    DEBUG_LOG("      Latch:     " + llvmObjToString(latchBB));  // <-- Log Latch 块
+    DEBUG_LOG("      Latch:     " + llvmObjToString(latchBB));
+    if (elseBB)
+    {  // <-- Log elseBB if created
+        DEBUG_LOG("      Else:      " + llvmObjToString(elseBB));
+    }
     DEBUG_LOG("      End:       " + llvmObjToString(endBB));
     DEBUG_LOG("      Continue Target: " + llvmObjToString(continueTargetBB));
     DEBUG_LOG("      Break Target:    " + llvmObjToString(breakTargetBB));
@@ -1052,7 +1066,7 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 
     // --- Push loop targets onto stacks ---
     pushBreakTarget(breakTargetBB);
-    pushContinueTarget(continueTargetBB);  // <-- 将 Latch 块作为 Continue 目标压栈
+    pushContinueTarget(continueTargetBB);
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("  Pushed loop targets onto stacks.");
 #endif
@@ -1063,8 +1077,14 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
     {
         findAssignedVariablesInStmt(bodyStmt.get(), assignedInBody);
     }
+    // --- NEW: Also check variables assigned in the else block ---
+    if (stmt->getElseStmt())
+    {
+        findAssignedVariablesInStmt(stmt->getElseStmt(), assignedInBody);
+    }
+
 #ifdef DEBUG_WhileSTmt
-    DEBUG_LOG("  [2] Variables assigned in body:");
+    DEBUG_LOG("  [2] Variables assigned in body or else:");  // <-- Updated log message
     if (assignedInBody.empty())
     {
         DEBUG_LOG("      None");
@@ -1101,7 +1121,7 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 #endif
     for (const std::string& varName : assignedInBody)
     {
-        llvm::Value* storage = symTable.getVariable(varName);
+        llvm::Value* storage = symTable.getVariable(varName);  // Lookup in current scope (preheader)
         ObjectType* varType = symTable.getVariableType(varName);
 
         if (storage && varType)
@@ -1111,26 +1131,45 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 
             // Load the initial value *in the preheader* to feed the PHI
             llvm::Instruction* loadInst = nullptr;
-            llvm::IRBuilder<> preheaderBuilder(preheaderBB->getTerminator());
+            llvm::IRBuilder<> preheaderBuilder(preheaderBB->getTerminator());  // Build in preheader's terminator position
+
             if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(storage))
             {
                 if (allocaInst->getAllocatedType() != pyObjectPtrType)
-                { /* error */
-                    continue;
+                {
+                    // --- ERROR HANDLING ---
+#ifdef DEBUG_WhileSTmt
+                    DEBUG_LOG("      ERROR: AllocaInst for '" + varName + "' has wrong type (" + llvmObjToString(allocaInst->getAllocatedType()) + "), expected PyObject*. Skipping PHI.");
+#endif
+                    codeGen.logError("Internal error: AllocaInst for '" + varName + "' in loop preheader has unexpected type.", stmt->line.value_or(0), stmt->column.value_or(0));
+                    // --- END ERROR HANDLING ---
+                    continue;  // Skip PHI for this variable
                 }
                 loadInst = preheaderBuilder.CreateLoad(pyObjectPtrType, allocaInst, varName + "_init");
             }
             else if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(storage))
             {
                 if (gv->getValueType() != pyObjectPtrType)
-                { /* error */
-                    continue;
+                {
+                    // --- ERROR HANDLING ---
+#ifdef DEBUG_WhileSTmt
+                    DEBUG_LOG("      ERROR: GlobalVariable for '" + varName + "' has wrong type (" + llvmObjToString(gv->getValueType()) + "), expected PyObject*. Skipping PHI.");
+#endif
+                    codeGen.logError("Internal error: GlobalVariable for '" + varName + "' in loop preheader has unexpected type.", stmt->line.value_or(0), stmt->column.value_or(0));
+                    // --- END ERROR HANDLING ---
+                    continue;  // Skip PHI for this variable
                 }
                 loadInst = preheaderBuilder.CreateLoad(pyObjectPtrType, gv, varName + "_init_global");
             }
             else
-            { /* error */
-                continue;
+            {
+                // --- ERROR HANDLING ---
+#ifdef DEBUG_WhileSTmt
+                DEBUG_LOG("      ERROR: Storage for '" + varName + "' is neither AllocaInst nor GlobalVariable. Skipping PHI. Storage: " + llvmObjToString(storage));
+#endif
+                codeGen.logError("Internal error: Unexpected storage type for variable '" + varName + "' in loop preheader.", stmt->line.value_or(0), stmt->column.value_or(0));
+                // --- END ERROR HANDLING ---
+                continue;  // Skip PHI for this variable
             }
 
 #ifdef DEBUG_WhileSTmt
@@ -1141,6 +1180,8 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
             DEBUG_LOG("        LLVM Type for PHI: " + llvmObjToString(pyObjectPtrType));
 #endif
             // 创建 PHI 节点，预期有 2 个传入边 (preheader, latch)
+            // Note: If an else block exists and modifies the variable, the PHI might need more inputs,
+            // but standard loop structure only needs preheader and latch. Else block doesn't loop back.
             llvm::PHINode* phi = builder.CreatePHI(pyObjectPtrType, 2, varName + ".phi");
 #ifdef DEBUG_WhileSTmt
             DEBUG_LOG("        Created PHI node: " + llvmObjToString(phi));
@@ -1155,8 +1196,11 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
         else
         {
 #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Skipping PHI for variable '" + varName + "' (storage or type missing in preheader scope).");
+            DEBUG_LOG("      Skipping PHI for variable '" + varName + "' (storage or type missing in preheader scope). Storage=" + llvmObjToString(storage) + ", Type=" + (varType ? varType->getName() : "null"));
 #endif
+            // This might be okay if the variable is defined *only* inside the loop body/else.
+            // However, if it was used *before* the loop, this indicates an issue.
+            // Consider adding a warning if symTable.lookup(varName) finds it in outer scopes but not current.
         }
     }
 
@@ -1164,8 +1208,8 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
     std::map<std::string, llvm::Value*> originalValuesInSymTable;
     for (const auto& [name, phi] : phiNodes)
     {
-        originalValuesInSymTable[name] = symTable.getVariable(name);
-        symTable.setVariable(name, phi, typeBeforeLoop[name]);  // 临时使用 PHI 值
+        originalValuesInSymTable[name] = symTable.getVariable(name);  // Save original storage ptr
+        symTable.setVariable(name, phi, typeBeforeLoop[name]);        // Temporarily use PHI as the value for codegen inside condition
 #ifdef DEBUG_WhileSTmt
         DEBUG_LOG("      Temporarily updating symtable for '" + name + "' to PHI for condition generation.");
 #endif
@@ -1176,13 +1220,22 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 #endif
     llvm::Value* condValue = handleCondition(stmt->getCondition());
 
-    // 恢复符号表
+    // 恢复符号表，让其重新指向存储位置 (Alloca/GV)
     for (const auto& [name, originalStorage] : originalValuesInSymTable)
     {
-        symTable.setVariable(name, originalStorage, typeBeforeLoop[name]);
+        if (originalStorage)
+        {  // Ensure we have something to restore
+            symTable.setVariable(name, originalStorage, typeBeforeLoop[name]);
 #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("      Restoring symtable for '" + name + "' back to storage ptr after condition generation.");
+            DEBUG_LOG("      Restoring symtable for '" + name + "' back to storage ptr (" + llvmObjToString(originalStorage) + ") after condition generation.");
 #endif
+        }
+        else
+        {
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("      Skipping symtable restore for '" + name + "' (original storage was null).");
+#endif
+        }
     }
 
 #ifdef DEBUG_WhileSTmt
@@ -1193,11 +1246,12 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 #ifdef DEBUG_WhileSTmt
         DEBUG_LOG("      ERROR: Condition generation failed.");
 #endif
+        // Ensure the current block terminates if condition generation failed mid-block
         if (builder.GetInsertBlock() && !builder.GetInsertBlock()->getTerminator())
         {
-            builder.CreateBr(endBB);
+            builder.CreateBr(endBB);  // Jump directly to end on error
         }
-        builder.SetInsertPoint(endBB);
+        builder.SetInsertPoint(endBB);  // Set insert point to end block for subsequent code
         codeGen.logError("Failed to generate condition for while loop.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
 #ifdef DEBUG_WhileSTmt
         DEBUG_LOG("      Jumped to end block (" + llvmObjToString(endBB) + "). Aborting loop generation.");
@@ -1211,12 +1265,13 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
     }
 
     // --- 7. 创建条件分支 ---
-    llvm::BasicBlock* currentCondExitBlock = builder.GetInsertBlock();  // 应该是 condBB
-    builder.CreateCondBr(condValue, bodyBB, endBB);
+    llvm::BasicBlock* currentCondExitBlock = builder.GetInsertBlock();  // Should be condBB
+    llvm::BasicBlock* falseTargetBB = elseBB ? elseBB : endBB;          // <-- Target if condition is false
+    builder.CreateCondBr(condValue, bodyBB, falseTargetBB);
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("  [7] Created conditional branch from " + llvmObjToString(currentCondExitBlock) + " based on " + llvmObjToString(condValue) + ":");
     DEBUG_LOG("      True -> Body (" + llvmObjToString(bodyBB) + ")");
-    DEBUG_LOG("      False -> End (" + llvmObjToString(endBB) + ")");
+    DEBUG_LOG("      False -> " + llvmObjToString(falseTargetBB) + (elseBB ? " (Else Block)" : " (End Block)"));  // <-- Updated log
 #endif
 
     // --- 8. Loop Body Block ---
@@ -1226,6 +1281,9 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
     DEBUG_LOG("      Processing loop body statements using handleBlock(..., createNewScope=false)...");
 #endif
 
+    // Process body statements. IMPORTANT: Pass 'false' for createNewScope
+    // because the loop itself doesn't introduce a new Python scope level.
+    // Scopes are managed by function defs, class defs, etc.
     handleBlock(stmt->getBody(), false);
 
 #ifdef DEBUG_WhileSTmt
@@ -1238,11 +1296,11 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("  [9] Checking if loop body terminated naturally.");
     DEBUG_LOG("      Body End Block: " + llvmObjToString(bodyEndBB));
-    DEBUG_LOG(std::string("      Body Terminated: ") + (bodyTerminated ? "Yes" : "No"));
+    DEBUG_LOG(std::string("      Body Terminated: ") + (bodyTerminated ? "Yes (e.g., break, continue, return)" : "No"));
 #endif
     if (!bodyTerminated)
     {
-        builder.CreateBr(latchBB);  // 循环体自然结束，跳转到 Latch
+        builder.CreateBr(latchBB);  // Loop body finished normally, jump to Latch
 #ifdef DEBUG_WhileSTmt
         DEBUG_LOG("      Created branch from Body End (" + llvmObjToString(bodyEndBB) + ") to Latch (" + llvmObjToString(latchBB) + ")");
 #endif
@@ -1256,9 +1314,9 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
     std::map<std::string, llvm::Value*> valueFromLatch;
     for (const auto& [name, phi] : phiNodes)
     {
-        llvm::Value* storage = storageBeforeLoop[name];
+        llvm::Value* storage = storageBeforeLoop[name];  // Get the original storage ptr
         llvm::Value* finalVal = nullptr;
-        // 在 Latch 块中加载变量的最终值
+        // Load the variable's final value *at the end of the iteration* (in the Latch block)
         if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(storage))
         {
             finalVal = builder.CreateLoad(pyObjectPtrType, allocaInst, name + "_latch_val");
@@ -1269,8 +1327,12 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
         }
         else
         {
-            codeGen.logError("Internal error: Invalid storage type for '" + name + "' in latch.", stmt->line.value_or(0), stmt->column.value_or(0));
-            finalVal = llvm::UndefValue::get(pyObjectPtrType);
+            // This should ideally not happen if PHI was created correctly
+            codeGen.logError("Internal error: Invalid storage type for '" + name + "' when loading in latch.", stmt->line.value_or(0), stmt->column.value_or(0));
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("        ERROR: Invalid storage type for '" + name + "' in latch. Storage: " + llvmObjToString(storage));
+#endif
+            finalVal = llvm::UndefValue::get(pyObjectPtrType);  // Use Undef as fallback
         }
 #ifdef DEBUG_WhileSTmt
         DEBUG_LOG("        Getting final value for PHI '" + name + "' by loading from storage (" + llvmObjToString(storage) + ") in latch block (" + llvmObjToString(latchBB) + "): " + llvmObjToString(finalVal));
@@ -1281,9 +1343,9 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("      Cleaning up temporary objects for this iteration (in latch)...");
 #endif
-    runtime->cleanupTemporaryObjects();  // 在 Latch 中、循环之前清理
+    runtime->cleanupTemporaryObjects();  // Clean up temps created *during this iteration* before looping back
 
-    builder.CreateBr(condBB);  // Latch 块总是跳回 Condition 块
+    builder.CreateBr(condBB);  // Latch block always jumps back to the Condition block
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("      Created back edge branch from Latch (" + llvmObjToString(latchBB) + ") to Condition (" + llvmObjToString(condBB) + ")");
 #endif
@@ -1304,33 +1366,72 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
         }
         else
         {
+            // This indicates an internal inconsistency if a PHI was created but no latch value was loaded
 #ifdef DEBUG_WhileSTmt
             DEBUG_LOG("        ERROR: Latch value missing for PHI node '" + name + "'. Adding UndefValue.");
 #endif
             codeGen.logError("Internal error: Latch value missing for PHI node '" + name + "'.", stmt->line ? *stmt->line : 0, stmt->column ? *stmt->column : 0);
-            phi->addIncoming(llvm::UndefValue::get(phi->getType()), latchBB);
+            phi->addIncoming(llvm::UndefValue::get(phi->getType()), latchBB);  // Add Undef to keep IR valid
+        }
+    }
+
+    // --- NEW 11a. Else Block (if it exists) ---
+    if (elseBB)
+    {
+        builder.SetInsertPoint(elseBB);
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("  [11a] Set insert point to Else block (" + llvmObjToString(elseBB) + ")");
+        DEBUG_LOG("        Processing else block statements...");
+#endif
+        // Get the else statement AST node
+        StmtAST* elseStmtNode = stmt->getElseStmt();
+        if (elseStmtNode)
+        {
+            // Check if it's a BlockStmt or a single statement
+            if (auto* elseBlockNode = dynamic_cast<BlockStmtAST*>(elseStmtNode))
+            {
+                handleBlock(elseBlockNode->getStatements(), false);  // Process block, no new scope
+            }
+            else
+            {
+                handleStmt(elseStmtNode);  // Process single statement
+            }
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("        Finished processing else block statements. Current block: " + llvmObjToString(builder.GetInsertBlock()));
+#endif
+        }
+        else
+        {
+            // Should not happen if elseBB was created, but handle defensively
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("        WARNING: Else block (elseBB) exists, but getElseStmt() returned null.");
+#endif
+            codeGen.logError("Internal error: Else block generated but AST node is null.", stmt->line.value_or(0), stmt->column.value_or(0));
+        }
+
+        // --- NEW 11b. Branch from Else to End (if Else didn't terminate) ---
+        llvm::BasicBlock* elseEndBB = builder.GetInsertBlock();
+        bool elseTerminated = !elseEndBB || (elseEndBB && elseEndBB->getTerminator());
+#ifdef DEBUG_WhileSTmt
+        DEBUG_LOG("  [11b] Checking if else block terminated naturally.");
+        DEBUG_LOG("        Else End Block: " + llvmObjToString(elseEndBB));
+        DEBUG_LOG(std::string("        Else Terminated: ") + (elseTerminated ? "Yes" : "No"));
+#endif
+        if (!elseTerminated)
+        {
+            builder.CreateBr(endBB);  // Else block finished normally, jump to End
+#ifdef DEBUG_WhileSTmt
+            DEBUG_LOG("        Created branch from Else End (" + llvmObjToString(elseEndBB) + ") to End (" + llvmObjToString(endBB) + ")");
+#endif
         }
     }
 
     // --- 12. Loop End Block ---
+    // All paths leading out of the loop (condition false, break, potentially else block) converge here.
     builder.SetInsertPoint(endBB);
 #ifdef DEBUG_WhileSTmt
     DEBUG_LOG("  [12] Set insert point to End block (" + llvmObjToString(endBB) + ")");
 #endif
-
-    // --- 13. 更新符号表以供循环后的代码使用 ---
-    /*     #ifdef DEBUG_WhileSTmt
-        DEBUG_LOG("  [13] Updating symbol table for variables modified in loop to use PHI nodes for code after loop:");
-    #endif
-        for (const auto& [name, phi] : phiNodes)
-        {
-            // 注意：如果 endBB 不可达 (例如无限循环)，使用 PHI 值可能有问题，
-            // 但循环后的代码本身也是不可达的。LLVM 应该能处理这种情况。
-            symTable.setVariable(name, phi, typeBeforeLoop[name]);
-    #ifdef DEBUG_WhileSTmt
-            DEBUG_LOG("      Updated symbol table for '" + name + "' to use PHI node: " + llvmObjToString(phi));
-    #endif
-        } */
 
     // --- Pop loop targets ---
     popBreakTarget();

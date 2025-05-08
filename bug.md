@@ -20,10 +20,10 @@
     cachedType = ExpressionTypeInferer::inferBinaryExprType(opType, lhsType, rhsType); （fixed？）
 
 4. 函数对象(fixed)
-5. 函数内定义函数(仍然有bug)
-6. stmt里面的函数作用域管理这个和第五条挂钩
+5. 函数内定义函数(fixed)
+6. stmt里面的函数作用域管理这个和第五条挂钩(fixed)
 
-7. FunctionAST* CodeGenType::getFunctionAST(const std::string& funcName)  TODO: 需要一种方法来访问当前作用域或父作用域的函数定义。
+7. FunctionAST* CodeGenType::getFunctionAST(const std::string& funcName)  TODO: 需要一种方法来访问当前作用域或父作用域的函数定义。(fixed?)
 
 
 
@@ -37,4 +37,8 @@
         def fun2():
             print("a is not 2")
             return "a is not 2"
-    print(fun2())
+    print(fun2()) (fixed)
+
+9. 目前还不支持and not(似乎是and不支持)
+10. 逻辑运算符是一个大坑啊！！！！！
+11. 容器类型目前还没有支持==类似运算符

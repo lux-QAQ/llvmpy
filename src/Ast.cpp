@@ -637,8 +637,8 @@ std::shared_ptr<PyType> IndexExprAST::getType() const
 }
 
 //========== 语句节点方法实现 ==========
-
-void WhileStmtAST::beginScope(PyCodeGen& codegen)
+//被base/codegen接管
+/* void WhileStmtAST::beginScope(PyCodeGen& codegen)
 {
     codegen.pushScope();
 }
@@ -646,7 +646,7 @@ void WhileStmtAST::beginScope(PyCodeGen& codegen)
 void WhileStmtAST::endScope(PyCodeGen& codegen)
 {
     codegen.popScope();
-}
+} */
 
 //========== 类和模块方法实现 ==========
 
