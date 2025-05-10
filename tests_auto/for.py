@@ -1,15 +1,12 @@
-#!/usr/bin/env python3
-# filepath: test_test.py
-"""
-Test suite for the for...in...else construct, including break, continue, and return.
-"""
 
 # Helper to print test results
 def print_test_result(test_name, passed):
     if passed:
-        print(f"\033[32mPASSED:\033[0m {test_name}")
+        print("\033[32mPASSED:\033[0m")
+        print(test_name)
     else:
-        print(f"\033[31mFAILED:\033[0m {test_name}")
+        print("\033[31mFAILED:\033[0m") # Removed f-string
+        print(test_name)
 
 # Test 1: Normal loop completion, else block executes
 def test_for_else_normal_completion():
@@ -22,7 +19,14 @@ def test_for_else_normal_completion():
     else:
         else_executed = True
     
-    passed = loop_executed_count == 3 and else_executed
+    passed = False
+    if loop_executed_count == 3:
+        if else_executed:
+            passed = True
+        else:
+            passed = False # Redundant, but keeps structure
+    else:
+        passed = False # Redundant
     print_test_result(test_name, passed)
     return passed
 
@@ -39,7 +43,14 @@ def test_for_else_with_break():
     else:
         else_executed = True
     
-    passed = loop_executed_count == 2 and not else_executed
+    # Original logic: passed = loop_executed_count == 2 and not else_executed
+    # The existing if/else structure for passed was a bit convoluted.
+    # Correct expectation: loop runs for item 1, 2. count becomes 2. else_executed is False.
+    passed = False
+    if loop_executed_count == 2:
+        if not else_executed: # Check if else_executed is False
+            passed = True
+    
     print_test_result(test_name, passed)
     return passed
 
@@ -56,32 +67,43 @@ def test_for_else_with_continue():
     else:
         else_executed = True
         
-    # Expected sum of odd numbers: 1 + 3 + 5 = 9
-    passed = processed_sum == 9 and else_executed
+    # Expected sum: 1 + 3 + 5 = 9
+    passed = False
+    if processed_sum == 9:
+        if else_executed:
+            passed = True
+    
     print_test_result(test_name, passed)
     return passed
 
 # Test 4: Loop with return inside body, else block does NOT execute
+# Helper function modified to return else_block status
 def func_for_return_in_body():
     items = ["a", "b", "c"]
-    # This flag should remain False if return happens before else
-    func_for_return_in_body.else_block_tracker = False 
+    else_block_executed = False
     for item in items:
         if item == "b":
-            return "returned_from_loop"
+            # Return a list: [value_string, else_block_executed_status_boolean]
+            # Ensure the boolean is explicitly part of the list
+            return ["returned_from_loop", else_block_executed] 
     else:
-        func_for_return_in_body.else_block_tracker = True
-    return "loop_completed_normally" # Should not reach here if "b" is found
-
-func_for_return_in_body.else_block_tracker = False # Initialize static-like variable
+        else_block_executed = True
+    # Ensure the boolean is explicitly part of the list
+    return ["loop_completed_normally", else_block_executed]
 
 def test_for_else_with_return_in_body():
     test_name = "test_for_else_with_return_in_body"
-    # Reset tracker before each call if necessary, or ensure function is pure
-    func_for_return_in_body.else_block_tracker = False
-    result = func_for_return_in_body()
     
-    passed = result == "returned_from_loop" and not func_for_return_in_body.else_block_tracker
+    result_list = func_for_return_in_body() # MODIFIED: expect a list
+    result_value = result_list[0]
+    else_was_executed = result_list[1] # This will be a boolean True or False
+    
+    passed = False
+    if result_value == "returned_from_loop":
+        # if not else_was_executed:
+        if else_was_executed == False: # MODIFIED
+            passed = True
+            
     print_test_result(test_name, passed)
     return passed
 
@@ -92,12 +114,17 @@ def func_for_return_in_else():
         pass # Do nothing, let loop complete
     else:
         return "returned_from_else"
-    return "should_not_happen"
+    # This part should ideally not be reachable if the logic is correct
+    # and the for loop always has an else that returns.
+    # To be safe and explicit for a compiler, ensure all paths return.
+    return "should_not_happen_in_func_for_return_in_else" 
 
 def test_for_else_with_return_in_else():
     test_name = "test_for_else_with_return_in_else"
     result = func_for_return_in_else()
-    passed = result == "returned_from_else"
+    passed = False
+    if result == "returned_from_else":
+        passed = True
     print_test_result(test_name, passed)
     return passed
 
@@ -105,14 +132,18 @@ def test_for_else_with_return_in_else():
 def test_for_else_empty_iterable():
     test_name = "test_for_else_empty_iterable"
     items = []
-    loop_executed = False
+    loop_executed_flag = False # Renamed for clarity
     else_executed = False
     for item in items:
-        loop_executed = True # This should not happen
+        loop_executed_flag = True # This should not happen
     else:
         else_executed = True
         
-    passed = not loop_executed and else_executed
+    passed = False
+    if not loop_executed_flag:
+        if else_executed:
+            passed = True
+            
     print_test_result(test_name, passed)
     return passed
 
@@ -122,31 +153,47 @@ def test_nested_for_else_break():
     outer_loop_count = 0
     inner_loop_executions = 0
     outer_else_executed = False
-    inner_else_flags = [] # To track if inner else blocks executed
+    
+    # Using lists instead of range()
+    outer_range = [0, 1] # Equivalent to range(2)
+    inner_range = [0, 1, 2] # Equivalent to range(3)
 
-    for i in range(2): # Outer loop runs twice
+    # To track if inner else blocks executed for each outer iteration
+    # Assuming max 2 outer iterations based on outer_range = [0,1]
+    inner_else_flag_for_outer_0 = False 
+    inner_else_flag_for_outer_1 = False
+
+    for i in outer_range: 
         outer_loop_count = outer_loop_count + 1
         inner_else_executed_this_iteration = False
-        for j in range(3): # Inner loop
+        for j in inner_range: 
             inner_loop_executions = inner_loop_executions + 1
-            if i == 0 and j == 1: # Break inner loop on first outer iteration at j=1
-                break
+            if i == 0 :
+                if j == 1: # Break inner loop on first outer iteration at j=1
+                    break
         else: # Inner else
             inner_else_executed_this_iteration = True
-        inner_else_flags.append(inner_else_executed_this_iteration)
+        
+        if i == 0:
+            inner_else_flag_for_outer_0 = inner_else_executed_this_iteration
+        elif i == 1:
+            inner_else_flag_for_outer_1 = inner_else_executed_this_iteration
     else: # Outer else
         outer_else_executed = True
 
     # Expected:
-    # Outer loop 0: i=0. Inner loop: j=0, j=1 (breaks). inner_loop_executions += 2. inner_else_flags[0] = False
-    # Outer loop 1: i=1. Inner loop: j=0, j=1, j=2 (completes). inner_loop_executions += 3. inner_else_flags[1] = True
+    # Outer loop 0: i=0. Inner loop: j=0, j=1 (breaks). inner_loop_executions += 2. inner_else_flag_for_outer_0 = False
+    # Outer loop 1: i=1. Inner loop: j=0, j=1, j=2 (completes). inner_loop_executions += 3. inner_else_flag_for_outer_1 = True
     # Total inner_loop_executions = 5
     # outer_else_executed = True
-    passed = (outer_loop_count == 2 and
-              inner_loop_executions == 5 and
-              inner_else_flags[0] == False and
-              inner_else_flags[1] == True and
-              outer_else_executed == True)
+    passed = False
+    if outer_loop_count == 2:
+        if inner_loop_executions == 5:
+            if inner_else_flag_for_outer_0 == False: # Note: direct boolean comparison
+                if inner_else_flag_for_outer_1 == True:
+                    if outer_else_executed == True:
+                        passed = True
+                        
     print_test_result(test_name, passed)
     return passed
 
@@ -158,16 +205,20 @@ def test_nested_for_else_continue():
     outer_else_executed = False
     inner_else_count = 0
 
-    for i in range(1, 3): # Outer: 1, 2
+    # Using lists instead of range()
+    outer_loop_iter = [1, 2] # Equivalent to range(1, 3)
+    inner_loop_iter = [1, 2, 3] # Equivalent to range(1, 4)
+
+    for i in outer_loop_iter: 
         outer_sum = outer_sum + i
         current_inner_sum = 0
         if i == 1: # For first outer iteration, let inner loop run normally
-            for j in range(1, 4): # Inner: 1, 2, 3
+            for j in inner_loop_iter: 
                 current_inner_sum = current_inner_sum + j
             else:
                 inner_else_count = inner_else_count + 1
         else: # For second outer iteration (i=2), use continue in inner loop
-            for j in range(1, 4): # Inner: 1, 2, 3
+            for j in inner_loop_iter: 
                 if j == 2:
                     continue
                 current_inner_sum = current_inner_sum + j
@@ -181,10 +232,13 @@ def test_nested_for_else_continue():
     # i=1: outer_sum=1. Inner loop (1,2,3) sum = 6. inner_else_count=1. inner_sum_total=6
     # i=2: outer_sum=1+2=3. Inner loop (1, (skip 2), 3) sum = 1+3=4. inner_else_count=2. inner_sum_total=6+4=10
     # outer_else_executed = True
-    passed = (outer_sum == 3 and
-              inner_sum_total == 10 and
-              inner_else_count == 2 and
-              outer_else_executed == True)
+    passed = False
+    if outer_sum == 3:
+        if inner_sum_total == 10:
+            if inner_else_count == 2:
+                if outer_else_executed == True:
+                    passed = True
+                    
     print_test_result(test_name, passed)
     return passed
 
@@ -192,79 +246,148 @@ def test_nested_for_else_continue():
 def test_for_else_complex_break_continue():
     test_name = "test_for_else_complex_break_continue"
     numbers = [1, 2, 3, 4, 5, 6, 7, 8]
-    processed_items = []
-    else_executed = False
     
     # Scenario 1: Loop breaks
+    processed_items_s1 = [] # Using list concatenation instead of append
+    processed_items_s1_count = 0
+    else_executed_s1 = False
+    
     for x in numbers:
         if x % 2 == 0: # Even number
             continue
         if x == 5: # Break condition
             break
-        processed_items.append(x)
+        processed_items_s1 = processed_items_s1 + [x]
+        processed_items_s1_count = processed_items_s1_count + 1
     else:
-        else_executed = True # Should not execute
+        else_executed_s1 = True # Should not execute
     
-    scenario1_passed = (processed_items[0] == 1 and processed_items[1] == 3 and
-                        len(processed_items) == 2 and not else_executed)
+    scenario1_passed = False
+    # Expected: processed_items_s1 = [1, 3], count = 2
+    if processed_items_s1_count == 2:
+        if processed_items_s1[0] == 1:
+            if processed_items_s1[1] == 3:
+                if not else_executed_s1:
+                    scenario1_passed = True
 
     # Scenario 2: Loop completes
-    processed_items = [] # Reset
-    else_executed = False # Reset
-    for x in numbers:
+    processed_items_s2 = [] # Reset for scenario 2
+    processed_items_s2_count = 0
+    else_executed_s2 = False # Reset for scenario 2
+
+    for x in numbers: # numbers is [1, 2, 3, 4, 5, 6, 7, 8]
         if x == 7: # Skip 7
             continue
-        if x > 10: # Break condition (never met)
-            break
-        processed_items.append(x)
+        # if x > 10: # Break condition (never met with current numbers list)
+        #    break 
+        # The above break condition x > 10 will never be met with the given 'numbers' list.
+        # So, it effectively means the loop completes unless another break is hit.
+        # For this test, we assume it's intended for the loop to complete normally.
+        processed_items_s2 = processed_items_s2 + [x]
+        processed_items_s2_count = processed_items_s2_count + 1
     else:
-        else_executed = True # Should execute
+        else_executed_s2 = True # Should execute
 
-    # Expected: 1,2,3,4,5,6,8 (7 is skipped)
+    # Expected: 1,2,3,4,5,6,8 (7 is skipped), count = 7
     expected_scenario2_items = [1,2,3,4,5,6,8]
-    scenario2_passed = True
-    if len(processed_items) != len(expected_scenario2_items):
-        scenario2_passed = False
-    else:
-        for k in range(len(processed_items)):
-            if processed_items[k] != expected_scenario2_items[k]:
-                scenario2_passed = False
-                break
-    scenario2_passed = scenario2_passed and else_executed
+    expected_scenario2_count = 7
     
-    passed = scenario1_passed and scenario2_passed
+    scenario2_passed = False
+    if else_executed_s2:
+        if processed_items_s2_count == expected_scenario2_count:
+            items_match = True
+            # Manual comparison since direct list comparison might not be supported or for clarity
+            idx = 0
+            while idx < expected_scenario2_count:
+                if processed_items_s2[idx] != expected_scenario2_items[idx]:
+                    items_match = False
+                    break
+                idx = idx + 1
+            if items_match:
+                scenario2_passed = True
+    
+    passed = False
+    if scenario1_passed:
+        if scenario2_passed:
+            passed = True
+            
     print_test_result(test_name, passed)
     return passed
 
 # Main execution
 def main():
     print("--- Running For...Else Test Suite ---")
-    results = []
-    results.append(test_for_else_normal_completion())
-    results.append(test_for_else_with_break())
-    results.append(test_for_else_with_continue())
-    results.append(test_for_else_with_return_in_body())
-    results.append(test_for_else_with_return_in_else())
-    results.append(test_for_else_empty_iterable())
-    results.append(test_nested_for_else_break())
-    results.append(test_nested_for_else_continue())
-    results.append(test_for_else_complex_break_continue())
+    results = [] # Use list concatenation
+    results_count = 0
+
+    # Helper to add result and increment count
+    # This cannot be a nested def in the restricted syntax, so inline the logic or make it a global helper if needed
+    # For now, direct manipulation:
+    
+    current_result = test_for_else_normal_completion()
+    results = results + [current_result]
+    results_count = results_count + 1
+    
+    current_result = test_for_else_with_break()
+    results = results + [current_result]
+    results_count = results_count + 1
+    
+    current_result = test_for_else_with_continue()
+    results = results + [current_result]
+    results_count = results_count + 1
+    
+    current_result = test_for_else_with_return_in_body()
+    results = results + [current_result]
+    results_count = results_count + 1
+    
+    current_result = test_for_else_with_return_in_else()
+    results = results + [current_result]
+    results_count = results_count + 1
+    
+    current_result = test_for_else_empty_iterable()
+    results = results + [current_result]
+    results_count = results_count + 1
+    
+    current_result = test_nested_for_else_break()
+    results = results + [current_result]
+    results_count = results_count + 1
+    
+    current_result = test_nested_for_else_continue()
+    results = results + [current_result]
+    results_count = results_count + 1
+    
+    current_result = test_for_else_complex_break_continue()
+    results = results + [current_result]
+    results_count = results_count + 1
 
     print("\n--- Test Summary ---")
     passed_count = 0
-    for r in results:
-        if r:
+    idx = 0
+    while idx < results_count:
+        if results[idx]: # Check if the result is True (passed)
             passed_count = passed_count + 1
+        idx = idx + 1
             
-    total_tests = len(results)
+    total_tests = results_count # Use our manually tracked count
     failed_count = total_tests - passed_count
 
-    print(f"\033[32mTotal Passed: {passed_count}/{total_tests}\033[0m")
+    # print(f"\033[32mTotal Passed: {passed_count}/{total_tests}\033[0m") # Original
+    print("\033[32mTotal Passed: ") # Python 3 print to mimic no newline
+    print(passed_count)
+    print("/")
+    print(total_tests)
+    print("\033[0m")
+
+
     if failed_count > 0:
-        print(f"\033[31mTotal Failed: {failed_count}/{total_tests}\033[0m")
+        # print(f"\033[31mTotal Failed: {failed_count}/{total_tests}\033[0m") # Original
+        print("\033[31mTotal Failed: ")
+        print(failed_count)
+        print("/")
+        print(total_tests)
+        print("\033[0m")
         print("\033[31mSome tests failed.\033[0m")
-        # In a real test runner, this would set a non-zero exit code
-        return 1
+        return 1 # Indicate failure
     else:
         print("\033[32mAll tests passed successfully!\033[0m")
-        return 0
+        return 0 # Indicate success

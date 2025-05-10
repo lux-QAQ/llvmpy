@@ -240,8 +240,13 @@ echo -e "\n${BLUE}--- Test Summary ---${NC}"
 # Consider pre-check results in the final summary if needed, though failure there exits early.
 # The counts below are for the main test loop.
 if [ -n "$TEST_FILES" ]; then # Only print pass/fail counts if main tests ran
-    echo -e "${GREEN}Main Tests Passed: $passed_count${NC}"
-    echo -e "${RED}Main Tests Failed: $failed_count${NC}"
+    if [ $passed_count -gt 0 ]; then
+        echo -e "${GREEN}Main Tests Passed: $passed_count${NC}"
+    fi
+
+    if [ $failed_count -gt 0 ]; then
+        echo -e "${RED}Main Tests Failed: $failed_count${NC}"
+    fi
 
     if [ $failed_count -eq 0 ]; then
         echo -e "${GREEN}${CHECK_MARK} All main tests passed!${NC}"

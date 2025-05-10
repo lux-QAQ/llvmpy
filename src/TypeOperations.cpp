@@ -113,6 +113,7 @@ void TypeOperationRegistry::initializeBuiltinOperations()
 
 
         // For TOK_EQ (==)
+         registerBinaryOp(TOK_EQ, PY_TYPE_BOOL, PY_TYPE_BOOL, PY_TYPE_BOOL, "py_object_compare", true);
     registerBinaryOp(TOK_EQ, PY_TYPE_INT,    PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
     registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_INT,    PY_TYPE_BOOL, "py_object_compare", true);
     registerBinaryOp(TOK_EQ, PY_TYPE_DOUBLE, PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
@@ -132,6 +133,7 @@ void TypeOperationRegistry::initializeBuiltinOperations()
     registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_NONE,   PY_TYPE_BOOL, "py_object_compare", true); // None == None
 
     // For TOK_NEQ (!=)
+       registerBinaryOp(TOK_NEQ, PY_TYPE_BOOL, PY_TYPE_BOOL, PY_TYPE_BOOL, "py_object_compare", true);
     registerBinaryOp(TOK_NEQ, PY_TYPE_INT,    PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
     registerBinaryOp(TOK_NEQ, PY_TYPE_NONE,   PY_TYPE_INT,    PY_TYPE_BOOL, "py_object_compare", true);
     registerBinaryOp(TOK_NEQ, PY_TYPE_DOUBLE, PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);

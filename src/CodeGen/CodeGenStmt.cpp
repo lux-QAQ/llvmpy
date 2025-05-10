@@ -1540,13 +1540,19 @@ void CodeGenStmt::handleForStmt(const ForStmtAST* stmt)
 
     if (!loopVarAlloc) {
          loopVarAlloc = cg.createEntryBlockAlloca(pyObjectPtrType_for_alloc, loopVarName);
-         cg.getSymbolTable().setVariable(loopVarName, loopVarAlloc, loopVarObjectType); 
+         // +++ FIX: Initialize the newly created alloca with nullptr +++
+         builder.CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(pyObjectPtrType_for_alloc)), loopVarAlloc);
+         // +++ END FIX +++
+         cg.getSymbolTable().setVariable(loopVarName, loopVarAlloc, loopVarObjectType);
     } else {
+        // If it already exists, assume it's managed correctly by outer scopes or previous logic.
+        // However, ensure it's correctly set in the current symbol table context if re-entering a scope.
         cg.getSymbolTable().setVariable(loopVarName, loopVarAlloc, loopVarObjectType);
     }
     llvm::Value* oldLoopVarValue = builder.CreateLoad(pyObjectPtrType_for_alloc, loopVarAlloc, "old_" + loopVarName);
-    cg.getRuntimeGen()->decRef(oldLoopVarValue); 
+    cg.getRuntimeGen()->decRef(oldLoopVarValue); // This is now safe if alloca was initialized or held a valid previous object.
     builder.CreateStore(nextItem, loopVarAlloc);
+    cg.getRuntimeGen()->incRef(nextItem); // <<< ADDED: IncRef the new item being stored and now owned by loopVarAlloc
 
     // 5.2 生成循环体代码
     cg.pushScope();  // Keep original scope management

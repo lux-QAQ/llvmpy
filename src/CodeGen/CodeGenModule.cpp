@@ -21,6 +21,23 @@
 namespace llvmpy
 {
 
+
+#ifdef DEBUG_CODEGEN_verifyFunction
+bool verifyFunction(llvm::Function& F, bool AbortOnFailure) {
+    std::string FuncName = F.getName().str();
+    if (llvm::verifyFunction(F, &llvm::errs())) { // llvm::errs() 会打印错误细节
+        llvm::errs() << "LLVM Function verification failed for: " << FuncName << "\n"; // 确保这条消息能看到
+        F.print(llvm::errs(), nullptr, false, true); // 打印出有问题的函数 IR
+        // if (AbortOnFailure) {
+        //     abort();
+        // }
+        return true; // Indicates failure
+    }
+    return false; // Indicates success
+}
+#endif
+
+
 // 生成完整模块
 // 生成完整模块
 bool CodeGenModule::generateModule(ModuleAST* module, bool isEntryPoint)
@@ -59,6 +76,14 @@ bool CodeGenModule::generateModule(ModuleAST* module, bool isEntryPoint)
     // --- 根据是否是入口点模块，决定如何处理顶层语句 ---
     if (isEntryPoint)
     {
+        // --- CAPTURE CONTEXT *BEFORE* ANY MODIFICATIONS FOR __llvmpy_entry ---
+        llvm::IRBuilderBase::InsertPoint savedIP = codeGen.getBuilder().saveIP();
+        llvm::Function* savedFunction = codeGen.getCurrentFunction();
+        ObjectType* savedReturnType = codeGen.getCurrentReturnType();
+#ifdef DEBUG_CODEGEN_generateModule
+        DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Context saved *before* __llvmpy_entry setup: Func=" + llvmObjToString(savedFunction) + ", IP=" + ipToString(savedIP));
+#endif
+
 #ifdef DEBUG_CODEGEN_generateModule
         DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Processing as entry point module.");
 #endif
@@ -122,9 +147,7 @@ bool CodeGenModule::generateModule(ModuleAST* module, bool isEntryPoint)
 #endif
 
         // --- 3. 保存并设置当前代码生成上下文为 __llvmpy_entry 函数 ---
-        llvm::IRBuilderBase::InsertPoint savedIP = codeGen.getBuilder().saveIP();
-        llvm::Function* savedFunction = codeGen.getCurrentFunction();
-        ObjectType* savedReturnType = codeGen.getCurrentReturnType();
+
 
         codeGen.setCurrentFunction(entryFn);
         codeGen.setCurrentReturnType(nullptr);  // __llvmpy_entry returns i32, context is for Python objects
@@ -195,7 +218,7 @@ bool CodeGenModule::generateModule(ModuleAST* module, bool isEntryPoint)
             DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Looking up GlobalVariable '" + mainGvName + "' in Module@ " + std::to_string(reinterpret_cast<uintptr_t>(codeGen.getModule())));
             // --- END DEBUG LOG ---
 #endif
-llvm::Value* pyMainFuncGv = codeGen.getModule()->getGlobalVariable(mainGvName, true); 
+            llvm::Value* pyMainFuncGv = codeGen.getModule()->getGlobalVariable(mainGvName, true);
             // ObjectType* pyMainFuncType = codeGen.getSymbolTable().getVariableType("main"); // Type check might be less critical here
 
             // Check if 'main_obj_gv' exists
@@ -248,6 +271,20 @@ llvm::Value* pyMainFuncGv = codeGen.getModule()->getGlobalVariable(mainGvName, t
 #ifdef DEBUG_CODEGEN_generateModule
                         DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Added return instruction for exit code.");
 #endif
+                        // --- CRITICAL CHANGE: Move builder out of the terminated block ---
+                        // Create a new dummy block that won't be part of __llvmpy_entry's CFG
+                        // or simply clear the insertion point if no further IR generation is expected
+                        // for __llvmpy_entry before context restoration.
+                        // Option 1: Create a new block (safer if endScope might still try to use builder)
+                        llvm::BasicBlock* detachedBB = llvm::BasicBlock::Create(codeGen.getContext(), "detached.after.ret", entryFn /* or nullptr if truly detached */);
+                        // If entryFn is used as parent, this block is part of the function but should be unreachable.
+                        // If nullptr is used, it's not part of any function.
+                        // For __llvmpy_entry, making it part of the function but unreachable is fine.
+                        codeGen.getBuilder().SetInsertPoint(detachedBB);
+                        // Option 2: If endScope and subsequent operations are guaranteed not to emit IR
+                        // into the current function before context restoration, clearing might be enough.
+                        // codeGen.getBuilder().ClearInsertionPoint(); // Less safe, depends on subsequent code.
+                        // --- END CRITICAL CHANGE ---
                     }
                     // Decrement ref count of pyResultObj if necessary (depends on runtime conventions)
                     // codeGen.getRuntimeGen()->decRef(pyResultObj); // Add if py_call returns +1 ref and exit code doesn't consume it
@@ -259,6 +296,10 @@ llvm::Value* pyMainFuncGv = codeGen.getModule()->getGlobalVariable(mainGvName, t
         {
             // Should not happen if the above logic is correct, but as a safeguard
             codeGen.getBuilder().CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(codeGen.getContext()), 1));  // Error exit
+                                                                                                                      // --- ADD CRITICAL CHANGE HERE AS WELL if this path is taken ---
+            llvm::BasicBlock* detachedBB = llvm::BasicBlock::Create(codeGen.getContext(), "detached.default.ret", entryFn);
+            codeGen.getBuilder().SetInsertPoint(detachedBB);
+            // --- END CRITICAL CHANGE ---
         }
 #ifdef DEBUG_CODEGEN_generateModule
         // Log why the call to main might not happen
@@ -269,22 +310,55 @@ llvm::Value* pyMainFuncGv = codeGen.getModule()->getGlobalVariable(mainGvName, t
             if (lastBlock && !lastBlock->getTerminator())
             {                                                                                                             // Check if we can add a return
                 codeGen.getBuilder().CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(codeGen.getContext()), 1));  // Error exit
+                                                                                                                          // --- ADD CRITICAL CHANGE HERE AS WELL ---
+                llvm::BasicBlock* detachedBB = llvm::BasicBlock::Create(codeGen.getContext(), "detached.error.ret", entryFn);
+                codeGen.getBuilder().SetInsertPoint(detachedBB);
+                // --- END CRITICAL CHANGE ---
             }
         }
         else  // lastBlock->getTerminator() is true
         {
             DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Cannot call Python main (block already terminated before call).");
+            if (codeGen.getBuilder().GetInsertBlock() && codeGen.getBuilder().GetInsertBlock()->getTerminator())
+            {
+                llvm::BasicBlock* detachedBB = llvm::BasicBlock::Create(codeGen.getContext(), "detached.already.terminated", entryFn);
+                codeGen.getBuilder().SetInsertPoint(detachedBB);
+            }
         }
 #endif
 
         stmtGen->endScope();  // Exit top-level scope
+                // --- CRITICAL FIX: Ensure the detached block (if any) within entryFn is terminated ---
+        llvm::BasicBlock* blockAfterEndScope = codeGen.getBuilder().GetInsertBlock();
+        if (blockAfterEndScope && blockAfterEndScope->getParent() == entryFn && !blockAfterEndScope->getTerminator()) {
+#ifdef DEBUG_CODEGEN_generateModule
+            DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Terminating block " + llvmObjToString(blockAfterEndScope) + " (part of " + entryFn->getName().str() + ") with Unreachable after endScope.");
+#endif
+            codeGen.getBuilder().CreateUnreachable();
+        }
+        // --- END CRITICAL FIX ---
 #ifdef DEBUG_CODEGEN_generateModule
         DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Finished statement loop and main call sequence.");
+        // --- ADD DEBUG ---
+        if (entryFn && !entryFn->empty())
+        {
+            llvm::BasicBlock* finalEntryBB = &entryFn->getEntryBlock();
+            if (finalEntryBB->getTerminator())
+            {
+                DEBUG_LOG_DETAIL("GenMod", "[EntryPt] After endScope, entry block terminator: " + llvmObjToString(finalEntryBB->getTerminator()));
+            }
+            else
+            {
+                DEBUG_LOG_DETAIL("GenMod", "[EntryPt] After endScope, entry block HAS NO TERMINATOR.");
+            }
+        }
+        // --- END DEBUG ---
 #endif
 
         // --- 6. 恢复之前的代码生成上下文 ---
-        codeGen.setCurrentFunction(savedFunction);
-        codeGen.setCurrentReturnType(savedReturnType);
+        codeGen.setCurrentFunction(savedFunction); // This zzshould be <null>
+        codeGen.setCurrentReturnType(savedReturnType); // This should be <null>
+
         if (savedIP.getBlock())
         {
             codeGen.getBuilder().restoreIP(savedIP);
@@ -298,17 +372,43 @@ llvm::Value* pyMainFuncGv = codeGen.getModule()->getGlobalVariable(mainGvName, t
             DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Restored context (Func/RetType only). Current function: " + llvmObjToString(codeGen.getCurrentFunction()) + ". Saved IP was invalid.");
 #endif
             // If we restored to a state with no function but the builder still has an insert block, it's weird.
-            if (!savedFunction && codeGen.getBuilder().GetInsertBlock())
-            {
+            
+            
                 DEBUG_LOG_DETAIL("GenMod", "[EntryPt] WARNING: Builder has insert block but no current function after restore!");
                 // Consider clearing the builder's insert point if this state is invalid
-                // codeGen.getBuilder().ClearInsertionPoint();
-            }
+                codeGen.getBuilder().ClearInsertionPoint();
+            
         }
+        #ifdef DEBUG_CODEGEN_generateModule
+        DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Restored context. Current function: " + llvmObjToString(codeGen.getCurrentFunction()) + ", IP=" + ipToString(codeGen.getBuilder().saveIP()));
+#endif
 
         // --- 7. 验证生成的 __llvmpy_entry 函数 ---
 #ifdef DEBUG_CODEGEN_generateModule
         DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Verifying entry function '__llvmpy_entry'...");
+#endif
+#ifdef DEBUG_CODEGEN_generateModule
+        DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Verifying entry function '__llvmpy_entry'...");
+        // --- ADD DETAILED BLOCK DEBUG ---
+        if (entryFn) {
+            DEBUG_LOG_DETAIL("GenMod", "[EntryPt] Blocks in __llvmpy_entry before verification:");
+            for (auto& bb_iter : *entryFn) { // Use a different name for the iterator
+                llvm::BasicBlock& bb = bb_iter; // Get reference to the block
+                std::string bbName = bb.hasName() ? bb.getName().str() : "<unnamed_block>";
+                std::string termStatus = bb.getTerminator() ? "Terminated" : "NOT TERMINATED";
+                DEBUG_LOG_DETAIL("GenMod", "[EntryPt]   Block: " + bbName + " (ID: " + llvmObjToString(&bb) + ") - " + termStatus);
+                if (!bb.getTerminator()) {
+                     DEBUG_LOG_DETAIL("GenMod", "[EntryPt]     WARNING: Block " + bbName + " IS NOT TERMINATED.");
+                } else {
+                    // Optionally log the type of terminator
+                    // std::string terminatorName;
+                    // llvm::raw_string_ostream rso(terminatorName);
+                    // bb.getTerminator()->printAsOperand(rso, false);
+                    // DEBUG_LOG_DETAIL("GenMod", "[EntryPt]     Terminator: " + rso.str());
+                }
+            }
+        }
+        // --- END DETAILED BLOCK DEBUG ---
 #endif
         // Use the utility function for verification
         if (verifyFunction(*entryFn))  // Assuming verifyFunction logs details on failure
@@ -317,7 +417,7 @@ llvm::Value* pyMainFuncGv = codeGen.getModule()->getGlobalVariable(mainGvName, t
 #ifdef DEBUG_CODEGEN_generateModule
             DEBUG_LOG_DETAIL("GenMod", "[EntryPt] !!! Entry function verification FAILED !!!");
             // Optionally print the function to stderr again if verifyFunction doesn't
-            // entryFn->print(llvm::errs());
+            entryFn->print(llvm::errs());
 #endif
             return false;  // Verification failed
         }
@@ -694,9 +794,9 @@ void CodeGenModule::addRuntimeFunctions()
                 "py_create_function",
                 llvm::PointerType::get(codeGen.getContext(), 0),   // 返回 PyObject*
                 {llvm::PointerType::get(codeGen.getContext(), 0),  // func_ptr (void*)
-                 llvm::Type::getInt32Ty(codeGen.getContext()),    // signature_type_id (int)
-                 llvm::Type::getInt32Ty(codeGen.getContext())},   // expected_params_count (int)
-                false); // isVarArg
+                 llvm::Type::getInt32Ty(codeGen.getContext()),     // signature_type_id (int)
+                 },    // expected_params_count (int)
+                false);                                            // isVarArg
     }
     {
         codeGen.getOrCreateExternalFunction(
@@ -1147,14 +1247,17 @@ void CodeGenModule::handleFunctionParams(
     CodeGenRuntime* runtimeGen = codeGen.getRuntimeGen();
 
     unsigned argIdx = 0;
-    for (auto& arg : function->args()) {
-        if (argIdx < params.size() && argIdx < paramPyTypes.size()) {
+    for (auto& arg : function->args())
+    {
+        if (argIdx < params.size() && argIdx < paramPyTypes.size())
+        {
             const std::string& paramName = params[argIdx].name;
             std::shared_ptr<PyType> paramType = paramPyTypes[argIdx];
             ObjectType* paramObjType = paramType ? paramType->getObjectType() : nullptr;
 
-            if (!paramObjType) {
-                codeGen.logError("Internal error: Could not determine ObjectType for parameter '" + paramName + "'.", 
+            if (!paramObjType)
+            {
+                codeGen.logError("Internal error: Could not determine ObjectType for parameter '" + paramName + "'.",
                                  params[argIdx].line.value_or(0), params[argIdx].column.value_or(0));
                 argIdx++;
                 continue;
@@ -1164,7 +1267,8 @@ void CodeGenModule::handleFunctionParams(
             // The name of the alloca should be distinct, e.g., by appending ".addr" or similar,
             // which createEntryBlockAlloca might do internally.
             llvm::AllocaInst* paramAlloc = codeGen.createEntryBlockAlloca(pyObjectPtrType, paramName);
-            if (!paramAlloc) {
+            if (!paramAlloc)
+            {
                 // Error already logged by createEntryBlockAlloca
                 argIdx++;
                 continue;
@@ -1179,7 +1283,9 @@ void CodeGenModule::handleFunctionParams(
 
             // Update the symbol table: the parameter name now refers to the AllocaInst.
             symTable.setVariable(paramName, paramAlloc, paramObjType);
-        } else {
+        }
+        else
+        {
             // This case should ideally not happen if params and paramPyTypes are correctly sized.
             codeGen.logError("Internal error: Mismatch between LLVM arguments and AST/Type parameters for function '" + function->getName().str() + "'.", 0, 0);
         }
