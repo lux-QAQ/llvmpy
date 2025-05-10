@@ -34,7 +34,9 @@
 
 ### 容器
 - [x] 支持`list`列表
+  - [x] 支持多维列表 ,支持混合类型
 - [x] 支持`dict`字典
+  - [x] 支持混合类型的 **key-value**(RunTime中支持hash的都可以**key-value**)
 - [ ] 支持`set`集合
 - [ ] 支持`tuple`元组
 
