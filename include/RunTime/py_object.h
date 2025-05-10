@@ -30,6 +30,15 @@ PyObject* py_create_instance(PyObject* cls_obj); // 参数是类对象
 void py_incref(PyObject* obj);
 void py_decref(PyObject* obj);
 
+/**
+ * @brief 专门用于处理迭代器对象引用计数减少的内部辅助函数。
+ * 当迭代器的引用计数降为0时，此函数负责释放迭代器持有的资源
+ * (例如对被迭代对象的引用)并释放迭代器本身。
+ *
+ * @param obj 指向迭代器对象的指针 (PyObject*)。
+ */
+void py_iterator_decref_specialized(PyObject* obj);
+
 // 对象复制
 PyObject* py_object_copy(PyObject* obj, int typeId);
 

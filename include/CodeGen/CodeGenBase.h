@@ -113,8 +113,17 @@ public:
 
     bool hasVariable(const std::string& name) const;
     llvm::Value* getVariable(const std::string& name);
+    llvm::AllocaInst* lookupAlloca(const std::string& name); // Added
     void setVariable(const std::string& name, llvm::Value* value, ObjectType* type = nullptr);
     ObjectType* getVariableType(const std::string& name);
+
+    // Loop context for break/continue
+    void setLoopContext(llvm::BasicBlock* breakTarget, llvm::BasicBlock* continueTarget);
+    void clearLoopContext();
+    void restoreOuterLoopContext();
+    llvm::BasicBlock* getBreakTarget() const;
+    llvm::BasicBlock* getContinueTarget() const;
+
     /**
      * @brief 将符号表的当前状态转储到指定的输出流。
      * @param out 输出流 (例如 std::cerr)。
@@ -130,6 +139,15 @@ public:
      * @return size_t 当前作用域的深度。
      */
     size_t getCurrentScopeDepth() const;  // <--- 添加声明
+
+private: // Added private section for loop context stack
+    struct LoopContext {
+        llvm::BasicBlock* breakTarget;
+        llvm::BasicBlock* continueTarget;
+    };
+    std::stack<LoopContext> loopContextStack;
+
+public: // Back to public for remaining methods
     // --- 函数 AST 定义相关 ---
     /**
      * @brief 在当前作用域定义一个函数 AST。

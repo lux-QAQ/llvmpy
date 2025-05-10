@@ -42,6 +42,11 @@ int py_get_container_type_info(PyObject* container);
 // 哈希操作
 unsigned int py_hash_object(PyObject* obj);
 
+
+// 迭代器
+PyObject* py_iter(PyObject* iterable_obj);
+PyObject* py_next(PyObject* iterator_obj);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

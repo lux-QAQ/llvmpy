@@ -101,6 +101,8 @@ void PyParser::initializeRegistries()
                        { return p.parseImportStmt(); });
     registerStmtParser(TOK_PASS, [](PyParser& p)
                        { return p.parsePassStmt(); });
+    registerStmtParser(TOK_FOR, [](PyParser& p) // 新增：注册 for 语句解析器
+                       { return p.parseForStmt(); });
 
 
     // --- 添加 Break 和 Continue 解析器 ---
@@ -1480,10 +1482,76 @@ std::unique_ptr<StmtAST> PyParser::parseAssignStmt(const std::string& varName)
     return stmt;
 }
 
+// 实现 parseForStmt 方法
 std::unique_ptr<StmtAST> PyParser::parseForStmt()
 {
-    // For语句暂时不实现，返回错误
-    return logParseError<StmtAST>("For statements not yet implemented");
+    int line = currentToken.line;
+    int col = currentToken.column;
+    nextToken(); // 消费 'for'
+
+    // 1. 解析循环变量 (必须是标识符)
+    if (currentToken.type != TOK_IDENTIFIER)
+    {
+        return logParseError<StmtAST>("Expected identifier for loop variable after 'for'");
+    }
+    std::string loopVarName = currentToken.value;
+    nextToken(); // 消费循环变量名
+
+    // 2. 期望 'in' 关键字
+    if (!expectToken(TOK_IN, "Expected 'in' after loop variable in for statement"))
+    {
+        return nullptr;
+    }
+
+    // 3. 解析可迭代对象表达式
+    auto iterableExpr = parseExpression();
+    if (!iterableExpr)
+    {
+        return logParseError<StmtAST>("Expected iterable expression after 'in' in for statement");
+    }
+
+    // 4. 期望 ':' 和 NEWLINE
+    if (!expectToken(TOK_COLON, "Expected ':' after iterable in for statement"))
+    {
+        return nullptr;
+    }
+    if (!expectToken(TOK_NEWLINE, "Expected newline after ':' in for statement"))
+    {
+        return nullptr;
+    }
+
+    // 5. 解析循环体
+    auto body = parseBlock();
+    if (body.empty())
+    {
+        return logParseError<StmtAST>("Expected an indented block after 'for' statement");
+    }
+
+    // 6. 解析可选的 'else' 子句
+    std::unique_ptr<StmtAST> elseNode = nullptr;
+    if (currentToken.type == TOK_ELSE)
+    {
+        int elseLine = currentToken.line;
+        int elseCol = currentToken.column;
+        nextToken(); // 消费 'else'
+
+        if (!expectToken(TOK_COLON, "Expected ':' after 'else' in for statement"))
+            return nullptr;
+        if (!expectToken(TOK_NEWLINE, "Expected newline after ':' in for..else statement"))
+            return nullptr;
+
+        auto elseBodyStmts = parseBlock();
+        if (elseBodyStmts.empty())
+        {
+            return logParseError<StmtAST>("Expected an indented block after 'else' in for statement");
+        }
+        elseNode = std::make_unique<BlockStmtAST>(std::move(elseBodyStmts));
+        elseNode->setLocation(elseLine, elseCol);
+    }
+
+    auto forStmt = makeStmt<ForStmtAST>(loopVarName, std::move(iterableExpr), std::move(body), std::move(elseNode));
+    forStmt->setLocation(line, col);
+    return forStmt;
 }
 
 std::unique_ptr<StmtAST> PyParser::parseImportStmt()
@@ -1642,7 +1710,7 @@ std::vector<ParamAST> PyParser::parseParameters()
     std::vector<ParamAST> params;
 
     if (!expectToken(TOK_LPAREN, "Expected '(' in parameter list"))
-        return params;
+        return params; // Error already logged by expectToken, return empty or partially parsed
 
     // 空参数列表
     if (currentToken.type == TOK_RPAREN)
@@ -1656,39 +1724,68 @@ std::vector<ParamAST> PyParser::parseParameters()
     {
         if (currentToken.type != TOK_IDENTIFIER)
         {
+            // logParseError throws, so the return here is for control flow if it didn't.
+            // However, since it throws, this path might not be strictly necessary
+            // if all callers handle the exception.
             logParseError<ParamAST>("Expected parameter name");
-            return params;
+            return params; // Return whatever params were collected before the error
         }
 
         std::string paramName = currentToken.value;
+        // Capture location info from the parameter name token
+        std::optional<int> paramLine = currentToken.line;
+        std::optional<int> paramCol = currentToken.column;
         nextToken();  // 消费参数名
 
         // 检查是否有类型注解
-        std::string typeName = "";
+        std::string typeName = ""; // Default to no type name
         if (currentToken.type == TOK_COLON)
         {
             nextToken();  // 消费':'
 
-            if (currentToken.type != TOK_IDENTIFIER)
+            if (currentToken.type != TOK_IDENTIFIER) // Assuming type names are identifiers for now
             {
                 logParseError<ParamAST>("Expected type name after ':'");
-                return params;
+                return params; // Return collected params
             }
 
             typeName = currentToken.value;
             nextToken();  // 消费类型名
         }
 
-        params.emplace_back(paramName, typeName);
+        // Use the ParamAST constructor that accepts line and column
+        params.emplace_back(paramName, typeName, paramLine, paramCol);
 
         if (currentToken.type == TOK_RPAREN)
             break;
 
         if (!expectToken(TOK_COMMA, "Expected ')' or ',' in parameter list"))
-            return params;
+            return params; // Error logged, return collected params
+
+        // Handle trailing comma before ')'
+        if (currentToken.type == TOK_RPAREN) {
+            // Optional: Log a warning for trailing comma if desired
+            // std::cerr << "Warning: Trailing comma in parameter list at line " << ... << std::endl;
+            break; 
+        }
     }
 
-    nextToken();  // 消费')'
+    if (currentToken.type == TOK_RPAREN) { // Ensure we consume the final ')' if loop broke due to it
+        nextToken();  // 消费')'
+    } else if (currentToken.type != TOK_EOF) { // If loop broke for other reasons and not at RPAREN
+        // This case might indicate an earlier error or an unexpected token.
+        // If expectToken for comma failed, it would have thrown or returned.
+        // If we are here and not at RPAREN, it's likely an issue.
+        // However, the loop structure and expectToken should handle most cases.
+        // If a logParseError was caught and we are continuing, this might be a recovery point.
+        // For robustness, ensure ')' is consumed if present, or log if it's missing.
+        if (!match(TOK_RPAREN)) { // Use match to consume if present, or log if not
+             logParseError<ParamAST>("Expected ')' to close parameter list after parsing parameters.");
+             // Depending on error strategy, might return params or let throw propagate.
+        }
+    }
+
+
     return params;
 }
 

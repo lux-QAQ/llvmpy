@@ -20,6 +20,8 @@
 #include "py_io.h"
 #include "py_attributes.h"
 #include "py_function.h"
+#include "py_log.h"
+#include "py_error.h"
 // 此头文件集中导出所有运行时API
 // 不需要任何额外代码，只需包含其他模块头文件
 

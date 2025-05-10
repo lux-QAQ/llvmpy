@@ -4,6 +4,117 @@
 #include <cstdlib>
 #include <cctype>
 
+
+//===----------------------------------------------------------------------===//
+// 迭代器相关
+//===----------------------------------------------------------------------===//
+PyObject* py_iter(PyObject* iterable_obj) {
+    if (!iterable_obj) {
+        LOG_ERROR("py_iter called with NULL iterable_obj");
+        py_runtime_error("TypeError_NotIterable", 0);
+        return NULL;
+    }
+    LOG_DEBUG("py_iter called for iterable: %p, typeId: %d (%s)", (void*)iterable_obj, iterable_obj->typeId, py_type_name(iterable_obj->typeId));
+
+    int type_id = llvmpy::getBaseTypeId(iterable_obj->typeId);
+
+    if (type_id == llvmpy::PY_TYPE_LIST) {
+        PyListIteratorObject* iter = (PyListIteratorObject*)malloc(sizeof(PyListIteratorObject));
+        if (!iter) {
+            LOG_ERROR("MemoryError: failed to allocate list iterator");
+            // fprintf(stderr, "MemoryError: failed to allocate list iterator\n"); // Replaced
+            return NULL;
+        }
+        iter->header.refCount = 1;
+        iter->header.typeId = llvmpy::PY_TYPE_LIST_ITERATOR;
+        iter->iterable = iterable_obj;
+        py_incref(iterable_obj);
+        iter->current_index = 0;
+        LOG_DEBUG("py_iter created PyListIteratorObject: %p, typeId: %d, for iterable: %p", (void*)iter, iter->header.typeId, (void*)iterable_obj);
+        return (PyObject*)iter;
+    } else if (type_id == llvmpy::PY_TYPE_STRING) {
+        PyStringIteratorObject* iter = (PyStringIteratorObject*)malloc(sizeof(PyStringIteratorObject));
+        if (!iter) {
+            LOG_ERROR("MemoryError: failed to allocate string iterator");
+            // fprintf(stderr, "MemoryError: failed to allocate string iterator\n"); // Replaced
+            return NULL;
+        }
+        iter->header.refCount = 1;
+        iter->header.typeId = llvmpy::PY_TYPE_STRING_ITERATOR;
+        iter->iterable = iterable_obj;
+        py_incref(iterable_obj);
+        iter->current_char_index = 0;
+        LOG_DEBUG("py_iter created PyStringIteratorObject: %p, typeId: %d, for iterable: %p", (void*)iter, iter->header.typeId, (void*)iterable_obj);
+        return (PyObject*)iter;
+    }
+    
+    LOG_WARN("py_iter: Object of type %s (%d) is not iterable.", py_type_name(iterable_obj->typeId), iterable_obj->typeId);
+    char error_msg_key[100];
+    snprintf(error_msg_key, sizeof(error_msg_key), "TypeError_NotIterable"); 
+    py_runtime_error(error_msg_key, 0);
+    return NULL;
+}
+
+PyObject* py_next(PyObject* iterator_obj) {
+    if (!iterator_obj) {
+        LOG_ERROR("py_next called with NULL iterator_obj");
+        py_runtime_error("FatalError_NullIterator", 0); 
+        return NULL;
+    }
+    LOG_DEBUG("py_next called with iterator: %p, typeId: %d (%s)", (void*)iterator_obj, iterator_obj->typeId, py_type_name(iterator_obj->typeId));
+
+    int iterator_type_id = iterator_obj->typeId; 
+
+    if (iterator_type_id == llvmpy::PY_TYPE_LIST_ITERATOR) {
+        PyListIteratorObject* iter = (PyListIteratorObject*)iterator_obj;
+        PyListObject* list = (PyListObject*)iter->iterable; 
+
+        if (iter->current_index < list->length) {
+            PyObject* item = list->data[iter->current_index];
+            iter->current_index++;
+            if (item) {
+                py_incref(item); 
+                LOG_DEBUG("py_next (list) returning item: %p, typeId: %d (%s)", (void*)item, item->typeId, py_type_name(item->typeId));
+                return item;
+            } else {
+                PyObject* none_val = py_get_none();
+                py_incref(none_val); 
+                LOG_DEBUG("py_next (list) returning None (original item was NULL) for iterator: %p", (void*)iterator_obj);
+                return none_val;
+            }
+        } else {
+            LOG_DEBUG("py_next (list) StopIteration for iterator: %p", (void*)iterator_obj);
+            return NULL;
+        }
+    } else if (iterator_type_id == llvmpy::PY_TYPE_STRING_ITERATOR) {
+        PyStringIteratorObject* iter = (PyStringIteratorObject*)iterator_obj;
+        PyPrimitiveObject* str_obj = (PyPrimitiveObject*)iter->iterable; 
+        const char* c_str = str_obj->value.stringValue;
+        
+        if (!c_str) { 
+             LOG_WARN("py_next (string) iterator %p has NULL c_str", (void*)iterator_obj);
+             return NULL; 
+        }
+        size_t len = strlen(c_str);
+
+        if (iter->current_char_index < len) {
+            char char_buf[2] = {c_str[iter->current_char_index], '\0'};
+            iter->current_char_index++;
+            PyObject* char_py_str = py_create_string(char_buf);
+            LOG_DEBUG("py_next (string) returning char_str: %p, typeId: %d (%s)", (void*)char_py_str, char_py_str ? char_py_str->typeId : -1, char_py_str ? py_type_name(char_py_str->typeId) : "NULL");
+            return char_py_str;
+        } else {
+            LOG_DEBUG("py_next (string) StopIteration for iterator: %p", (void*)iterator_obj);
+            return NULL;
+        }
+    }
+    
+    LOG_ERROR("py_next: Object %p is not a known iterator type (typeId: %d, %s)", (void*)iterator_obj, iterator_obj->typeId, py_type_name(iterator_obj->typeId));
+    char error_msg_key[100];
+    snprintf(error_msg_key, sizeof(error_msg_key), "TypeError_NotIterator");
+    py_runtime_error(error_msg_key, 0); 
+    return NULL;
+}
 //===----------------------------------------------------------------------===//
 // 列表操作函数
 //===----------------------------------------------------------------------===//

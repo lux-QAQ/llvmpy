@@ -238,9 +238,10 @@ private:
     std::unique_ptr<StmtAST> parsePrintStmt();
     std::unique_ptr<StmtAST> parseAssignStmt();
     std::unique_ptr<StmtAST> parseWhileStmt();
-    std::unique_ptr<StmtAST> parseForStmt();
+    // std::unique_ptr<StmtAST> parseForStmt(); // Removed duplicate
     std::unique_ptr<StmtAST> parseImportStmt();
     std::unique_ptr<StmtAST> parsePassStmt();
+    std::unique_ptr<StmtAST> parseForStmt();
     std::unique_ptr<StmtAST> parseAssignStmt(const std::string& varName);
 
     // 新增：赋值操作类型检查

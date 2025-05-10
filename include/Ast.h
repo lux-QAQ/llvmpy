@@ -69,6 +69,7 @@ enum class ASTKind
     NoneExpr,         ///< None 字面量表达式节点
     DictExpr,         ///< 字典字面量表达式节点
     FunctionDefStmt,  ///< 函数定义语句节点包装
+    ForStmt,          ///< for 循环语句节点
     Unknown           ///< 未知或错误节点类型
 };
 
@@ -1202,19 +1203,31 @@ struct ParamAST
     std::string typeName;  ///< 参数的类型注解字符串 (例如 "int", "str", "List[int]")。
     /** @brief 解析后的实际类型对象。在类型检查阶段填充。*/
     std::shared_ptr<PyType> resolvedType;
+    std::optional<int> line;     ///< 可选的源代码行号。
+    std::optional<int> column;   ///< 可选的源代码列号。
 
     /** @brief 默认构造函数。*/
     ParamAST() : name(""), typeName("")
     {
     }
     /** @brief 带类型注解的构造函数。*/
-    ParamAST(const std::string& n, const std::string& t) : name(n), typeName(t)
+    ParamAST(const std::string& n, const std::string& t, std::optional<int> l = std::nullopt, std::optional<int> c = std::nullopt)
+        : name(n), typeName(t), line(l), column(c)
     {
     }
     /** @brief 不带类型注解的构造函数。*/
-    ParamAST(const std::string& n) : name(n), typeName("")
+    ParamAST(const std::string& n, std::optional<int> l = std::nullopt, std::optional<int> c = std::nullopt)
+        : name(n), typeName(""), line(l), column(c)
     {
-    }  // typeName 为空表示无注解
+    }
+
+    // 可选：添加一个设置位置信息的辅助方法
+    ParamAST& setLocation(int l, int c)
+    {
+        line = l;
+        column = c;
+        return *this;
+    }
 };
 
 /**
@@ -1485,6 +1498,54 @@ public:
     const std::vector<std::unique_ptr<StmtAST>>& getStatements() const
     {
         return statements;
+    }
+};
+
+/**
+ * @brief for 循环语句节点 (例如 for item in iterable: ... else: ...)。
+ */
+class ForStmtAST : public StmtASTBase<ForStmtAST, ASTKind::ForStmt>
+{
+    std::string loopVariable;                            ///< 循环变量名。
+    std::unique_ptr<ExprAST> iterableExpr;               ///< 可迭代对象表达式。
+    std::vector<std::unique_ptr<StmtAST>> body;          ///< 循环体语句块。
+    std::unique_ptr<StmtAST> elseStmt;                   ///< 可选的 else 子句语句块。
+
+public:
+    /** @brief 构造函数。*/
+    ForStmtAST(const std::string& varName,
+               std::unique_ptr<ExprAST> iterExpr,
+               std::vector<std::unique_ptr<StmtAST>> loopBody,
+               std::unique_ptr<StmtAST> elseS = nullptr)
+        : loopVariable(varName),
+          iterableExpr(std::move(iterExpr)),
+          body(std::move(loopBody)),
+          elseStmt(std::move(elseS))
+    {
+    }
+
+    /** @brief 获取循环变量名。*/
+    const std::string& getLoopVariable() const
+    {
+        return loopVariable;
+    }
+
+    /** @brief 获取可迭代对象表达式。*/
+    const ExprAST* getIterableExpr() const
+    {
+        return iterableExpr.get();
+    }
+
+    /** @brief 获取循环体语句块。*/
+    const std::vector<std::unique_ptr<StmtAST>>& getBody() const
+    {
+        return body;
+    }
+
+    /** @brief 获取 else 子句语句块。*/
+    const StmtAST* getElseStmt() const
+    {
+        return elseStmt.get();
     }
 };
 

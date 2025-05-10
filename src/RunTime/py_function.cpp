@@ -194,7 +194,7 @@ PyObject* py_call_function(PyObject* callable, int num_args, PyObject** args_arr
     return result;  // 返回新引用
 }
 
-PyObject* py_create_function(void* func_ptr, int signature_type_id)
+PyObject* py_create_function(void* func_ptr, int signature_type_id) // 新
 {
     if (!func_ptr)
     {
@@ -218,6 +218,7 @@ PyObject* py_create_function(void* func_ptr, int signature_type_id)
     // 设置函数特定字段
     func_obj->func_ptr = func_ptr;
     func_obj->signature_type_id = signature_type_id;
+
 
     // TODO: 初始化其他可能的字段 (如 __name__)
 

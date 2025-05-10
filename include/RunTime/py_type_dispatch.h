@@ -75,6 +75,18 @@ const PyTypeMethods* py_get_type_methods(int typeId);
  */
 void py_initialize_builtin_type_methods();
 
+/**
+ * @brief Initializes the py_log
+ */
+void py_initialize_builtin_log();
+
+/**
+ * @brief Initializes the RunTime.
+ */
+void py_runtime_initialize();
+
+
+
 
 
 

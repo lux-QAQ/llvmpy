@@ -3,10 +3,8 @@
 #include "RunTime/py_type_dispatch.h" */
 #include "RunTime/runtime.h"  // Include main runtime header for other functions
 
-
 #include <cstdio>
 #include <cstdlib>
-
 
 #include <functional>  // For std::hash
 #include <cmath>       // For fabs
@@ -20,77 +18,74 @@ static const PyTypeMethods* type_registry[MAX_TYPE_ID] = {NULL};
 // --- Initialization ---
 static std::unordered_map<int, const PyTypeMethods*> type_methods_registry;
 static const PyTypeMethods list_methods = {
-    /*.index_get =*/py_list_index_get_handler,
-    /*.index_set =*/py_list_index_set_handler,
-    /*.len       =*/py_list_len_handler,
-    /*.getattr   =*/NULL,
-    /*.setattr   =*/NULL,
-    /*.hash      =*/NULL, // Lists are unhashable
-    /*.equals    =*/NULL, // TODO: Implement list comparison if needed
+        /*.index_get =*/py_list_index_get_handler,
+        /*.index_set =*/py_list_index_set_handler,
+        /*.len       =*/py_list_len_handler,
+        /*.getattr   =*/NULL,
+        /*.setattr   =*/NULL,
+        /*.hash      =*/NULL,  // Lists are unhashable
+        /*.equals    =*/NULL,  // TODO: Implement list comparison if needed
 };
 
 static const PyTypeMethods dict_methods = {
-    /*.index_get =*/py_dict_index_get_handler,
-    /*.index_set =*/py_dict_index_set_handler,
-    /*.len       =*/py_dict_len_handler,
-    /*.getattr   =*/NULL,
-    /*.setattr   =*/NULL,
-    /*.hash      =*/NULL, // Dicts are unhashable
-    /*.equals    =*/NULL, // TODO: Implement dict comparison if needed
+        /*.index_get =*/py_dict_index_get_handler,
+        /*.index_set =*/py_dict_index_set_handler,
+        /*.len       =*/py_dict_len_handler,
+        /*.getattr   =*/NULL,
+        /*.setattr   =*/NULL,
+        /*.hash      =*/NULL,  // Dicts are unhashable
+        /*.equals    =*/NULL,  // TODO: Implement dict comparison if needed
 };
 
 static const PyTypeMethods instance_methods = {
-    /*.index_get =*/NULL,
-    /*.index_set =*/NULL,
-    /*.len       =*/NULL,
-    /*.getattr   =*/py_instance_getattr_handler,
-    /*.setattr   =*/py_instance_setattr_handler,
-    /*.hash      =*/NULL, // Default instance hash (maybe based on ID/address?)
-    /*.equals    =*/NULL, // Default instance comparison (identity)
+        /*.index_get =*/NULL,
+        /*.index_set =*/NULL,
+        /*.len       =*/NULL,
+        /*.getattr   =*/py_instance_getattr_handler,
+        /*.setattr   =*/py_instance_setattr_handler,
+        /*.hash      =*/NULL,  // Default instance hash (maybe based on ID/address?)
+        /*.equals    =*/NULL,  // Default instance comparison (identity)
 };
 
 static const PyTypeMethods class_methods = {
-    /*.index_get =*/NULL,
-    /*.index_set =*/NULL,
-    /*.len       =*/NULL,
-    /*.getattr   =*/py_class_getattr_handler,
-    /*.setattr   =*/py_class_setattr_handler,
-    /*.hash      =*/NULL, // Class hash (maybe based on name/address?)
-    /*.equals    =*/NULL, // Class comparison (identity?)
+        /*.index_get =*/NULL,
+        /*.index_set =*/NULL,
+        /*.len       =*/NULL,
+        /*.getattr   =*/py_class_getattr_handler,
+        /*.setattr   =*/py_class_setattr_handler,
+        /*.hash      =*/NULL,  // Class hash (maybe based on name/address?)
+        /*.equals    =*/NULL,  // Class comparison (identity?)
 };
 
 // 定义内置类型的方法表 (现在包含 hash 和 equals)
 static const PyTypeMethods int_methods = {
-    /*index_get*/ NULL, /*index_set*/ NULL, /*len*/ NULL,
-    /*getattr*/ NULL, /*setattr*/ NULL,
-    /*hash*/ _py_int_hash, /*equals*/ _py_numeric_eq}; // Uses modified functions
-
-
-    static const PyTypeMethods float_methods = {
         /*index_get*/ NULL, /*index_set*/ NULL, /*len*/ NULL,
         /*getattr*/ NULL, /*setattr*/ NULL,
-        /*hash*/ _py_float_hash, /*equals*/ _py_numeric_eq}; // Uses modified functions
+        /*hash*/ _py_int_hash, /*equals*/ _py_numeric_eq};  // Uses modified functions
 
+static const PyTypeMethods float_methods = {
+        /*index_get*/ NULL, /*index_set*/ NULL, /*len*/ NULL,
+        /*getattr*/ NULL, /*setattr*/ NULL,
+        /*hash*/ _py_float_hash, /*equals*/ _py_numeric_eq};  // Uses modified functions
 
-        static const PyTypeMethods string_methods = {
-            /*index_get*/ _py_string_index_get_handler,
-            /*index_set*/ NULL,
-            /*len*/ _py_string_len_handler, // <-- Added string length handler
-            /*getattr*/ NULL,
-            /*setattr*/ NULL,
-            /*hash*/ _py_string_hash,
-            /*equals*/ _py_string_eq};
+static const PyTypeMethods string_methods = {
+        /*index_get*/ _py_string_index_get_handler,
+        /*index_set*/ NULL,
+        /*len*/ _py_string_len_handler,  // <-- Added string length handler
+        /*getattr*/ NULL,
+        /*setattr*/ NULL,
+        /*hash*/ _py_string_hash,
+        /*equals*/ _py_string_eq};
 
-            static const PyTypeMethods bool_methods = {
-                /*index_get*/ NULL, /*index_set*/ NULL, /*len*/ NULL,
-                /*getattr*/ NULL, /*setattr*/ NULL,
-                /*hash*/ _py_bool_hash, /*equals*/ _py_bool_eq}; // Uses modified function
-        
+static const PyTypeMethods bool_methods = {
+        /*index_get*/ NULL, /*index_set*/ NULL, /*len*/ NULL,
+        /*getattr*/ NULL, /*setattr*/ NULL,
+        /*hash*/ _py_bool_hash, /*equals*/ _py_bool_eq};  // Uses modified function
 
-                static const PyTypeMethods none_methods = {
-                    /*index_get*/ NULL, /*index_set*/ NULL, /*len*/ NULL,
-                    /*getattr*/ NULL, /*setattr*/ NULL,
-                    /*hash*/ _py_none_hash, /*equals*/ _py_none_eq};
+static const PyTypeMethods none_methods = {
+        /*index_get*/ NULL, /*index_set*/ NULL, /*len*/ NULL,
+        /*getattr*/ NULL, /*setattr*/ NULL,
+        /*hash*/ _py_none_hash, /*equals*/ _py_none_eq};
 
 // --- 新增: 实例属性访问处理器实现 ---
 static PyObject* py_instance_getattr_handler(PyObject* obj, const char* attr_name)
@@ -234,17 +229,16 @@ void py_initialize_builtin_type_methods()
 {
     // 注册内置类型的方法
     py_register_type_methods(llvmpy::PY_TYPE_INT, &int_methods);
-    py_register_type_methods(llvmpy::PY_TYPE_DOUBLE, &float_methods); 
+    py_register_type_methods(llvmpy::PY_TYPE_DOUBLE, &float_methods);
     py_register_type_methods(llvmpy::PY_TYPE_STRING, &string_methods);
     py_register_type_methods(llvmpy::PY_TYPE_BOOL, &bool_methods);
     py_register_type_methods(llvmpy::PY_TYPE_NONE, &none_methods);
 
     // 注册 List 和 Dict 的方法 (假设它们已定义并包含 index_set 等)
-     py_register_type_methods(llvmpy::PY_TYPE_LIST, &list_methods);
-     py_register_type_methods(llvmpy::PY_TYPE_DICT, &dict_methods);
+    py_register_type_methods(llvmpy::PY_TYPE_LIST, &list_methods);
+    py_register_type_methods(llvmpy::PY_TYPE_DICT, &dict_methods);
 
-
-     initialize_static_gmp_bools();
+    initialize_static_gmp_bools();
     // 注意：List 和 Dict 应该是不可哈希的，所以它们的 hash 槽位应该是 NULL
     // 它们的 equals 应该实现基于内容的比较（如果需要 a_list == b_list）或保持默认的身份比较。
 
@@ -259,6 +253,27 @@ void py_initialize_builtin_type_methods()
     // static const PyTypeMethods list_methods = { ..., index_set = _py_list_set_item_dispatch, hash = NULL, ... };
     // static const PyTypeMethods dict_methods = { ..., index_set = _py_dict_set_item_dispatch, hash = NULL, ... };
     // 然后在 py_initialize_builtin_type_methods 中注册 list_methods 和 dict_methods
+}
+
+void py_initialize_builtin_log()
+{
+#ifdef DEBUG
+    // 如果定义了 DEBUG，则启用更详细的日志记录，例如 MSG_DEBUG
+    ulog_set_min_level(MSG_DEBUG);
+    LOG_INFO("调试模式已启用。日志级别设置为 DEBUG。");
+#else
+    // 如果未定义 DEBUG，则坚持使用默认的 MSG_ERROR 或其他生产环境级别
+    // g_current_min_log_level 默认已是 MSG_ERROR，这里可以显式设置或依赖默认值
+    ulog_set_min_level(MSG_ERROR);
+    // LOG_INFO("生产模式。日志级别设置为 ERROR。"); // 这条INFO在ERROR级别下不会显示
+#endif
+}
+
+void py_runtime_initialize()
+{
+    py_initialize_builtin_type_methods();
+
+    py_initialize_builtin_log();
 }
 
 bool py_register_type_methods(int typeId, const PyTypeMethods* methods)
@@ -299,18 +314,18 @@ const PyTypeMethods* py_get_type_methods(int typeId)
 static unsigned int _py_int_hash(PyObject* obj)
 {
     // Ensure type safety (though dispatch should handle it)
-    if (py_get_safe_type_id(obj) != llvmpy::PY_TYPE_INT) return 0; // Error
+    if (py_get_safe_type_id(obj) != llvmpy::PY_TYPE_INT) return 0;  // Error
     mpz_ptr val = py_extract_int(obj);
-    if (!val) return 0; // Error extracting
+    if (!val) return 0;  // Error extracting
     // Use mpz_get_ui for a simple hash. Loses info for large numbers.
     return mpz_get_ui(val);
 }
 
 static unsigned int _py_float_hash(PyObject* obj)
 {
-    if (py_get_safe_type_id(obj) != llvmpy::PY_TYPE_DOUBLE) return 0; // Error
+    if (py_get_safe_type_id(obj) != llvmpy::PY_TYPE_DOUBLE) return 0;  // Error
     mpf_ptr val = py_extract_double(obj);
-    if (!val) return 0; // Error extracting
+    if (!val) return 0;  // Error extracting
     // Get double representation and use std::hash. Loses precision.
     double d_val = mpf_get_d(val);
     // Check for potential NaN/Inf from mpf_get_d if needed
@@ -334,10 +349,10 @@ static unsigned int _py_string_hash(PyObject* obj)
 static unsigned int _py_bool_hash(PyObject* obj)
 {
     // Ensure type safety
-    if (py_get_safe_type_id(obj) != llvmpy::PY_TYPE_BOOL) 
+    if (py_get_safe_type_id(obj) != llvmpy::PY_TYPE_BOOL)
     {
         fprintf(stderr, "TypeError: Expected bool for hash\n");
-        return 0; // Error
+        return 0;  // Error
     }
     return ((PyPrimitiveObject*)obj)->value.boolValue ? 1 : 0;
 }
@@ -360,29 +375,38 @@ static PyObject* _py_numeric_eq(PyObject* self, PyObject* other)
     mpf_ptr self_float = NULL, other_float = NULL;
 
     // Extract values based on type
-    if (self_type == llvmpy::PY_TYPE_INT) self_int = py_extract_int(self);
-    else if (self_type == llvmpy::PY_TYPE_DOUBLE) self_float = py_extract_double(self);
+    if (self_type == llvmpy::PY_TYPE_INT)
+        self_int = py_extract_int(self);
+    else if (self_type == llvmpy::PY_TYPE_DOUBLE)
+        self_float = py_extract_double(self);
 
-    if (other_type == llvmpy::PY_TYPE_INT) other_int = py_extract_int(other);
-    else if (other_type == llvmpy::PY_TYPE_DOUBLE) other_float = py_extract_double(other);
+    if (other_type == llvmpy::PY_TYPE_INT)
+        other_int = py_extract_int(other);
+    else if (other_type == llvmpy::PY_TYPE_DOUBLE)
+        other_float = py_extract_double(other);
 
     // --- Perform GMP comparison ---
-    if (self_int && other_int) { // int == int
+    if (self_int && other_int)
+    {  // int == int
         return py_create_bool(mpz_cmp(self_int, other_int) == 0);
     }
-    else if (self_float && other_float) { // double == double
+    else if (self_float && other_float)
+    {  // double == double
         return py_create_bool(mpf_cmp(self_float, other_float) == 0);
     }
-    else if (self_int && other_float) { // int == double
+    else if (self_int && other_float)
+    {  // int == double
         return py_create_bool(mpf_cmp_z(other_float, self_int) == 0);
     }
-    else if (self_float && other_int) { // double == int
+    else if (self_float && other_int)
+    {  // double == int
         return py_create_bool(mpf_cmp_z(self_float, other_int) == 0);
     }
     // --- Handle comparison with bool ---
     // If 'self' is numeric and 'other' is bool, delegate to _py_bool_eq
-    else if (other_type == llvmpy::PY_TYPE_BOOL) {
-         return _py_bool_eq(other, self); // Swap arguments, bool handler is primary
+    else if (other_type == llvmpy::PY_TYPE_BOOL)
+    {
+        return _py_bool_eq(other, self);  // Swap arguments, bool handler is primary
     }
     // If 'self' is bool, dispatch should have gone to _py_bool_eq directly.
     // If 'other' is not numeric or bool, comparison is False.
@@ -397,8 +421,8 @@ static PyObject* _py_string_eq(PyObject* self, PyObject* other)
     {
         return py_create_bool(false);
     }
-    const char* str_self = py_extract_string(self); // Use extractor
-    const char* str_other = py_extract_string(other); // Use extractor
+    const char* str_self = py_extract_string(self);    // Use extractor
+    const char* str_other = py_extract_string(other);  // Use extractor
     if (str_self == str_other) return py_create_bool(true);
     if (!str_self || !str_other) return py_create_bool(false);
     return py_create_bool(strcmp(str_self, str_other) == 0);
@@ -407,27 +431,34 @@ static PyObject* _py_string_eq(PyObject* self, PyObject* other)
 static PyObject* _py_bool_eq(PyObject* self, PyObject* other)
 {
     // self is guaranteed to be bool by dispatch
-    if (py_get_safe_type_id(self) != llvmpy::PY_TYPE_BOOL) return py_create_bool(false); // Safety check
-    bool self_val = py_extract_bool(self); // Use extractor
+    if (py_get_safe_type_id(self) != llvmpy::PY_TYPE_BOOL) return py_create_bool(false);  // Safety check
+    bool self_val = py_extract_bool(self);                                                // Use extractor
     int other_type = py_get_safe_type_id(other);
 
-    if (other_type == llvmpy::PY_TYPE_BOOL) {
+    if (other_type == llvmpy::PY_TYPE_BOOL)
+    {
         // bool == bool
-        bool other_val = py_extract_bool(other); // Use extractor
+        bool other_val = py_extract_bool(other);  // Use extractor
         return py_create_bool(self_val == other_val);
-    } else if (other_type == llvmpy::PY_TYPE_INT) {
+    }
+    else if (other_type == llvmpy::PY_TYPE_INT)
+    {
         // bool == int
         mpz_ptr other_int = py_extract_int(other);
-        if (!other_int) return py_create_bool(false); // Error extracting
+        if (!other_int) return py_create_bool(false);  // Error extracting
         // Compare mpz with 0 or 1
         return py_create_bool(mpz_cmp_ui(other_int, self_val ? 1 : 0) == 0);
-    } else if (other_type == llvmpy::PY_TYPE_DOUBLE) {
+    }
+    else if (other_type == llvmpy::PY_TYPE_DOUBLE)
+    {
         // bool == double
-         mpf_ptr other_float = py_extract_double(other);
-         if (!other_float) return py_create_bool(false); // Error extracting
-         // Compare mpf with 0 or 1
-         return py_create_bool(mpf_cmp_ui(other_float, self_val ? 1 : 0) == 0);
-    } else {
+        mpf_ptr other_float = py_extract_double(other);
+        if (!other_float) return py_create_bool(false);  // Error extracting
+        // Compare mpf with 0 or 1
+        return py_create_bool(mpf_cmp_ui(other_float, self_val ? 1 : 0) == 0);
+    }
+    else
+    {
         // Comparison with non-numeric/non-bool types is False
         return py_create_bool(false);
     }
@@ -435,7 +466,7 @@ static PyObject* _py_bool_eq(PyObject* self, PyObject* other)
 
 static PyObject* _py_none_eq(PyObject* self, PyObject* other)
 {
-    (void)self; // Unused
+    (void)self;  // Unused
     // None is only equal to None
     return py_create_bool(other && py_get_safe_type_id(other) == llvmpy::PY_TYPE_NONE);
     // Could also compare pointers if py_get_none() is a singleton:
@@ -448,29 +479,33 @@ static PyObject* py_list_index_get_handler(PyObject* container, PyObject* index)
     if (!py_check_type(container, llvmpy::PY_TYPE_LIST))
     {
         py_type_error(container, llvmpy::PY_TYPE_LIST);
-        return NULL; // Return NULL on error
+        return NULL;  // Return NULL on error
     }
     PyListObject* list = (PyListObject*)container;
 
     // Convert index using GMP-aware extractor if necessary, or standard int extraction
-    mpz_ptr idx_mpz = py_extract_int(index); // Try extracting GMP int first
-    long int_index; // Use long for wider range
-    if (idx_mpz) {
-        if (!mpz_fits_slong_p(idx_mpz)) {
-             fprintf(stderr, "IndexError: list index cannot fit in C long\n");
-             return NULL;
+    mpz_ptr idx_mpz = py_extract_int(index);  // Try extracting GMP int first
+    long int_index;                           // Use long for wider range
+    if (idx_mpz)
+    {
+        if (!mpz_fits_slong_p(idx_mpz))
+        {
+            fprintf(stderr, "IndexError: list index cannot fit in C long\n");
+            return NULL;
         }
         int_index = mpz_get_si(idx_mpz);
-    } else {
+    }
+    else
+    {
         // Fallback or specific handling if index isn't a PyInt
         // Maybe try py_extract_constant_int or error out
         fprintf(stderr, "TypeError: list indices must be integers, not %s\n", py_type_name(py_get_safe_type_id(index)));
         return NULL;
     }
 
-
     // Handle negative indices
-    if (int_index < 0) {
+    if (int_index < 0)
+    {
         int_index += list->length;
     }
 
@@ -478,7 +513,7 @@ static PyObject* py_list_index_get_handler(PyObject* container, PyObject* index)
     if (int_index < 0 || int_index >= list->length)
     {
         fprintf(stderr, "IndexError: list index out of range (index: %ld, size: %d)\n", int_index, list->length);
-        return NULL; // Return NULL on error
+        return NULL;  // Return NULL on error
     }
 
     // Get Item and Incref
@@ -492,7 +527,7 @@ static PyObject* py_list_index_get_handler(PyObject* container, PyObject* index)
     {
         // If item is somehow NULL, return None (incref'd)
         PyObject* none_obj = py_get_none();
-        py_incref(none_obj); // py_get_none might not incref
+        py_incref(none_obj);  // py_get_none might not incref
         return none_obj;
     }
 }
@@ -502,7 +537,7 @@ static PyObject* _py_string_index_get_handler(PyObject* container, PyObject* ind
     if (!py_check_type(container, llvmpy::PY_TYPE_STRING))
     {
         py_type_error(container, llvmpy::PY_TYPE_STRING);
-        return NULL; // Return NULL on error
+        return NULL;  // Return NULL on error
     }
 
     // --- 移除索引提取逻辑 ---
@@ -529,7 +564,7 @@ static PyObject* _py_string_index_get_handler(PyObject* container, PyObject* ind
 
     // 直接调用更新后的 py_string_get_char，传递 PyObject* index
     // py_string_get_char 内部会处理索引提取、负数索引和边界检查
-    return py_string_get_char(container, index); // <-- 修改这里
+    return py_string_get_char(container, index);  // <-- 修改这里
 }
 
 static void py_list_index_set_handler(PyObject* container, PyObject* index, PyObject* value)
@@ -539,7 +574,7 @@ static void py_list_index_set_handler(PyObject* container, PyObject* index, PyOb
         py_type_error(container, llvmpy::PY_TYPE_LIST);
         return;
     }
-    PyListObject* list = (PyListObject*)container; // Still useful for elemTypeId check
+    PyListObject* list = (PyListObject*)container;  // Still useful for elemTypeId check
 
     // --- 移除索引提取、负数处理和边界检查逻辑 ---
     /*
@@ -604,7 +639,7 @@ static void py_list_index_set_handler(PyObject* container, PyObject* index, PyOb
 
     // 直接调用更新后的 py_list_set_item，传递 PyObject* index
     // py_list_set_item 内部会处理索引提取、负数索引、边界检查和实际设置
-    py_list_set_item(container, index, final_value); // <-- 修改这里
+    py_list_set_item(container, index, final_value);  // <-- 修改这里
 
     // Decref converted value if necessary
     if (needs_decref_final)
@@ -623,16 +658,16 @@ static int py_list_len_handler(PyObject* obj)
     return ((PyListObject*)obj)->length;
 }
 
-
-static int _py_string_len_handler(PyObject* obj) {
-    if (!py_check_type(obj, llvmpy::PY_TYPE_STRING)) {
+static int _py_string_len_handler(PyObject* obj)
+{
+    if (!py_check_type(obj, llvmpy::PY_TYPE_STRING))
+    {
         py_type_error(obj, llvmpy::PY_TYPE_STRING);
-        return -1; // Indicate error
+        return -1;  // Indicate error
     }
-    const char* str = py_extract_string(obj); // Use extractor
+    const char* str = py_extract_string(obj);  // Use extractor
     return str ? strlen(str) : 0;
 }
-
 
 // DICT Handlers
 static PyObject* py_dict_index_get_handler(PyObject* container, PyObject* index)

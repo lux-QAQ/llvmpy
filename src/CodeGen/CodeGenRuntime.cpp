@@ -113,7 +113,6 @@ llvm::Value* CodeGenRuntime::createObjectToExitCode(llvm::Value* pyObj)
     return codeGen.getBuilder().CreateCall(convertFunc, {pyObj}, "exit_code");
 }
 
-
 llvm::Value* CodeGenRuntime::createFunctionObject(llvm::Function* llvmFunc, ObjectType* funcObjectType) {
     // --- 输入验证 ---
     if (!llvmFunc) {
@@ -174,7 +173,6 @@ llvm::Value* CodeGenRuntime::createFunctionObject(llvm::Function* llvmFunc, Obje
     // CodeGenStmt::handleFunctionDefStmt 中 setVariable 可能需要处理 incRef (如果符号表持有引用)。
     return pyFuncObj;
 }
-
 llvm::Function* CodeGenRuntime::getRuntimeFunction(
         const std::string& name,
         llvm::Type* returnType,
@@ -781,6 +779,35 @@ bool CodeGenRuntime::isTemporaryObject(llvm::Value* value)
     }
 
     return false;
+}
+
+// Added method implementations
+llvm::Type* CodeGenRuntime::getPyObjectPtrType()
+{
+    // Correctly return llvm::PointerType* by casting or ensuring the type is a pointer.
+    // As PyObject* is conceptually always a pointer, we can directly get it as such.
+    // The '0' for address space is typical for generic pointers.
+    return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(codeGen.getContext()));
+}
+
+void CodeGenRuntime::callRuntimeError(const std::string& errorType, int line)
+{
+    auto& builder = codeGen.getBuilder();
+    auto& context = codeGen.getContext();
+
+    // 假设有一个通用的 py_runtime_error(const char* error_type_name, int line_number)
+    llvm::Function* errorFunc = getRuntimeFunction(
+        "py_runtime_error",
+        llvm::Type::getVoidTy(context),
+        {llvm::PointerType::getUnqual(context), llvm::Type::getInt32Ty(context)}
+    );
+
+    llvm::Value* errorTypeStr = builder.CreateGlobalStringPtr(errorType, errorType + "_str");
+    llvm::Value* lineNum = llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), line);
+
+    builder.CreateCall(errorFunc, {errorTypeStr, lineNum});
+    // 通常在调用运行时错误后，代码路径应该终止
+    // builder.CreateUnreachable(); // 或者根据你的错误处理策略跳转到特定的错误处理块
 }
 
 }  // namespace llvmpy

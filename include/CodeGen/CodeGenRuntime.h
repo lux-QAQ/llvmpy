@@ -139,6 +139,11 @@ public:
     {
         return codeGen;
     }
+
+    // Added methods
+    llvm::Type* getPyObjectPtrType();
+    // void callDecRef(llvm::Value* obj); // Removed, use decRef
+    void callRuntimeError(const std::string& errorType, int line);
 };
 
 }  // namespace llvmpy

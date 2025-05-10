@@ -447,7 +447,7 @@ void CodeGenModule::createAndRegisterRuntimeInitializer()
 
     // 获取核心运行时初始化函数 (假设存在)
     llvm::Function* runtimeInitCore = codeGen.getOrCreateExternalFunction(
-            "py_initialize_builtin_type_methods",  // 示例名称
+            "py_runtime_initialize",  // 示例名称
             llvm::Type::getVoidTy(context),
             {});
 
@@ -690,12 +690,13 @@ void CodeGenModule::addRuntimeFunctions()
                 false);
     }
     {
-        codeGen.getOrCreateExternalFunction(  // 添加 py_create_function 声明
+        codeGen.getOrCreateExternalFunction(  // 修改 py_create_function 声明
                 "py_create_function",
                 llvm::PointerType::get(codeGen.getContext(), 0),   // 返回 PyObject*
                 {llvm::PointerType::get(codeGen.getContext(), 0),  // func_ptr (void*)
-                 llvm::Type::getInt32Ty(codeGen.getContext())},    // signature_type_id
-                false);
+                 llvm::Type::getInt32Ty(codeGen.getContext()),    // signature_type_id (int)
+                 llvm::Type::getInt32Ty(codeGen.getContext())},   // expected_params_count (int)
+                false); // isVarArg
     }
     {
         codeGen.getOrCreateExternalFunction(
@@ -1138,25 +1139,51 @@ llvm::FunctionType* CodeGenModule::createFunctionType(
 void CodeGenModule::handleFunctionParams(
         llvm::Function* function,
         const std::vector<ParamAST>& params,
-        std::vector<std::shared_ptr<PyType>>& paramTypes)
+        std::vector<std::shared_ptr<PyType>>& paramPyTypes)
 {
-    // 命名函数参数
-    size_t idx = 0;
-    for (auto& arg : function->args())
-    {
-        if (idx < params.size())
-        {
-            arg.setName(params[idx].name);
+    PySymbolTable& symTable = codeGen.getSymbolTable();
+    llvm::IRBuilder<> entryBuilder(&function->getEntryBlock(), function->getEntryBlock().getFirstInsertionPt());
+    llvm::Type* pyObjectPtrType = codeGen.getRuntimeGen()->getPyObjectPtrType();
+    CodeGenRuntime* runtimeGen = codeGen.getRuntimeGen();
 
-            // 在当前作用域中添加参数变量
-            llvm::Value* paramValue = &arg;
-            codeGen.getSymbolTable().setVariable(
-                    params[idx].name,
-                    paramValue,
-                    paramTypes[idx]->getObjectType());
+    unsigned argIdx = 0;
+    for (auto& arg : function->args()) {
+        if (argIdx < params.size() && argIdx < paramPyTypes.size()) {
+            const std::string& paramName = params[argIdx].name;
+            std::shared_ptr<PyType> paramType = paramPyTypes[argIdx];
+            ObjectType* paramObjType = paramType ? paramType->getObjectType() : nullptr;
 
-            idx++;
+            if (!paramObjType) {
+                codeGen.logError("Internal error: Could not determine ObjectType for parameter '" + paramName + "'.", 
+                                 params[argIdx].line.value_or(0), params[argIdx].column.value_or(0));
+                argIdx++;
+                continue;
+            }
+
+            // Create an AllocaInst in the entry block for the parameter's shadow storage.
+            // The name of the alloca should be distinct, e.g., by appending ".addr" or similar,
+            // which createEntryBlockAlloca might do internally.
+            llvm::AllocaInst* paramAlloc = codeGen.createEntryBlockAlloca(pyObjectPtrType, paramName);
+            if (!paramAlloc) {
+                // Error already logged by createEntryBlockAlloca
+                argIdx++;
+                continue;
+            }
+
+            // Store the initial argument value (PyObject*) into the AllocaInst.
+            entryBuilder.CreateStore(&arg, paramAlloc);
+
+            // The AllocaInst now holds a reference to the argument object.
+            // Increment its reference count.
+            runtimeGen->incRef(&arg);
+
+            // Update the symbol table: the parameter name now refers to the AllocaInst.
+            symTable.setVariable(paramName, paramAlloc, paramObjType);
+        } else {
+            // This case should ideally not happen if params and paramPyTypes are correctly sized.
+            codeGen.logError("Internal error: Mismatch between LLVM arguments and AST/Type parameters for function '" + function->getName().str() + "'.", 0, 0);
         }
+        argIdx++;
     }
 }
 

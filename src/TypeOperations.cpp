@@ -110,6 +110,48 @@ void TypeOperationRegistry::initializeBuiltinOperations()
     registerBinaryOp(TOK_NEQ, PY_TYPE_LIST, PY_TYPE_LIST, PY_TYPE_BOOL, "py_object_compare", true);
     // LT, GT, LE, GE are generally not defined for lists in the same way as numbers/strings
 
+
+
+        // For TOK_EQ (==)
+    registerBinaryOp(TOK_EQ, PY_TYPE_INT,    PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_INT,    PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_DOUBLE, PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_STRING, PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_STRING, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_BOOL,   PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_BOOL,   PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_LIST,   PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_LIST,   PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_DICT,   PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_DICT,   PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_FUNC,   PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true); // Comparing function object with None
+    registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_FUNC,   PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_EQ, PY_TYPE_ANY,    PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true); // ANY == None
+    registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_ANY,    PY_TYPE_BOOL, "py_object_compare", true); // None == ANY
+    registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_NONE,   PY_TYPE_BOOL, "py_object_compare", true); // None == None
+
+    // For TOK_NEQ (!=)
+    registerBinaryOp(TOK_NEQ, PY_TYPE_INT,    PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_NONE,   PY_TYPE_INT,    PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_DOUBLE, PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_NONE,   PY_TYPE_DOUBLE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_STRING, PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_NONE,   PY_TYPE_STRING, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_BOOL,   PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_NONE,   PY_TYPE_BOOL,   PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_LIST,   PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_NONE,   PY_TYPE_LIST,   PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_DICT,   PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_NONE,   PY_TYPE_DICT,   PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_FUNC,   PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_NONE,   PY_TYPE_FUNC,   PY_TYPE_BOOL, "py_object_compare", true);
+    registerBinaryOp(TOK_NEQ, PY_TYPE_ANY,    PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true); // ANY != None
+    registerBinaryOp(TOK_NEQ, PY_TYPE_NONE,   PY_TYPE_ANY,    PY_TYPE_BOOL, "py_object_compare", true); // None != ANY
+    registerBinaryOp(TOK_NEQ, PY_TYPE_NONE,   PY_TYPE_NONE,   PY_TYPE_BOOL, "py_object_compare", true); // None != None
+
+
+
     // 注册类型转换
     registerTypeConversion(PY_TYPE_INT, PY_TYPE_DOUBLE, "py_convert_int_to_double", 1);
     registerTypeConversion(PY_TYPE_DOUBLE, PY_TYPE_INT, "py_convert_double_to_int", 2);
@@ -330,6 +372,20 @@ void TypeOperationRegistry::initializeBuiltinOperations()
     registerUnaryOp(TOK_MINUS, PY_TYPE_INT, PY_TYPE_INT, "py_object_negate", true);
 
     registerUnaryOp(TOK_MINUS, PY_TYPE_DOUBLE, PY_TYPE_DOUBLE, "py_object_negate", true);
+
+    // Register 'in' and 'not in' operators
+    // For 'in'
+    registerBinaryOp(TOK_IN, PY_TYPE_ANY, PY_TYPE_LIST, PY_TYPE_BOOL, "py_object_contains", true);
+    registerBinaryOp(TOK_IN, PY_TYPE_ANY, PY_TYPE_STRING, PY_TYPE_BOOL, "py_object_contains", true);
+    registerBinaryOp(TOK_IN, PY_TYPE_ANY, PY_TYPE_DICT, PY_TYPE_BOOL, "py_object_contains", true); // Checks for key containment
+    registerBinaryOp(TOK_IN, PY_TYPE_ANY, PY_TYPE_ANY, PY_TYPE_BOOL, "py_object_contains", true); // Dynamic dispatch for other iterable types
+
+    // For 'not in' - result will be negated by codegen, so it uses the same runtime function
+    registerBinaryOp(TOK_NOT_IN, PY_TYPE_ANY, PY_TYPE_LIST, PY_TYPE_BOOL, "py_object_contains", true);
+    registerBinaryOp(TOK_NOT_IN, PY_TYPE_ANY, PY_TYPE_STRING, PY_TYPE_BOOL, "py_object_contains", true);
+    registerBinaryOp(TOK_NOT_IN, PY_TYPE_ANY, PY_TYPE_DICT, PY_TYPE_BOOL, "py_object_contains", true);
+    registerBinaryOp(TOK_NOT_IN, PY_TYPE_ANY, PY_TYPE_ANY, PY_TYPE_BOOL, "py_object_contains", true);
+
 
     registerUnaryOp(TOK_NOT, PY_TYPE_BOOL, PY_TYPE_BOOL, "py_object_not", true);      // Assuming TOK_NOT for '!' or 'not'
     registerUnaryOp(TOK_MINUS, PY_TYPE_BOOL, PY_TYPE_INT, "py_object_negate", true);  // Negating bool results in int (-1 or 0)

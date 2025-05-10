@@ -332,6 +332,12 @@ llvm::Value* PySymbolTable::getVariable(const std::string& name)
     return scopes.empty() ? nullptr : scopes.top()->getVariable(name);
 }
 
+llvm::AllocaInst* PySymbolTable::lookupAlloca(const std::string& name)
+{
+    llvm::Value* val = getVariable(name);
+    return llvm::dyn_cast_or_null<llvm::AllocaInst>(val);
+}
+
 void PySymbolTable::setVariable(const std::string& name, llvm::Value* value, ObjectType* type)
 {
     // 设置变量及其类型
@@ -346,6 +352,52 @@ ObjectType* PySymbolTable::getVariableType(const std::string& name)
     // 获取变量类型
     return scopes.empty() ? nullptr : scopes.top()->getVariableType(name);
 }
+
+void PySymbolTable::setLoopContext(llvm::BasicBlock* breakTarget, llvm::BasicBlock* continueTarget)
+{
+    loopContextStack.push({breakTarget, continueTarget});
+}
+
+void PySymbolTable::clearLoopContext()
+{
+    // This function might be intended to clear targets for a nested structure
+    // that isn't a loop, or if a loop's else block shouldn't allow break/continue.
+    // For now, it can be a no-op or push a context with null targets if that's meaningful.
+    // If it's for 'else' clauses of loops, they typically don't have break/continue.
+    // Pushing null targets can prevent break/continue from an else block targeting the loop.
+    if (!loopContextStack.empty()) { // Only if there's an active loop context
+        // Option 1: Do nothing, break/continue will target the current loop.
+        // Option 2: Push a "dummy" context to effectively disable break/continue for this sub-block.
+        // loopContextStack.push({nullptr, nullptr}); // This would make getBreak/ContinueTarget return null
+    }
+}
+
+void PySymbolTable::restoreOuterLoopContext()
+{
+    if (!loopContextStack.empty())
+    {
+        loopContextStack.pop();
+    }
+}
+
+llvm::BasicBlock* PySymbolTable::getBreakTarget() const
+{
+    if (!loopContextStack.empty())
+    {
+        return loopContextStack.top().breakTarget;
+    }
+    return nullptr;
+}
+
+llvm::BasicBlock* PySymbolTable::getContinueTarget() const
+{
+    if (!loopContextStack.empty())
+    {
+        return loopContextStack.top().continueTarget;
+    }
+    return nullptr;
+}
+
 
 std::map<std::string, llvm::Value*> PySymbolTable::captureState() const
 {

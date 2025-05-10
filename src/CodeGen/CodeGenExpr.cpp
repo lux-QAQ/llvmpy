@@ -434,6 +434,9 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
     std::vector<llvm::Value*> preparedArgs;
     if (isDirectCall)
     {
+#ifdef DEBUG_CODEGEN_handleCallExpr_isDirectCall
+        DEBUG_LOG_DETAIL("HdlCallExpr", "Preparing arguments for direct call to '" + calleeName + "'");
+#endif
         // For direct calls, arguments should match the LLVM function signature (likely ptr)
         // Assuming prepareArgument handles this or we adjust here.
         // Let's assume prepareArgument is smart enough for now, or returns the ptr directly.

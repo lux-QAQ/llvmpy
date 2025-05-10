@@ -56,6 +56,12 @@ enum PyTypeId
     PY_TYPE_CLASS = 12,     // 类对象本身的类型 ID
     PY_TYPE_INSTANCE = 13,  // 通用实例类型 ID (或者作为基类)
 
+    // 迭代器类型 ID 基础
+    PY_TYPE_ITERATOR_BASE = 50, // 新的基础 ID
+    PY_TYPE_LIST_ITERATOR = PY_TYPE_ITERATOR_BASE + 0,   // 50
+    PY_TYPE_STRING_ITERATOR = PY_TYPE_ITERATOR_BASE + 1, // 51
+    // PY_TYPE_DICT_ITERATOR = PY_TYPE_ITERATOR_BASE + 2, // etc.
+
     // 复合类型ID基础 - 用于运行时扩展类型ID
     PY_TYPE_LIST_BASE = 100,  // 列表类型基础 ID
     PY_TYPE_DICT_BASE = 200,  // 字典类型基础 ID
@@ -98,6 +104,11 @@ inline int getBaseTypeId(int typeId)
     if (typeId == PY_TYPE_CLASS) return PY_TYPE_CLASS;
     // 通用实例类型（虽然通常不会直接使用此 ID）
     if (typeId == PY_TYPE_INSTANCE) return PY_TYPE_INSTANCE;
+
+        // 新增：迭代器基础类型判断
+    if (typeId >= PY_TYPE_ITERATOR_BASE && typeId < PY_TYPE_LIST_BASE) { 
+        return PY_TYPE_ITERATOR_BASE;
+    }
 
     // 对于基础类型，直接返回自身
     // @note 需要确保 typeId 在基础类型范围内是有效的 PyTypeId 值。

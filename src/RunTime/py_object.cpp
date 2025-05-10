@@ -5,36 +5,37 @@
 #include <cstring>
 #include <cctype>
 
-
-
 using namespace llvmpy;
 //===----------------------------------------------------------------------===//
 // 对象创建函数实现
 //===----------------------------------------------------------------------===//
 
-
-
-PyObject* py_create_class(const char* name, PyObject* base_cls_obj, PyObject* class_dict_obj) {
+PyObject* py_create_class(const char* name, PyObject* base_cls_obj, PyObject* class_dict_obj)
+{
     // 参数类型检查
-    if (!name || !class_dict_obj || class_dict_obj->typeId != llvmpy::PY_TYPE_DICT) {
+    if (!name || !class_dict_obj || class_dict_obj->typeId != llvmpy::PY_TYPE_DICT)
+    {
         fprintf(stderr, "Error: Invalid arguments for py_create_class\n");
         return NULL;
     }
-    if (base_cls_obj && base_cls_obj->typeId != llvmpy::PY_TYPE_CLASS) {
-         fprintf(stderr, "Error: Base class must be a class object\n");
-         return NULL;
+    if (base_cls_obj && base_cls_obj->typeId != llvmpy::PY_TYPE_CLASS)
+    {
+        fprintf(stderr, "Error: Base class must be a class object\n");
+        return NULL;
     }
 
     PyClassObject* cls = (PyClassObject*)malloc(sizeof(PyClassObject));
-    if (!cls) {
+    if (!cls)
+    {
         fprintf(stderr, "MemoryError: Failed to allocate class object\n");
         return NULL;
     }
 
-    cls->header.refCount = 1; // 初始引用计数为 1
+    cls->header.refCount = 1;  // 初始引用计数为 1
     cls->header.typeId = llvmpy::PY_TYPE_CLASS;
-    cls->name = strdup(name); // 复制类名
-    if (!cls->name) {
+    cls->name = strdup(name);  // 复制类名
+    if (!cls->name)
+    {
         free(cls);
         fprintf(stderr, "MemoryError: Failed to duplicate class name\n");
         return NULL;
@@ -51,15 +52,18 @@ PyObject* py_create_class(const char* name, PyObject* base_cls_obj, PyObject* cl
     return (PyObject*)cls;
 }
 
-PyObject* py_create_instance(PyObject* cls_obj) {
-    if (!cls_obj || cls_obj->typeId != llvmpy::PY_TYPE_CLASS) {
+PyObject* py_create_instance(PyObject* cls_obj)
+{
+    if (!cls_obj || cls_obj->typeId != llvmpy::PY_TYPE_CLASS)
+    {
         fprintf(stderr, "TypeError: Cannot create instance from non-class object\n");
         return NULL;
     }
     PyClassObject* cls = (PyClassObject*)cls_obj;
 
     PyInstanceObject* instance = (PyInstanceObject*)malloc(sizeof(PyInstanceObject));
-    if (!instance) {
+    if (!instance)
+    {
         fprintf(stderr, "MemoryError: Failed to allocate instance object\n");
         return NULL;
     }
@@ -67,22 +71,22 @@ PyObject* py_create_instance(PyObject* cls_obj) {
     instance->header.refCount = 1;
     // TODO: 分配具体的实例类型 ID，可能需要一个全局计数器或更复杂的方案
     // 暂时使用通用的 INSTANCE ID，或者如果类对象存储了实例类型ID，则使用它
-    instance->header.typeId = llvmpy::PY_TYPE_INSTANCE; // 或者 >= PY_TYPE_INSTANCE_BASE
+    instance->header.typeId = llvmpy::PY_TYPE_INSTANCE;  // 或者 >= PY_TYPE_INSTANCE_BASE
     instance->cls = cls;
-    instance->instance_dict = (PyDictObject*)py_create_dict(8, llvmpy::PY_TYPE_STRING); // 创建空的实例字典
-    if (!instance->instance_dict) {
+    instance->instance_dict = (PyDictObject*)py_create_dict(8, llvmpy::PY_TYPE_STRING);  // 创建空的实例字典
+    if (!instance->instance_dict)
+    {
         free(instance);
         fprintf(stderr, "MemoryError: Failed to create instance dictionary\n");
         return NULL;
     }
 
-    py_incref((PyObject*)instance->cls); // 增加类对象的引用计数
+    py_incref((PyObject*)instance->cls);  // 增加类对象的引用计数
 
     // TODO: 调用类的 __init__ 方法 (需要函数调用机制)
 
     return (PyObject*)instance;
 }
-
 
 // 创建一个基本对象
 static PyObject* py_create_basic_object(int typeId)
@@ -99,7 +103,7 @@ static PyObject* py_create_basic_object(int typeId)
 }
 
 // 创建整数对象
-PyObject* py_create_int(long long int value) // <-- Changed parameter type for wider input
+PyObject* py_create_int(long long int value)  // <-- Changed parameter type for wider input
 {
     PyPrimitiveObject* obj = (PyPrimitiveObject*)malloc(sizeof(PyPrimitiveObject));
     if (!obj)
@@ -115,26 +119,30 @@ PyObject* py_create_int(long long int value) // <-- Changed parameter type for w
 }
 
 // 从 mpz_t 创建整数对象 (辅助函数)
-PyObject* py_create_int_from_mpz(mpz_srcptr src) {
+PyObject* py_create_int_from_mpz(mpz_srcptr src)
+{
     PyPrimitiveObject* obj = (PyPrimitiveObject*)malloc(sizeof(PyPrimitiveObject));
-    if (!obj) {
+    if (!obj)
+    {
         fprintf(stderr, "Error: Out of memory creating int object from mpz\n");
         return NULL;
     }
     obj->header.refCount = 1;
     obj->header.typeId = PY_TYPE_INT;
-    mpz_init_set(obj->value.intValue, src); // Initialize from existing mpz_t
+    mpz_init_set(obj->value.intValue, src);  // Initialize from existing mpz_t
     return (PyObject*)obj;
 }
 PyObject* py_create_int_bystring(const char* s, int base)
 {
-    if (!s) {
+    if (!s)
+    {
         fprintf(stderr, "Error: Cannot create integer from NULL string.\n");
         return NULL;
     }
 
     PyPrimitiveObject* obj = (PyPrimitiveObject*)malloc(sizeof(PyPrimitiveObject));
-    if (!obj) {
+    if (!obj)
+    {
         fprintf(stderr, "Error: Out of memory creating int object from string.\n");
         return NULL;
     }
@@ -143,24 +151,27 @@ PyObject* py_create_int_bystring(const char* s, int base)
 
     // Initialize and set the value from the string using GMP
     // mpz_init_set_str returns 0 on success, -1 on failure (invalid string)
-    if (mpz_init_set_str(obj->value.intValue, s, base) != 0) {
+    if (mpz_init_set_str(obj->value.intValue, s, base) != 0)
+    {
         fprintf(stderr, "Error: Invalid integer string format: \"%s\" with base %d\n", s, base);
-        mpz_clear(obj->value.intValue); // Clear the partially initialized mpz_t
+        mpz_clear(obj->value.intValue);  // Clear the partially initialized mpz_t
         free(obj);
-        return NULL; // Indicate failure
+        return NULL;  // Indicate failure
     }
 
     return (PyObject*)obj;
 }
 PyObject* py_create_double_bystring(const char* s, int base, mp_bitcnt_t precision)
 {
-     if (!s) {
+    if (!s)
+    {
         fprintf(stderr, "Error: Cannot create double from NULL string.\n");
         return NULL;
     }
 
     PyPrimitiveObject* obj = (PyPrimitiveObject*)malloc(sizeof(PyPrimitiveObject));
-    if (!obj) {
+    if (!obj)
+    {
         fprintf(stderr, "Error: Out of memory creating double object from string.\n");
         return NULL;
     }
@@ -168,7 +179,7 @@ PyObject* py_create_double_bystring(const char* s, int base, mp_bitcnt_t precisi
     obj->header.typeId = PY_TYPE_DOUBLE;
 
     // Determine precision: use provided precision or a default (e.g., 256)
-    mp_bitcnt_t prec_to_use = (precision > 0) ? precision : 256; // Default precision
+    mp_bitcnt_t prec_to_use = (precision > 0) ? precision : 256;  // Default precision
 
     // --- MODIFIED: Use mpf_init2 and mpf_set_str separately ---
     // 1. Initialize the mpf_t with the desired precision
@@ -176,11 +187,12 @@ PyObject* py_create_double_bystring(const char* s, int base, mp_bitcnt_t precisi
 
     // 2. Set the value from the string using GMP
     // mpf_set_str returns 0 on success, -1 on failure (invalid string)
-    if (mpf_set_str(obj->value.doubleValue, s, base) != 0) {
+    if (mpf_set_str(obj->value.doubleValue, s, base) != 0)
+    {
         fprintf(stderr, "Error: Invalid double string format: \"%s\" with base %d\n", s, base);
-        mpf_clear(obj->value.doubleValue); // Clear the initialized mpf_t
+        mpf_clear(obj->value.doubleValue);  // Clear the initialized mpf_t
         free(obj);
-        return NULL; // Indicate failure
+        return NULL;  // Indicate failure
     }
     // --- END MODIFICATION ---
 
@@ -203,9 +215,11 @@ PyObject* py_create_double(double value)
     mpf_set_d(obj->value.doubleValue, value);
     return (PyObject*)obj;
 }
-PyObject* py_create_double_from_mpf(mpf_srcptr src) {
+PyObject* py_create_double_from_mpf(mpf_srcptr src)
+{
     PyPrimitiveObject* obj = (PyPrimitiveObject*)malloc(sizeof(PyPrimitiveObject));
-    if (!obj) {
+    if (!obj)
+    {
         fprintf(stderr, "Error: Out of memory creating double object from mpf\n");
         return NULL;
     }
@@ -242,7 +256,7 @@ PyObject* py_create_string(const char* value)
     }
     obj->header.refCount = 1;
     obj->header.typeId = PY_TYPE_STRING;
-    
+
     if (value)
     {
         size_t len = strlen(value) + 1;
@@ -259,7 +273,7 @@ PyObject* py_create_string(const char* value)
     {
         obj->value.stringValue = NULL;
     }
-    
+
     return (PyObject*)obj;
 }
 
@@ -273,25 +287,25 @@ PyObject* py_create_list(int size, int elemTypeId)
         fprintf(stderr, "Error: Out of memory for list\n");
         return NULL;
     }
-    
+
     // 初始化列表头
     list->header.refCount = 1;
     list->header.typeId = PY_TYPE_LIST;
     list->length = 0;
     list->elemTypeId = elemTypeId;
-    
+
     // 分配数据数组内存
     int capacity = size > 0 ? size : 8;  // 默认初始容量为8
     list->capacity = capacity;
     list->data = (PyObject**)calloc(capacity, sizeof(PyObject*));
-    
+
     if (!list->data)
     {
         fprintf(stderr, "Error: Out of memory for list data\n");
         free(list);
         return NULL;
     }
-    
+
     return (PyObject*)list;
 }
 
@@ -305,25 +319,25 @@ PyObject* py_create_dict(int initialCapacity, int keyTypeId)
         fprintf(stderr, "Error: Out of memory for dictionary\n");
         return NULL;
     }
-    
+
     // 初始化字典头
     dict->header.refCount = 1;
     dict->header.typeId = PY_TYPE_DICT;
     dict->size = 0;
     dict->keyTypeId = keyTypeId;
-    
+
     // 分配条目数组内存
     int capacity = initialCapacity > 0 ? initialCapacity : 8;  // 默认初始容量为8
     dict->capacity = capacity;
     dict->entries = (PyDictEntry*)calloc(capacity, sizeof(PyDictEntry));
-    
+
     if (!dict->entries)
     {
         fprintf(stderr, "Error: Out of memory for dictionary entries\n");
         free(dict);
         return NULL;
     }
-    
+
     // 初始化所有条目
     for (int i = 0; i < capacity; i++)
     {
@@ -332,7 +346,7 @@ PyObject* py_create_dict(int initialCapacity, int keyTypeId)
         dict->entries[i].hash = 0;
         dict->entries[i].used = false;
     }
-    
+
     return (PyObject*)dict;
 }
 
@@ -341,7 +355,7 @@ PyObject* py_get_none(void)
 {
     // 创建静态单例None对象
     static PyObject* noneObj = NULL;
-    
+
     if (!noneObj)
     {
         noneObj = py_create_basic_object(PY_TYPE_NONE);
@@ -353,7 +367,7 @@ PyObject* py_get_none(void)
         // None对象是单例，引用计数设为很大
         noneObj->refCount = INT_MAX;
     }
-    
+
     return noneObj;
 }
 
@@ -366,96 +380,177 @@ void py_incref(PyObject* obj)
 {
     if (obj && obj->refCount < INT_MAX)
     {
+        // LOG_DEBUG("py_incref: %p, type: %s (%d), refCount before: %d", // Original
+        //          (void*)obj, py_type_name(obj->typeId), obj->typeId, obj->refCount);
+        // Simplified to avoid too much noise for incref if not strictly needed for this bug
+        if (llvmpy::getBaseTypeId(obj->typeId) == llvmpy::PY_TYPE_ITERATOR_BASE || obj->typeId == llvmpy::PY_TYPE_BOOL)
+        {  // Log only for relevant types
+            LOG_DEBUG("py_incref: %p, type: %s (%d), refCount before: %d",
+                      (void*)obj, py_type_name(obj->typeId), obj->typeId, obj->refCount);
+        }
         obj->refCount++;
     }
 }
-
+/**
+ * @brief 专门用于处理迭代器对象引用计数减少的内部辅助函数。
+ */
+void py_iterator_decref_specialized(PyObject* obj)
+{
+    LOG_DEBUG("py_iterator_decref_specialized ENTER: %p, obj->typeId: %d (%s), refCount: %d",
+              (void*)obj, obj->typeId, py_type_name(obj->typeId), obj->refCount);
+    switch (obj->typeId)
+    {
+        case llvmpy::PY_TYPE_LIST_ITERATOR:
+        {
+            PyListIteratorObject* iter = (PyListIteratorObject*)obj;
+            LOG_DEBUG("py_iterator_decref_specialized (ListIter): %p, decref'ing iterable %p", (void*)obj, (void*)iter->iterable);
+            py_decref(iter->iterable);
+        }
+        break;
+        case llvmpy::PY_TYPE_STRING_ITERATOR:
+        {
+            PyStringIteratorObject* iter = (PyStringIteratorObject*)obj;
+            LOG_DEBUG("py_iterator_decref_specialized (StringIter): %p, decref'ing iterable %p", (void*)obj, (void*)iter->iterable);
+            py_decref(iter->iterable);
+        }
+        break;
+        default:
+            LOG_WARN("py_iterator_decref_specialized called with unhandled specific iterator typeId %d (%s) for obj %p",
+                     obj->typeId, py_type_name(obj->typeId), (void*)obj);
+            // fprintf(stderr, "Warning: py_iterator_decref_specialized called with unhandled specific iterator typeId %d (%s)\n", obj->typeId, py_type_name(obj->typeId)); // Replaced
+            break;
+    }
+    LOG_DEBUG("py_iterator_decref_specialized EXIT: Freeing obj %p", (void*)obj);
+    free(obj);
+}
 // 减少对象引用计数，如果减至0则释放对象
-void py_decref(PyObject* obj) {
-    if (!obj || obj->typeId == PY_TYPE_NONE) return; // Don't decref NULL or None
+void py_decref(PyObject* obj)
+{
+    if (!obj || obj->typeId == PY_TYPE_NONE) return;
 
-    // Check refCount *before* decrementing if it's already 0 (indicates an error)
-    if (obj->refCount <= 0) {
-        fprintf(stderr, "Warning: py_decref called on object with refCount <= 0 (type: %d)\n", obj->typeId);
-        // Optionally assert or handle error more strictly
+    // LOG_DEBUG("py_decref ENTER: %p, type: %s (%d), refCount before: %d", // Original
+    //           (void*)obj, py_type_name(obj->typeId), obj->typeId, obj->refCount);
+    // Simplified to avoid too much noise, focus on relevant types
+    bool is_relevant_type = (llvmpy::getBaseTypeId(obj->typeId) == llvmpy::PY_TYPE_ITERATOR_BASE || obj->typeId == llvmpy::PY_TYPE_BOOL);
+    if (is_relevant_type)
+    {
+        LOG_DEBUG("py_decref ENTER: %p, type: %s (%d), refCount before: %d",
+                  (void*)obj, py_type_name(obj->typeId), obj->typeId, obj->refCount);
+    }
+
+    if (obj->refCount <= 0)
+    {
+        LOG_WARN("py_decref called on object %p with refCount <= 0 (type: %s (%d))",
+                 (void*)obj, py_type_name(obj->typeId), obj->typeId);
+        // fprintf(stderr, "Warning: py_decref called on object with refCount <= 0 (type: %d)\n", obj->typeId); // Replaced
         return;
     }
 
     obj->refCount--;
 
-    if (obj->refCount == 0) {
+    if (is_relevant_type)
+    {  // Log refCount after decrement for relevant types
+        LOG_DEBUG("py_decref AFTER DECR: %p, type: %s (%d), refCount now: %d",
+                  (void*)obj, py_type_name(obj->typeId), obj->typeId, obj->refCount);
+    }
+
+    if (obj->refCount == 0)
+    {
         // 根据类型执行清理
-        int baseTypeId = llvmpy::getBaseTypeId(obj->typeId); // 使用基类 ID 判断
-        switch (baseTypeId) {
+        int original_typeId_at_decref_zero = obj->typeId;
+        int baseTypeId = llvmpy::getBaseTypeId(original_typeId_at_decref_zero);
+        LOG_DEBUG("py_decref: %p, refCount is 0. original_typeId: %s (%d), baseTypeId: %s (%d). Preparing to free/spec_decref.",
+                  (void*)obj, py_type_name(original_typeId_at_decref_zero), original_typeId_at_decref_zero,
+                  py_type_name(baseTypeId), baseTypeId);  // Assuming py_type_name can handle baseTypeIds too
+
+        switch (baseTypeId)
+        {
             case llvmpy::PY_TYPE_LIST:
-                py_list_decref_items((PyListObject*)obj); // 释放列表元素
-                free(((PyListObject*)obj)->data);         // 释放数据数组
+                LOG_DEBUG("py_decref (%p): Freeing List.", (void*)obj);
+                py_list_decref_items((PyListObject*)obj);
+                free(((PyListObject*)obj)->data);
                 free(obj);
                 break;
             case llvmpy::PY_TYPE_DICT:
                 // 释放字典条目中的键和值
-                for (int i = 0; i < ((PyDictObject*)obj)->capacity; i++) {
+                for (int i = 0; i < ((PyDictObject*)obj)->capacity; i++)
+                {
                     PyDictEntry* entry = &((PyDictObject*)obj)->entries[i];
-                    if (entry->used) {
-                        py_decref(entry->key);   // Decref key
-                        py_decref(entry->value); // Decref value
+                    if (entry->used)
+                    {
+                        py_decref(entry->key);    // Decref key
+                        py_decref(entry->value);  // Decref value
                     }
                 }
-                free(((PyDictObject*)obj)->entries); // 释放条目数组
+                free(((PyDictObject*)obj)->entries);  // 释放条目数组
                 free(obj);
                 break;
             case llvmpy::PY_TYPE_STRING:
-                // Check for NULL before freeing, although py_create_string should avoid NULL now
-                if (((PyPrimitiveObject*)obj)->value.stringValue) {
-                    free(((PyPrimitiveObject*)obj)->value.stringValue); // 释放字符串内存
+                LOG_DEBUG("py_decref (%p): Freeing String.", (void*)obj);
+                if (((PyPrimitiveObject*)obj)->value.stringValue)
+                {
+                    free(((PyPrimitiveObject*)obj)->value.stringValue);
                 }
                 free(obj);
                 break;
             case llvmpy::PY_TYPE_CLASS:
-                {
-                    PyClassObject* cls = (PyClassObject*)obj;
-                    // Name might be shared in the future, but free if strdup'd
-                    free((void*)cls->name);
-                    py_decref((PyObject*)cls->base);
-                    py_decref((PyObject*)cls->class_dict);
-                    free(obj);
-                }
-                break;
+            {
+                PyClassObject* cls = (PyClassObject*)obj;
+                // Name might be shared in the future, but free if strdup'd
+                free((void*)cls->name);
+                py_decref((PyObject*)cls->base);
+                py_decref((PyObject*)cls->class_dict);
+                free(obj);
+            }
+            break;
             case llvmpy::PY_TYPE_INSTANCE:
-                {
-                    PyInstanceObject* instance = (PyInstanceObject*)obj;
-                    py_decref((PyObject*)instance->cls);
-                    py_decref((PyObject*)instance->instance_dict);
-                    free(obj);
-                }
-                break;
+            {
+                PyInstanceObject* instance = (PyInstanceObject*)obj;
+                py_decref((PyObject*)instance->cls);
+                py_decref((PyObject*)instance->instance_dict);
+                free(obj);
+            }
+            break;
             case llvmpy::PY_TYPE_FUNC:
-                 // Add cleanup for PyFunctionObject if needed (e.g., free name/docstring)
-                 // Assuming func_ptr doesn't need freeing here
-                 free(obj);
-                 break;
+                // Add cleanup for PyFunctionObject if needed (e.g., free name/docstring)
+                // Assuming func_ptr doesn't need freeing here
+                free(obj);
+                break;
 
             // --- GMP Cleanup ---
             case llvmpy::PY_TYPE_INT:
-                mpz_clear(((PyPrimitiveObject*)obj)->value.intValue); // 清理 GMP 整数
+                mpz_clear(((PyPrimitiveObject*)obj)->value.intValue);  // 清理 GMP 整数
                 free(obj);
                 break;
             case llvmpy::PY_TYPE_DOUBLE:
-                mpf_clear(((PyPrimitiveObject*)obj)->value.doubleValue); // 清理 GMP 浮点数
+                mpf_clear(((PyPrimitiveObject*)obj)->value.doubleValue);  // 清理 GMP 浮点数
                 free(obj);
                 break;
-            // --- End GMP Cleanup ---
+                // --- End GMP Cleanup ---
+            case llvmpy::PY_TYPE_ITERATOR_BASE:
+                LOG_DEBUG("py_decref: %p, baseTypeId is ITERATOR_BASE. Calling py_iterator_decref_specialized. Current obj->typeId: %s (%d)",
+                          (void*)obj, py_type_name(obj->typeId), obj->typeId);
+                py_iterator_decref_specialized(obj);
+                break;
+            case llvmpy::PY_TYPE_BOOL:
+                LOG_DEBUG("py_decref (%p): Freeing Bool.", (void*)obj);
+                free(obj);
+                break;
+            case llvmpy::PY_TYPE_NONE:  // Should not reach here due to initial check
 
-            case llvmpy::PY_TYPE_BOOL: // Bool has no extra data to free
-            case llvmpy::PY_TYPE_NONE: // Should not reach here due to initial check
-            default: // 包含其他基本类型和未知类型
+            default:  // 包含其他基本类型和未知类型
+                     LOG_WARN("py_decref on unhandled base typeId %d (original typeId %d, name: %s) for obj %p",
+                         baseTypeId, obj->typeId, py_type_name(obj->typeId), (void*)obj);
+                // fprintf(stderr, "Warning: py_decref on unhandled base typeId %d (original typeId %d, name: %s)\n", baseTypeId, obj->typeId, py_type_name(obj->typeId)); // Replaced
                 free(obj);
                 break;
         }
-    } else if (obj->refCount < 0) {
-        // This indicates a reference counting error (double free or corruption)
-        fprintf(stderr, "Error: Object refCount fell below zero! (type: %d)\n", obj->typeId);
-        // Avoid freeing again, but log the error
+    }
+    else if (obj->refCount < 0)
+   {
+        LOG_ERROR("Object %p refCount fell below zero! (type: %s (%d))",
+                  (void*)obj, py_type_name(obj->typeId), obj->typeId);
+        // fprintf(stderr, "Error: Object refCount fell below zero! (type: %d, name: %s)\n", obj->typeId, py_type_name(obj->typeId)); // Replaced
     }
 }
 
@@ -467,7 +562,7 @@ void py_decref(PyObject* obj) {
 PyObject* py_object_copy(PyObject* obj, int typeId)
 {
     if (!obj) return NULL;
-    if (obj->typeId == PY_TYPE_NONE) return py_get_none(); // None is singleton
+    if (obj->typeId == PY_TYPE_NONE) return py_get_none();  // None is singleton
 
     // Use传入的类型ID或对象自身的类型ID
     int actualTypeId = typeId > 0 ? typeId : obj->typeId;
@@ -479,22 +574,24 @@ PyObject* py_object_copy(PyObject* obj, int typeId)
         {
             // 使用 py_extract_int 获取内部指针，然后用辅助函数创建新对象
             mpz_ptr src_val = py_extract_int(obj);
-            if (!src_val) { // Should not happen if type is INT
-                 fprintf(stderr, "Error copying int: failed to extract value\n");
-                 return NULL;
+            if (!src_val)
+            {  // Should not happen if type is INT
+                fprintf(stderr, "Error copying int: failed to extract value\n");
+                return NULL;
             }
-            return py_create_int_from_mpz(src_val); // Create new GMP int
+            return py_create_int_from_mpz(src_val);  // Create new GMP int
         }
 
         case PY_TYPE_DOUBLE:
         {
             // 使用 py_extract_double 获取内部指针，然后用辅助函数创建新对象
             mpf_ptr src_val = py_extract_double(obj);
-             if (!src_val) { // Should not happen if type is DOUBLE
-                 fprintf(stderr, "Error copying double: failed to extract value\n");
-                 return NULL;
+            if (!src_val)
+            {  // Should not happen if type is DOUBLE
+                fprintf(stderr, "Error copying double: failed to extract value\n");
+                return NULL;
             }
-            return py_create_double_from_mpf(src_val); // Create new GMP float
+            return py_create_double_from_mpf(src_val);  // Create new GMP float
         }
 
         case PY_TYPE_BOOL:
@@ -508,7 +605,7 @@ PyObject* py_object_copy(PyObject* obj, int typeId)
         {
             // String needs a new memory allocation and copy
             const char* value = ((PyPrimitiveObject*)obj)->value.stringValue;
-            return py_create_string(value); // py_create_string handles allocation
+            return py_create_string(value);  // py_create_string handles allocation
         }
 
         case PY_TYPE_LIST:
@@ -532,14 +629,14 @@ PyObject* py_object_copy(PyObject* obj, int typeId)
                     if (!newItem)
                     {
                         // Cleanup partially created list if element copy fails
-                        py_decref(newListObj); // This will decref already copied items
+                        py_decref(newListObj);  // This will decref already copied items
                         return NULL;
                     }
                 }
                 // Directly assign (no need for append logic here)
-                newList->data[i] = newItem; // newItem is NULL if srcItem was NULL
+                newList->data[i] = newItem;  // newItem is NULL if srcItem was NULL
             }
-            newList->length = srcList->length; // Set the correct length
+            newList->length = srcList->length;  // Set the correct length
             return newListObj;
         }
 
@@ -560,17 +657,20 @@ PyObject* py_object_copy(PyObject* obj, int typeId)
                 {
                     // Deep copy key and value
                     PyObject* newKey = py_object_copy(srcEntry->key, srcEntry->key->typeId);
-                    if (!newKey) {
-                        py_decref(newDictObj); // Cleanup
+                    if (!newKey)
+                    {
+                        py_decref(newDictObj);  // Cleanup
                         return NULL;
                     }
 
                     PyObject* newValue = NULL;
-                    if (srcEntry->value) {
+                    if (srcEntry->value)
+                    {
                         newValue = py_object_copy(srcEntry->value, srcEntry->value->typeId);
-                        if (!newValue) {
+                        if (!newValue)
+                        {
                             py_decref(newKey);
-                            py_decref(newDictObj); // Cleanup
+                            py_decref(newDictObj);  // Cleanup
                             return NULL;
                         }
                     }
@@ -593,32 +693,31 @@ PyObject* py_object_copy(PyObject* obj, int typeId)
             return newDictObj;
         }
 
-        case PY_TYPE_NONE: // Already handled at the beginning
+        case PY_TYPE_NONE:  // Already handled at the beginning
             return py_get_none();
 
         // Add cases for CLASS, INSTANCE, FUNC if deep copy is desired/possible
         case PY_TYPE_CLASS:
-             fprintf(stderr, "Warning: Deep copying class object not fully implemented.\n");
-             // Shallow copy for now? Or return NULL?
-             py_incref(obj); // Shallow copy
-             return obj;
+            fprintf(stderr, "Warning: Deep copying class object not fully implemented.\n");
+            // Shallow copy for now? Or return NULL?
+            py_incref(obj);  // Shallow copy
+            return obj;
         case PY_TYPE_INSTANCE:
-             fprintf(stderr, "Warning: Deep copying instance object not fully implemented (calls __deepcopy__?).\n");
-             // Shallow copy for now? Or return NULL?
-             py_incref(obj); // Shallow copy
-             return obj;
+            fprintf(stderr, "Warning: Deep copying instance object not fully implemented (calls __deepcopy__?).\n");
+            // Shallow copy for now? Or return NULL?
+            py_incref(obj);  // Shallow copy
+            return obj;
         case PY_TYPE_FUNC:
-             fprintf(stderr, "Warning: Copying function object (shallow copy).\n");
-             py_incref(obj); // Functions are typically shared, shallow copy is okay
-             return obj;
-
+            fprintf(stderr, "Warning: Copying function object (shallow copy).\n");
+            py_incref(obj);  // Functions are typically shared, shallow copy is okay
+            return obj;
 
         default:
             fprintf(stderr, "Warning: Copying unsupported type %d\n", baseTypeId);
             // Maybe shallow copy as a fallback?
             // py_incref(obj);
             // return obj;
-            return NULL; // Or return NULL for unsupported types
+            return NULL;  // Or return NULL for unsupported types
     }
 }
 
@@ -630,9 +729,9 @@ PyObject* py_object_copy(PyObject* obj, int typeId)
 int py_object_len(PyObject* obj)
 {
     if (!obj) return 0;
-    
+
     int baseTypeId = getBaseTypeId(obj->typeId);
-    
+
     switch (baseTypeId)
     {
         case PY_TYPE_STRING:
@@ -644,19 +743,19 @@ int py_object_len(PyObject* obj)
             }
             return 0;
         }
-        
+
         case PY_TYPE_LIST:
         {
             PyListObject* list = (PyListObject*)obj;
             return list->length;
         }
-        
+
         case PY_TYPE_DICT:
         {
             PyDictObject* dict = (PyDictObject*)obj;
             return dict->size;
         }
-        
+
         default:
             fprintf(stderr, "TypeError: Object of type %d has no len()\n", baseTypeId);
             return 0;
@@ -666,4 +765,3 @@ int py_object_len(PyObject* obj)
 //===----------------------------------------------------------------------===//
 // 类型提取工具函数 (支持索引操作)
 //===----------------------------------------------------------------------===//
-

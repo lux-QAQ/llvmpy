@@ -54,7 +54,7 @@ private:
 
 
     // 处理for语句 (如果支持)
-    //void handleForStmt(ForStmtAST* stmt);
+    void handleForStmt(const ForStmtAST* stmt); // Added ForStmt handler declaration
 
     // 处理print语句
     void handlePrintStmt(PrintStmtAST* stmt);

@@ -1,13 +1,45 @@
 DEBUG Mode: Using provided input file: test.py
 Debug [parseBlock]: Entering parseBlock. Expecting INDENT. Current token: INDENT ('') at L2 C1
-Debug [parseBlock]: Parsing statement inside block. Current token: PRINT ('print') at L2 C5
-Debug [parseExpression]: Starting expression parsing. Current token: STRING ('Hello, World!') at L2 C11
-Debug [parseExpression]: Finished expression parsing. Next token: RPAREN (')') at L2 C26
-Debug [parseBlock]: Parsing statement inside block. Current token: RETURN ('return') at L3 C5
-Debug [parseExpression]: Starting expression parsing. Current token: INTEGER ('0') at L3 C12
-Debug [parseNumberExpr]: Consumed '0' (type: INTEGER, determined as: int) at L3 C12. Next token is now: '' (type: DEDENT) at L3 C1
-Debug [parseExpression]: Finished expression parsing. Next token: DEDENT ('') at L3 C1
+Debug [parseBlock]: Parsing statement inside block. Current token: IDENTIFIER ('a') at L2 C5
+Debug [parseExpression]: Starting expression parsing. Current token: IDENTIFIER ('a') at L2 C5
+Debug [parseIdentifierExpr]: Parsed simple variable 'a'.
+Debug [parseExpression]: Finished expression parsing. Next token: ASSIGN ('=') at L2 C6
+Debug [parseExpression]: Starting expression parsing. Current token: LBRACK ('[') at L2 C7
+Debug [parseExpression]: Starting expression parsing. Current token: INTEGER ('0') at L2 C8
+Debug [parseNumberExpr]: Consumed '0' (type: INTEGER, determined as: int) at L2 C8. Next token is now: ',' (type: COMMA) at L2 C9
+Debug [parseExpression]: Finished expression parsing. Next token: COMMA (',') at L2 C9
+Debug [parseExpression]: Starting expression parsing. Current token: INTEGER ('1') at L2 C10
+Debug [parseNumberExpr]: Consumed '1' (type: INTEGER, determined as: int) at L2 C10. Next token is now: ',' (type: COMMA) at L2 C11
+Debug [parseExpression]: Finished expression parsing. Next token: COMMA (',') at L2 C11
+Debug [parseExpression]: Starting expression parsing. Current token: INTEGER ('2') at L2 C12
+Debug [parseNumberExpr]: Consumed '2' (type: INTEGER, determined as: int) at L2 C12. Next token is now: ']' (type: RBRACK) at L2 C13
+Debug [parseExpression]: Finished expression parsing. Next token: RBRACK (']') at L2 C13
+Debug [parseExpression]: Finished expression parsing. Next token: NEWLINE ('
+') at L2 C1
+Debug [parseBlock]: Parsing statement inside block. Current token: FOR ('for') at L3 C5
+Debug [parseExpression]: Starting expression parsing. Current token: IDENTIFIER ('a') at L3 C14
+Debug [parseIdentifierExpr]: Parsed simple variable 'a'.
+Debug [parseExpression]: Finished expression parsing. Next token: COLON (':') at L3 C15
+Debug [parseBlock]: Entering parseBlock. Expecting INDENT. Current token: INDENT ('') at L4 C1
+Debug [parseBlock]: Parsing statement inside block. Current token: IF ('if') at L4 C9
+Debug [parseExpression]: Starting expression parsing. Current token: IDENTIFIER ('i') at L4 C12
+Debug [parseIdentifierExpr]: Parsed simple variable 'i'.
+Debug [parseNumberExpr]: Consumed '2' (type: INTEGER, determined as: int) at L4 C16. Next token is now: '==' (type: EQ) at L4 C18
+Debug [parseNumberExpr]: Consumed '1' (type: INTEGER, determined as: int) at L4 C21. Next token is now: ':' (type: COLON) at L4 C22
+Debug [parseExpression]: Finished expression parsing. Next token: COLON (':') at L4 C22
+Debug [parseBlock]: Entering parseBlock. Expecting INDENT. Current token: INDENT ('') at L5 C1
+Debug [parseBlock]: Parsing statement inside block. Current token: CONTINUE ('continue') at L5 C13
+Debug [parseBlock]: Exiting parseBlock successfully. Found DEDENT. Parsed 1 statements.
+Debug [parseBlock]: Parsing statement inside block. Current token: PRINT ('print') at L6 C9
+Debug [parseExpression]: Starting expression parsing. Current token: IDENTIFIER ('i') at L6 C15
+Debug [parseIdentifierExpr]: Parsed simple variable 'i'.
+Debug [parseExpression]: Finished expression parsing. Next token: RPAREN (')') at L6 C16
 Debug [parseBlock]: Exiting parseBlock successfully. Found DEDENT. Parsed 2 statements.
+Debug [parseBlock]: Parsing statement inside block. Current token: RETURN ('return') at L7 C5
+Debug [parseExpression]: Starting expression parsing. Current token: INTEGER ('0') at L7 C12
+Debug [parseNumberExpr]: Consumed '0' (type: INTEGER, determined as: int) at L7 C12. Next token is now: '' (type: DEDENT) at L7 C1
+Debug [parseExpression]: Finished expression parsing. Next token: DEDENT ('') at L7 C1
+Debug [parseBlock]: Exiting parseBlock successfully. Found DEDENT. Parsed 3 statements.
 [GenMod] CurFunc: <null Function>, CurBlock: <null BasicBlock>, CurIP: {<invalid IP>} - Entering generateModule. isEntryPoint=true
 [GenMod] CurFunc: <null Function>, CurBlock: <null BasicBlock>, CurIP: {<invalid IP>} - Module resources initialized (runtime functions, global ctor).
 [GenMod] CurFunc: <null Function>, CurBlock: <null BasicBlock>, CurIP: {<invalid IP>} - [EntryPt] Processing as entry point module.
@@ -16,7 +48,7 @@ Debug [parseBlock]: Exiting parseBlock successfully. Found DEDENT. Parsed 2 stat
 [GenMod] CurFunc: <null Function>, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Set initial insert point in __llvmpy_entry.
 [GenMod] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Set current function to __llvmpy_entry. Saved context: Func=<null Function>, IP=Block: entry, Point: end
 [GenMod] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Starting statement loop in __llvmpy_entry. Initial block: entry
-[GenMod] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Loop Iter: Processing Stmt Kind 26 at line 3 in block entry
+[GenMod] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Loop Iter: Processing Stmt Kind 26 at line 7 in block entry
 [HdlFuncDefStmt] CurFunc: define i32 @__llvmpy_entry() {
 entry:
 }
@@ -31,45 +63,130 @@ entry:
 }
 , CurBlock: entry, CurIP: {Block: entry, Point: end} - Calling ModuleGen->handleFunctionDef for 'main'...
 [HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Entering handleFunctionDef for Python func 'main'
-[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Generated unique LLVM name: 'main.L3.C13' for Python name 'main'
+[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Generated unique LLVM name: 'main.L7.C13' for Python name 'main'
 [HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Saving context...
 [HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Saved IP: {Block: entry, Point: end}, Saved Func: __llvmpy_entry
 [HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Resolving return and param types for 'main'...
 [HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Resolved return type: int
 [HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Resolved param types: []
-[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Creating LLVM function type and function using unique name 'main.L3.C13'...
-[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Got LLVM function: main.L3.C13 with name 'main.L3.C13'
-[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Added/Updated functionCache for AST node 94246194163248 -> LLVM Func main.L3.C13
-[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Setting up entry block and params for 'main.L3.C13'...
-[HdlFuncDef] CurFunc: main.L3.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Set insert point to new entry block: entry
-[HdlFuncDef] CurFunc: main.L3.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Set current function to: main.L3.C13
-[HdlFuncDef] CurFunc: main.L3.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Scope pushed. Depth: 3. Handling params...
-[HdlFuncDef] CurFunc: main.L3.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Params handled. Generating body stmts...
-[HdlFuncDef] CurFunc: main.L3.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Body: Handling Stmt Kind 7 at line 3
-[HdlFuncDef] CurFunc: main.L3.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Body: Handling Stmt Kind 6 at line 3
-[HdlFuncDef] CurFunc: main.L3.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Finished handling body stmts. Popping scope...
+[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Creating LLVM function type and function using unique name 'main.L7.C13'...
+[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Got LLVM function: main.L7.C13 with name 'main.L7.C13'
+[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Added/Updated functionCache for AST node 94059215566752 -> LLVM Func main.L7.C13
+[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Setting up entry block and params for 'main.L7.C13'...
+[HdlFuncDef] CurFunc: main.L7.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Set insert point to new entry block: entry
+[HdlFuncDef] CurFunc: main.L7.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Set current function to: main.L7.C13
+[HdlFuncDef] CurFunc: main.L7.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Scope pushed. Depth: 3. Handling params...
+[HdlFuncDef] CurFunc: main.L7.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Params handled. Generating body stmts...
+[HdlFuncDef] CurFunc: main.L7.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Body: Handling Stmt Kind 8 at line 2
+[HdlFuncDef] CurFunc: main.L7.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Body: Handling Stmt Kind 27 at line 3
+DEBUG: -> Entering handleIfStmt (Public Entry)
+DEBUG:    [1] Created finalMergeBB: ifcont
+DEBUG:    [Pre] Original Insert BB: for.body, Terminated: No
+DEBUG:    [2] Calling handleIfStmtRecursive...
+DEBUG: -> Entering handleIfStmtRecursive
+DEBUG:    Target finalMergeBB: ifcont
+DEBUG:    [1] Handling condition...
+DEBUG:    [1] Condition Value:   %condval = call i1 @py_object_to_bool(ptr %any_cmp_result)
+DEBUG:    [2] Created blocks: thenBB=then, elseEntryBB=else
+DEBUG:    [3] Creating CondBr from for.body on   %condval = call i1 @py_object_to_bool(ptr %any_cmp_result) ? then : else
+DEBUG:    [4] Handling 'then' branch (Block: then)
+DEBUG:        Set insert point to: then
+DEBUG:        Calling handleBlock(..., createNewScope=false) for thenBody...
+DEBUG: Scope: Skipping new scope creation in handleBlock (createNewScope=false).
+DEBUG:   Block terminated early after statement. Stopping block processing.
+DEBUG: Scope: Skipping scope pop in handleBlock (createNewScope=false).
+DEBUG:        Returned from handleBlock for thenBody. Current block: then
+DEBUG:        'then' block (then) already terminated.
+DEBUG:    [5] Handling 'else'/'elif' part (Entry Block: else)
+DEBUG:        Set insert point to: else
+DEBUG:        Else statement is null (no else/elif). Creating direct Br from elseEntryBB (else) to finalMergeBB (ifcont)
+DEBUG: <- Leaving handleIfStmtRecursive (normal exit)
+DEBUG:    [2] Returned from handleIfStmtRecursive. Current block: else
+DEBUG:    [3] Checking reachability of finalMergeBB (ifcont)
+DEBUG:        Has Uses: Yes
+DEBUG:        Has Predecessors: Yes
+DEBUG:        finalMergeBB is reachable. Setting insert point.
+DEBUG: <- Leaving handleIfStmt (Public Entry). Final insert point: ifcont
+Debug [PySymbolTable]: Generating cleanups for scope level 4 in block ifcont
+Debug [PySymbolTable]: Popping scope level 4
+[HdlFuncDef] CurFunc: main.L7.C13, CurBlock: for.end, CurIP: {Block: for.end, Point: end} - Body: Handling Stmt Kind 6 at line 7
+[HdlFuncDef] CurFunc: main.L7.C13, CurBlock: for.end, CurIP: {Block: for.end, Point: end} - Finished handling body stmts. Popping scope...
 Debug [PySymbolTable]: Skipping cleanups for scope level 3 (block terminated or invalid).
 Debug [PySymbolTable]: Popping scope level 3
-[HdlFuncDef] CurFunc: main.L3.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Checking for default return for 'main.L3.C13'. Last block: entry
-[HdlFuncDef] CurFunc: main.L3.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - No default return needed (block already terminated).
-[HdlFuncDef] CurFunc: main.L3.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Cleaning up function resources for 'main.L3.C13'...
-[HdlFuncDef] CurFunc: main.L3.C13, CurBlock: entry, CurIP: {Block: entry, Point: end} - Restoring context. Target IP: {Block: entry, Point: end}, Target Func: __llvmpy_entry
+[HdlFuncDef] CurFunc: main.L7.C13, CurBlock: for.end, CurIP: {Block: for.end, Point: end} - Checking for default return for 'main.L7.C13'. Last block: for.end
+[HdlFuncDef] CurFunc: main.L7.C13, CurBlock: for.end, CurIP: {Block: for.end, Point: end} - No default return needed (block already terminated).
+[HdlFuncDef] CurFunc: main.L7.C13, CurBlock: for.end, CurIP: {Block: for.end, Point: end} - Cleaning up function resources for 'main.L7.C13'...
+[HdlFuncDef] CurFunc: main.L7.C13, CurBlock: for.end, CurIP: {Block: for.end, Point: end} - Restoring context. Target IP: {Block: entry, Point: end}, Target Func: __llvmpy_entry
 [HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Restored IP.
 [HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Context restored. Current function: __llvmpy_entry
-[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Verifying function 'main.L3.C13'...
-[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Function verification PASSED for 'main.L3.C13'.
-[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Leaving handleFunctionDef for 'main' (LLVM: main.L3.C13)
+[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Verifying function 'main.L7.C13'...
+[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Function verification PASSED for 'main.L7.C13'.
+[HdlFuncDef] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - Leaving handleFunctionDef for 'main' (LLVM: main.L7.C13)
 [HdlFuncDefStmt] CurFunc: define i32 @__llvmpy_entry() {
 entry:
 }
-, CurBlock: entry, CurIP: {Block: entry, Point: end} - ModuleGen->handleFunctionDef SUCCEEDED for 'main'. Got LLVM Func: define internal ptr @main.L3.C13() {
+, CurBlock: entry, CurIP: {Block: entry, Point: end} - ModuleGen->handleFunctionDef SUCCEEDED for 'main'. Got LLVM Func: define internal ptr @main.L7.C13() {
 entry:
-  %str_obj = call ptr @py_create_string(ptr @str_const)
-  call void @py_print_object(ptr %str_obj)
+  %i.addr = alloca ptr, align 8
+  %a.addr = alloca ptr, align 8
   %int_obj_from_str = call ptr @py_create_int_bystring(ptr @int_str_const, i32 10)
-  ret ptr %int_obj_from_str
+  %int_obj_from_str1 = call ptr @py_create_int_bystring(ptr @int_str_const.1, i32 10)
+  %int_obj_from_str2 = call ptr @py_create_int_bystring(ptr @int_str_const.2, i32 10)
+  %list_obj = call ptr @py_create_list(i32 3, i32 7)
+  %0 = call ptr @py_list_append(ptr %list_obj, ptr %int_obj_from_str)
+  %1 = call ptr @py_list_append(ptr %list_obj, ptr %int_obj_from_str1)
+  %2 = call ptr @py_list_append(ptr %list_obj, ptr %int_obj_from_str2)
+  store ptr %list_obj, ptr %a.addr, align 8
+  call void @py_incref(ptr %list_obj)
+  %a_val = load ptr, ptr %a.addr, align 8
+  %iterator = call ptr @py_iter(ptr %a_val)
+  %is_iter_null = icmp eq ptr %iterator, null
+  br i1 %is_iter_null, label %iter.error, label %iter.ok
+
+iter.error:                                       ; preds = %entry
+  call void @py_runtime_error(ptr @TypeError_NotIterable_str, i32 3)
+  unreachable
+
+iter.ok:                                          ; preds = %entry
+  br label %for.header
+
+for.header:                                       ; preds = %ifcont, %then, %iter.ok
+  %next_item_or_stop = call ptr @py_next(ptr %iterator)
+  %is_stop_iteration = icmp eq ptr %next_item_or_stop, null
+  br i1 %is_stop_iteration, label %for.stop_iteration, label %for.body
+
+for.body:                                         ; preds = %for.header
+  %old_i = load ptr, ptr %i.addr, align 8
+  call void @py_decref(ptr %old_i)
+  store ptr %next_item_or_stop, ptr %i.addr, align 8
+  %i_val = load ptr, ptr %i.addr, align 8
+  %int_obj_from_str3 = call ptr @py_create_int_bystring(ptr @int_str_const.3, i32 10)
+  %any_op_result = call ptr @py_object_modulo(ptr %i_val, ptr %int_obj_from_str3), !py.type !0
+  %int_obj_from_str4 = call ptr @py_create_int_bystring(ptr @int_str_const.4, i32 10)
+  %any_cmp_result = call ptr @py_object_compare(ptr %any_op_result, ptr %int_obj_from_str4, i32 0), !py.type !1
+  %condval = call i1 @py_object_to_bool(ptr %any_cmp_result)
+  br i1 %condval, label %then, label %else
+
+for.end:                                          ; preds = %for.stop_iteration
+  %int_obj_from_str6 = call ptr @py_create_int_bystring(ptr @int_str_const.5, i32 10)
+  ret ptr %int_obj_from_str6
+
+for.stop_iteration:                               ; preds = %for.header
+  call void @py_decref(ptr %iterator)
+  br label %for.end
+
+ifcont:                                           ; preds = %else
+  %i_val5 = load ptr, ptr %i.addr, align 8
+  call void @py_print_object(ptr %i_val5)
+  br label %for.header
+
+then:                                             ; preds = %for.body
+  br label %for.header
+
+else:                                             ; preds = %for.body
+  br label %ifcont
 }
- ('main.L3.C13')
+ ('main.L7.C13')
 [HdlFuncDefStmt] CurFunc: define i32 @__llvmpy_entry() {
 entry:
 }
@@ -82,49 +199,49 @@ entry:
 [HdlFuncDefStmt] CurFunc: define i32 @__llvmpy_entry() {
 entry:
 }
-, CurBlock: entry, CurIP: {Block: entry, Point: end} - Calling RuntimeGen->createFunctionObject using LLVM func 'main.L3.C13'...
+, CurBlock: entry, CurIP: {Block: entry, Point: end} - Calling RuntimeGen->createFunctionObject using LLVM func 'main.L7.C13'...
 [HdlFuncDefStmt] CurFunc: define i32 @__llvmpy_entry() {
 entry:
-  %new_py_func_obj = call ptr @py_create_function(ptr @main.L3.C13, i32 8)
+  %new_py_func_obj = call ptr @py_create_function(ptr @main.L7.C13, i32 8)
 }
-, CurBlock: entry, CurIP: {Block: entry, Point: end} - RuntimeGen->createFunctionObject SUCCEEDED for 'main'. Value:   %new_py_func_obj = call ptr @py_create_function(ptr @main.L3.C13, i32 8)
+, CurBlock: entry, CurIP: {Block: entry, Point: end} - RuntimeGen->createFunctionObject SUCCEEDED for 'main'. Value:   %new_py_func_obj = call ptr @py_create_function(ptr @main.L7.C13, i32 8)
 [HdlFuncDefStmt] CurFunc: define i32 @__llvmpy_entry() {
 entry:
-  %new_py_func_obj = call ptr @py_create_function(ptr @main.L3.C13, i32 8)
+  %new_py_func_obj = call ptr @py_create_function(ptr @main.L7.C13, i32 8)
 }
 , CurBlock: entry, CurIP: {Block: entry, Point: end} - Function 'main' is top-level. Looking for/Creating GlobalVariable.
 [HdlFuncDefStmt] CurFunc: define i32 @__llvmpy_entry() {
 entry:
-  %new_py_func_obj = call ptr @py_create_function(ptr @main.L3.C13, i32 8)
+  %new_py_func_obj = call ptr @py_create_function(ptr @main.L7.C13, i32 8)
 }
-, CurBlock: entry, CurIP: {Block: entry, Point: end} - Created GlobalVariable: @main_obj_gv = internal global ptr null in Module@ 94246194173344
+, CurBlock: entry, CurIP: {Block: entry, Point: end} - Created GlobalVariable: @main_obj_gv = internal global ptr null in Module@ 94059215577392
 [HdlFuncDefStmt] CurFunc: define i32 @__llvmpy_entry() {
 entry:
-  %new_py_func_obj = call ptr @py_create_function(ptr @main.L3.C13, i32 8)
+  %new_py_func_obj = call ptr @py_create_function(ptr @main.L7.C13, i32 8)
   store ptr %new_py_func_obj, ptr @main_obj_gv, align 8
 }
 , CurBlock: entry, CurIP: {Block: entry, Point: end} - Stored PyObject* into GlobalVariable: @main_obj_gv = internal global ptr null in block entry
 [HdlFuncDefStmt] CurFunc: define i32 @__llvmpy_entry() {
 entry:
-  %new_py_func_obj = call ptr @py_create_function(ptr @main.L3.C13, i32 8)
+  %new_py_func_obj = call ptr @py_create_function(ptr @main.L7.C13, i32 8)
   store ptr %new_py_func_obj, ptr @main_obj_gv, align 8
 }
 , CurBlock: entry, CurIP: {Block: entry, Point: end} - Binding/Rebinding SymbolTable entry for 'main' to storage: @main_obj_gv = internal global ptr null
 [HdlFuncDefStmt] CurFunc: define i32 @__llvmpy_entry() {
 entry:
-  %new_py_func_obj = call ptr @py_create_function(ptr @main.L3.C13, i32 8)
+  %new_py_func_obj = call ptr @py_create_function(ptr @main.L7.C13, i32 8)
   store ptr %new_py_func_obj, ptr @main_obj_gv, align 8
 }
 , CurBlock: entry, CurIP: {Block: entry, Point: end} - SymbolTable binding confirmed/updated for 'main'.
 [HdlFuncDefStmt] CurFunc: define i32 @__llvmpy_entry() {
 entry:
-  %new_py_func_obj = call ptr @py_create_function(ptr @main.L3.C13, i32 8)
+  %new_py_func_obj = call ptr @py_create_function(ptr @main.L7.C13, i32 8)
   store ptr %new_py_func_obj, ptr @main_obj_gv, align 8
 }
 , CurBlock: entry, CurIP: {Block: entry, Point: end} - Leaving handleFunctionDefStmt for 'main'
 [GenMod] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Loop Iter: After handleStmt. Current block: entry
 [GenMod] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Preparing to call Python main. Current block: entry
-[GenMod] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Looking up GlobalVariable 'main_obj_gv' in Module@ 94246194173344
+[GenMod] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Looking up GlobalVariable 'main_obj_gv' in Module@ 94059215577392
 [GenMod] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Found Python main function GlobalVariable: @main_obj_gv = internal global ptr null
 [GenMod] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Loaded 'main' object:   %main_func_loaded = load ptr, ptr @main_obj_gv, align 8
 [GenMod] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Generated call to Python main. Result object:   %call_result = call ptr @py_call_function_noargs(ptr %main_func_loaded)
@@ -135,8 +252,6 @@ Debug [PySymbolTable]: Popping scope level 2
 [GenMod] CurFunc: __llvmpy_entry, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Finished statement loop and main call sequence.
 [GenMod] CurFunc: <null Function>, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Restored context. Current function: <null Function>, IP=Block: entry, Point: end
 [GenMod] CurFunc: <null Function>, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Verifying entry function '__llvmpy_entry'...
-[GenMod] CurFunc: <null Function>, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] Entry function verification PASSED.
-[GenMod] CurFunc: <null Function>, CurBlock: entry, CurIP: {Block: entry, Point: end} - Verifying entire module...
-[GenMod] CurFunc: <null Function>, CurBlock: entry, CurIP: {Block: entry, Point: end} - Module verification PASSED.
-[GenMod] CurFunc: <null Function>, CurBlock: entry, CurIP: {Block: entry, Point: end} - Leaving generateModule.
+Error: LLVM Entry function '__llvmpy_entry' verification failed.
+[GenMod] CurFunc: <null Function>, CurBlock: entry, CurIP: {Block: entry, Point: end} - [EntryPt] !!! Entry function verification FAILED !!!
 成功将 test.py 编译为 output.ll

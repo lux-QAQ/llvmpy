@@ -83,6 +83,10 @@ void CodeGenStmt::initializeHandlers()
         static_cast<CodeGenStmt*>(cg.getStmtGen())->handleWhileStmt(static_cast<WhileStmtAST*>(stmt));
     };
 
+    stmtHandlers[ASTKind::ForStmt] = [](CodeGenBase& cg, StmtAST* s) { // Added ForStmt handler
+        static_cast<CodeGenStmt*>(cg.getStmtGen())->handleForStmt(static_cast<const ForStmtAST*>(s)); // Corrected cast
+    };
+
     stmtHandlers[ASTKind::PrintStmt] = [](CodeGenBase& cg, StmtAST* stmt)
     {
         static_cast<CodeGenStmt*>(cg.getStmtGen())->handlePrintStmt(static_cast<PrintStmtAST*>(stmt));
@@ -1442,6 +1446,172 @@ void CodeGenStmt::handleWhileStmt(WhileStmtAST* stmt)
 #endif
 }
 
+// 处理for语句
+void CodeGenStmt::handleForStmt(const ForStmtAST* stmt)
+{
+    PyCodeGen& cg = static_cast<PyCodeGen&>(codeGen);
+    llvm::LLVMContext& context = cg.getContext();
+    llvm::IRBuilder<>& builder = cg.getBuilder();
+    llvm::Function* currentFunction = builder.GetInsertBlock()->getParent();
+
+    // --- 0. 获取循环变量名和可迭代对象表达式 ---
+    const std::string& loopVarName = stmt->getLoopVariable();
+    const ExprAST* iterableExpr = stmt->getIterableExpr();
+
+    // --- 1. 生成可迭代对象的代码 ---
+    llvm::Value* iterableValue = cg.codegenExpr(iterableExpr);
+    if (!iterableValue) {
+        cg.logError("Failed to generate code for iterable in for loop at line " + std::to_string(stmt->line.value_or(0)));
+        return;
+    }
+    if (!iterableValue->getType()->isPointerTy()) {
+        cg.logError("Iterable in for loop is not an object at line " + std::to_string(stmt->line.value_or(0)));
+        return;
+    }
+
+    // --- 2. 获取迭代器对象 ---
+    llvm::Type* pyObjectPtrType_for_iter = cg.getRuntimeGen()->getPyObjectPtrType();
+    llvm::Function* pyIterFunc = cg.getOrCreateExternalFunction(
+        "py_iter",
+        pyObjectPtrType_for_iter,
+        {pyObjectPtrType_for_iter},
+        false
+    );
+    llvm::Value* iteratorObj = builder.CreateCall(pyIterFunc, {iterableValue}, "iterator");
+    
+    llvm::Value* iterNullCheck = builder.CreateICmpEQ(iteratorObj, llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(pyObjectPtrType_for_iter)), "is_iter_null");
+    llvm::BasicBlock* iterErrorBB = llvm::BasicBlock::Create(context, "iter.error", currentFunction);
+    llvm::BasicBlock* iterOkBB = llvm::BasicBlock::Create(context, "iter.ok", currentFunction);
+    builder.CreateCondBr(iterNullCheck, iterErrorBB, iterOkBB);
+
+    builder.SetInsertPoint(iterErrorBB);
+    cg.getRuntimeGen()->callRuntimeError("TypeError_NotIterable", stmt->line.value_or(0));
+    builder.CreateUnreachable();
+
+    builder.SetInsertPoint(iterOkBB);
+
+    // --- 3. 创建循环的基本块 ---
+    llvm::BasicBlock* loopHeaderBB = llvm::BasicBlock::Create(context, "for.header", currentFunction); // Continue target
+    llvm::BasicBlock* loopBodyBB = llvm::BasicBlock::Create(context, "for.body", currentFunction);
+    llvm::BasicBlock* loopElseBB = nullptr; 
+    llvm::BasicBlock* loopEndBB = llvm::BasicBlock::Create(context, "for.end", currentFunction);       // Break target, and final merge point
+    llvm::BasicBlock* stopIterationBB = llvm::BasicBlock::Create(context, "for.stop_iteration", currentFunction); 
+
+    if (stmt->getElseStmt()) {
+        loopElseBB = llvm::BasicBlock::Create(context, "for.else", currentFunction);
+    }
+
+    builder.CreateBr(loopHeaderBB); 
+
+    // --- 4. 循环头 (loopHeaderBB) ---
+    builder.SetInsertPoint(loopHeaderBB);
+    llvm::Type* pyObjectPtrType_for_next = cg.getRuntimeGen()->getPyObjectPtrType();
+    llvm::Function* pyNextFunc = cg.getOrCreateExternalFunction(
+        "py_next",
+        pyObjectPtrType_for_next,
+        {pyObjectPtrType_for_next}, 
+        false
+    );
+    llvm::Value* nextItem = builder.CreateCall(pyNextFunc, {iteratorObj}, "next_item_or_stop");
+    llvm::Value* isStopIteration = builder.CreateICmpEQ(
+        nextItem,
+        llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(pyObjectPtrType_for_next)),
+        "is_stop_iteration"
+    );
+    builder.CreateCondBr(isStopIteration, stopIterationBB, loopBodyBB); 
+
+    // --- stopIterationBB (Normal loop termination) ---
+    builder.SetInsertPoint(stopIterationBB);
+    cg.getRuntimeGen()->decRef(iteratorObj); 
+    if (loopElseBB) { // If loop finished normally AND else exists, go to else
+        builder.CreateBr(loopElseBB);
+    } else { // If loop finished normally AND NO else, go to end
+        builder.CreateBr(loopEndBB);
+    }
+
+    // --- 5. 循环体 (loopBodyBB) ---
+    builder.SetInsertPoint(loopBodyBB);
+    
+    // 5.1 将 nextItem 赋值给循环变量
+    llvm::AllocaInst* loopVarAlloc = cg.getSymbolTable().lookupAlloca(loopVarName);
+    std::shared_ptr<PyType> loopVarPyType = PyType::fromObjectType(TypeRegistry::getInstance().getType("any"));
+    ObjectType* loopVarObjectType = loopVarPyType ? loopVarPyType->getObjectType() : nullptr;
+    llvm::Type* pyObjectPtrType_for_alloc = cg.getRuntimeGen()->getPyObjectPtrType();
+
+    if (!loopVarAlloc) {
+         loopVarAlloc = cg.createEntryBlockAlloca(pyObjectPtrType_for_alloc, loopVarName);
+         cg.getSymbolTable().setVariable(loopVarName, loopVarAlloc, loopVarObjectType); 
+    } else {
+        cg.getSymbolTable().setVariable(loopVarName, loopVarAlloc, loopVarObjectType);
+    }
+    llvm::Value* oldLoopVarValue = builder.CreateLoad(pyObjectPtrType_for_alloc, loopVarAlloc, "old_" + loopVarName);
+    cg.getRuntimeGen()->decRef(oldLoopVarValue); 
+    builder.CreateStore(nextItem, loopVarAlloc);
+
+    // 5.2 生成循环体代码
+    cg.pushScope();  // Keep original scope management
+    // Set loop context for symbol table (if it uses it for other purposes)
+    // loopEndBB is the break target, loopHeaderBB is the continue target.
+    cg.getSymbolTable().setLoopContext(loopEndBB, loopHeaderBB); 
+
+    // --- MODIFICATION START: Push targets for CodeGenStmt's break/continue handlers ---
+    pushBreakTarget(loopEndBB);       // Break jumps to loopEndBB (after else)
+    pushContinueTarget(loopHeaderBB); // Continue jumps to loopHeaderBB
+    // --- MODIFICATION END ---
+
+    for (const auto& bodyStmt : stmt->getBody()) {
+        cg.codegenStmt(bodyStmt.get()); // Keep original call to PyCodeGen's dispatcher
+        if (builder.GetInsertBlock()->getTerminator() != nullptr) { 
+            break; 
+        }
+    }
+
+    // --- MODIFICATION START: Pop targets ---
+    popContinueTarget();
+    popBreakTarget();
+    // --- MODIFICATION END ---
+
+    cg.popScope(); // Keep original scope management
+
+    if (builder.GetInsertBlock()->getTerminator() == nullptr) { 
+        // cg.getRuntimeGen()->decRef(nextItem); // This was commented out, likely correct.
+        builder.CreateBr(loopHeaderBB); 
+    }
+
+    // --- 6. Else 子句 (loopElseBB) ---
+    if (loopElseBB) {
+        builder.SetInsertPoint(loopElseBB);
+        cg.pushScope(); // Keep original scope management for else
+        cg.getSymbolTable().clearLoopContext(); // Keep original symbol table context clearing
+
+        const auto* elseAstNode = stmt->getElseStmt(); // Use a more generic name
+        if (const auto* elseBlock = dynamic_cast<const BlockStmtAST*>(elseAstNode)) {
+            for (const auto& elseBodyStmt : elseBlock->getStatements()) {
+                cg.codegenStmt(elseBodyStmt.get()); // Keep original call
+                 if (builder.GetInsertBlock()->getTerminator() != nullptr) break;
+            }
+        } else if (elseAstNode) { // If it's not a BlockStmt but still exists
+            cg.codegenStmt(const_cast<StmtAST*>(elseAstNode)); // Keep original call
+        }
+        cg.popScope(); // Keep original scope management for else
+        if (builder.GetInsertBlock()->getTerminator() == nullptr) {
+            builder.CreateBr(loopEndBB); 
+        }
+    }
+
+    // --- 7. 循环结束 (loopEndBB) ---
+    builder.SetInsertPoint(loopEndBB);
+    // Note: iteratorObj is decref'd in stopIterationBB path.
+    // If loop is exited by 'break', iteratorObj might still need decref here if not handled by GC.
+    // Python's `for` loop iterators are typically managed by their lifecycle; explicit decref on break
+    // is not usually required at this level unless your runtime needs it.
+    // The current decRef in stopIterationBB is for when the iterator is exhausted.
+    // If a break occurs, iteratorObj's ref count should naturally lead to its collection if nothing else holds it.
+
+    cg.getSymbolTable().restoreOuterLoopContext(); // Keep original symbol table context restoration
+}
+
+
 void CodeGenStmt::handlePrintStmt(PrintStmtAST* stmt)
 {
     auto& builder = codeGen.getBuilder();
@@ -2053,4 +2223,6 @@ void CodeGenStmt::assignVariable(const std::string& name,
     }
 }
 
+
 }  // namespace llvmpy
+

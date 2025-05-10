@@ -1568,64 +1568,79 @@ PyObject* py_object_not(PyObject* a)
 // 比较操作 (根据之前的讨论修改)
 PyObject* py_object_compare(PyObject* a, PyObject* b, PyCompareOp op)
 {
-    // 1. Handle NULL / None (same as before)
-    if (!a || !b)
-    {
+    // Step 0: Handle C NULL pointers.
+    // These are distinct from Python's None object.
+    // This check is for robustness against actual NULL pointers in the system.
+    if (a == NULL || b == NULL) {
         bool result = false;
-        if (op == PY_CMP_EQ)
-            result = (a == b);
-        else if (op == PY_CMP_NE)
-            result = (a != b);
-        else
-        {
-            // Python 3 raises TypeError for None comparisons other than ==, !=
-            fprintf(stderr, "TypeError: '%s' not supported between instances of '%s' and '%s'\n",
-                    py_compare_op_name(op),
-                    a ? py_type_name(py_get_safe_type_id(a)) : "NoneType",
-                    b ? py_type_name(py_get_safe_type_id(b)) : "NoneType");
-            return NULL;  // Indicate error
+        if (op == PY_CMP_EQ) result = (a == b);      // True if both are C NULL.
+        else if (op == PY_CMP_NE) result = (a != b); // False if both are C NULL.
+        else {
+            // Ordering comparisons with a C NULL pointer should be an error.
+            fprintf(stderr, "TypeError: '%s' not supported with NULL pointer operand\n", py_compare_op_name(op));
+            return NULL; // Indicate error
         }
         return py_create_bool(result);
     }
 
-    // 2. Use type dispatch for EQ and NE (relies on GMP-aware equals from py_type_dispatch)
-    if (op == PY_CMP_EQ || op == PY_CMP_NE)
-    {
+    PyObject* none_singleton = py_get_none(); // Get the unique None object
+
+    // Step 1: Handle comparisons involving Python's None object.
+    bool a_is_python_none = (a == none_singleton);
+    bool b_is_python_none = (b == none_singleton);
+
+    if (a_is_python_none || b_is_python_none) {
+        // If either operand is Python's None:
+        bool identity_match = (a == b); // Since None is a singleton, pointer comparison is key.
+        if (op == PY_CMP_EQ) {
+            return py_create_bool(identity_match);
+        } else if (op == PY_CMP_NE) {
+            return py_create_bool(!identity_match);
+        } else {
+            // Ordering comparisons (<, <=, >, >=) with None raise TypeError in Python 3.
+            fprintf(stderr, "TypeError: '%s' not supported between instances of '%s' and '%s'\n",
+                    py_compare_op_name(op),
+                    py_type_name(py_get_safe_type_id(a)), // py_get_safe_type_id should correctly name PY_TYPE_NONE
+                    py_type_name(py_get_safe_type_id(b)));
+            return NULL; // Indicate TypeError
+        }
+    }
+
+    // Step 2: Neither 'a' nor 'b' is Python's None. Proceed with rich comparison / other types.
+    // Handle EQ and NE via type-specific 'equals' method or fallback to identity.
+    if (op == PY_CMP_EQ || op == PY_CMP_NE) {
         int typeIdA = py_get_safe_type_id(a);
         const PyTypeMethods* methodsA = py_get_type_methods(typeIdA);
 
-        if (methodsA && methodsA->equals)
-        {
-            PyObject* resultObj = methodsA->equals(a, b);
-            if (resultObj)
-            {
-                if (py_get_safe_type_id(resultObj) == PY_TYPE_BOOL)
-                {
+        if (methodsA && methodsA->equals) {
+            PyObject* resultObj = methodsA->equals(a, b); // 'a' and 'b' are not None here.
+            if (resultObj) {
+                if (py_get_safe_type_id(resultObj) == PY_TYPE_BOOL) {
                     bool eq_result = py_extract_bool(resultObj);
                     py_decref(resultObj);
                     return py_create_bool(op == PY_CMP_EQ ? eq_result : !eq_result);
-                }
-                else
-                {
+                } else {
+                    // __eq__ should return a boolean or NotImplemented.
+                    // If it's not bool, it's a TypeError.
                     fprintf(stderr, "TypeError: __eq__ returned non-boolean (type %s)\n", py_type_name(resultObj->typeId));
                     py_decref(resultObj);
-                    return NULL;  // Indicate error
+                    return NULL;
                 }
-            }
-            else
-            {
-                // equals call failed internally
-                fprintf(stderr, "Error: equals method call failed for type %s\n", py_type_name(typeIdA));
-                return NULL;  // Indicate error
+            } else {
+                // methodsA->equals returned NULL. This could mean an error,
+                // or it could be a way to signal NotImplemented.
+                // Python's rich comparison is complex. For now, fallback to identity.
+                // A more complete system would try b->type->methods->equals(b,a) if a->equals returned NotImplemented.
+                fprintf(stderr, "Debug: equals method for type %s returned NULL or was not found, falling back to identity for EQ/NE.\n", py_type_name(typeIdA));
             }
         }
-        // Fallback to identity comparison if no equals method
-        // fprintf(stderr, "Debug: Type %s has no specific equals method, using identity comparison.\n", py_type_name(typeIdA));
-        bool identity_result = (a == b);
+        // Fallback to identity comparison if no specific 'equals' or if it returned NULL (simplified).
+        bool identity_result = (a == b); // C pointer comparison
         return py_create_bool(op == PY_CMP_EQ ? identity_result : !identity_result);
     }
 
-    // 3. Handle other comparison ops (<, <=, >, >=) using GMP
+    // Step 3: Handle ordering comparisons (<, <=, >, >=) for non-None types.
+    // (None cases for these ops already returned TypeError in Step 1).
     int aTypeId = getBaseTypeId(a->typeId);
     int bTypeId = getBaseTypeId(b->typeId);
 
@@ -1633,180 +1648,99 @@ PyObject* py_object_compare(PyObject* a, PyObject* b, PyCompareOp op)
     bool aIsNumeric = (aTypeId == PY_TYPE_INT || aTypeId == PY_TYPE_DOUBLE || aTypeId == PY_TYPE_BOOL);
     bool bIsNumeric = (bTypeId == PY_TYPE_INT || bTypeId == PY_TYPE_DOUBLE || bTypeId == PY_TYPE_BOOL);
 
-    if (aIsNumeric && bIsNumeric)
-    {
+    if (aIsNumeric && bIsNumeric) {
+        // ... (Your existing GMP numeric comparison logic for LT, LE, GT, GE) ...
+        // This logic is only reached if neither 'a' nor 'b' is None.
+        // Ensure this part is correct and handles all numeric type combinations.
         mpz_ptr a_int = py_extract_int(a);
         mpf_ptr a_float = py_extract_double(a);
-        bool a_bool_val;
+        bool a_bool_val = false;
         bool a_is_bool = (aTypeId == PY_TYPE_BOOL);
         if (a_is_bool) a_bool_val = py_extract_bool(a);
+
         mpz_ptr b_int = py_extract_int(b);
         mpf_ptr b_float = py_extract_double(b);
-        bool b_bool_val;
+        bool b_bool_val = false;
         bool b_is_bool = (bTypeId == PY_TYPE_BOOL);
         if (b_is_bool) b_bool_val = py_extract_bool(b);
 
-        int cmp_result;  // Stores result of GMP comparison functions (<0, 0, >0)
+        int cmp_val;
 
-        // Determine comparison strategy
-        if (a_float || b_float)
-        {  // At least one float
+        if (a_float || b_float) {
             mpf_t temp_a, temp_b;
-            mpf_init2(temp_a, 256);
-            mpf_init2(temp_b, 256);
+            mpf_init2(temp_a, 256); mpf_init2(temp_b, 256);
             bool use_temp_a = false, use_temp_b = false;
-            mpf_srcptr op_a, op_b;
+            mpf_srcptr op_a_f, op_b_f;
 
-            if (a_float)
-                op_a = a_float;
-            else if (a_int)
-            {
-                mpf_set_z(temp_a, a_int);
-                op_a = temp_a;
-                use_temp_a = true;
-            }
-            else if (a_is_bool)
-            {
-                mpf_set_ui(temp_a, a_bool_val ? 1 : 0);
-                op_a = temp_a;
-                use_temp_a = true;
-            }
-            else
-            { /* Error */
-                mpf_clear(temp_a);
-                mpf_clear(temp_b);
-                return NULL;
-            }
+            if (a_float) op_a_f = a_float;
+            else if (a_int) { mpf_set_z(temp_a, a_int); op_a_f = temp_a; use_temp_a = true; }
+            else if (a_is_bool) { mpf_set_ui(temp_a, a_bool_val ? 1 : 0); op_a_f = temp_a; use_temp_a = true; }
+            else { mpf_clear(temp_a); mpf_clear(temp_b); return NULL; }
 
-            if (b_float)
-                op_b = b_float;
-            else if (b_int)
-            {
-                mpf_set_z(temp_b, b_int);
-                op_b = temp_b;
-                use_temp_b = true;
-            }
-            else if (b_is_bool)
-            {
-                mpf_set_ui(temp_b, b_bool_val ? 1 : 0);
-                op_b = temp_b;
-                use_temp_b = true;
-            }
-            else
-            { /* Error */
-                mpf_clear(temp_a);
-                mpf_clear(temp_b);
-                return NULL;
-            }
-
-            cmp_result = mpf_cmp(op_a, op_b);
+            if (b_float) op_b_f = b_float;
+            else if (b_int) { mpf_set_z(temp_b, b_int); op_b_f = temp_b; use_temp_b = true; }
+            else if (b_is_bool) { mpf_set_ui(temp_b, b_bool_val ? 1 : 0); op_b_f = temp_b; use_temp_b = true; }
+            else { if(use_temp_a) mpf_clear(temp_a); mpf_clear(temp_b); return NULL; }
+            
+            cmp_val = mpf_cmp(op_a_f, op_b_f);
             if (use_temp_a) mpf_clear(temp_a);
             if (use_temp_b) mpf_clear(temp_b);
-        }
-        else
-        {  // Both int/bool
+        } else { 
             mpz_t temp_a_z, temp_b_z;
-            mpz_init(temp_a_z);
-            mpz_init(temp_b_z);
+            mpz_init(temp_a_z); mpz_init(temp_b_z);
             bool use_temp_a_z = false, use_temp_b_z = false;
             mpz_srcptr op_a_z, op_b_z;
 
-            if (a_int)
-                op_a_z = a_int;
-            else if (a_is_bool)
-            {
-                mpz_set_ui(temp_a_z, a_bool_val ? 1 : 0);
-                op_a_z = temp_a_z;
-                use_temp_a_z = true;
-            }
-            else
-            { /* Error */
-                mpz_clear(temp_a_z);
-                mpz_clear(temp_b_z);
-                return NULL;
-            }
+            if (a_int) op_a_z = a_int;
+            else if (a_is_bool) { mpz_set_ui(temp_a_z, a_bool_val ? 1 : 0); op_a_z = temp_a_z; use_temp_a_z = true; }
+            else { mpz_clear(temp_a_z); mpz_clear(temp_b_z); return NULL; }
 
-            if (b_int)
-                op_b_z = b_int;
-            else if (b_is_bool)
-            {
-                mpz_set_ui(temp_b_z, b_bool_val ? 1 : 0);
-                op_b_z = temp_b_z;
-                use_temp_b_z = true;
-            }
-            else
-            { /* Error */
-                mpz_clear(temp_a_z);
-                mpz_clear(temp_b_z);
-                return NULL;
-            }
+            if (b_int) op_b_z = b_int;
+            else if (b_is_bool) { mpz_set_ui(temp_b_z, b_bool_val ? 1 : 0); op_b_z = temp_b_z; use_temp_b_z = true; }
+            else { if(use_temp_a_z) mpz_clear(temp_a_z); mpz_clear(temp_b_z); return NULL; }
 
-            cmp_result = mpz_cmp(op_a_z, op_b_z);
+            cmp_val = mpz_cmp(op_a_z, op_b_z);
             if (use_temp_a_z) mpz_clear(temp_a_z);
             if (use_temp_b_z) mpz_clear(temp_b_z);
         }
 
-        // Convert cmp_result to boolean based on operator
-        bool result = false;
-        switch (op)
-        {
-            case PY_CMP_LT:
-                result = (cmp_result < 0);
-                break;
-            case PY_CMP_LE:
-                result = (cmp_result <= 0);
-                break;
-            // EQ/NE handled above
-            case PY_CMP_GT:
-                result = (cmp_result > 0);
-                break;
-            case PY_CMP_GE:
-                result = (cmp_result >= 0);
-                break;
-            default:  // Should not happen
-                fprintf(stderr, "Internal Error: Unhandled comparison operator %d in numeric compare\n", op);
-                return NULL;
+        bool final_result = false;
+        switch (op) {
+            case PY_CMP_LT: final_result = (cmp_val < 0); break;
+            case PY_CMP_LE: final_result = (cmp_val <= 0); break;
+            case PY_CMP_GT: final_result = (cmp_val > 0); break;
+            case PY_CMP_GE: final_result = (cmp_val >= 0); break;
+            default: fprintf(stderr, "Internal Error: Unhandled numeric comparison op %d\n", op); return NULL;
         }
-        return py_create_bool(result);
+        return py_create_bool(final_result);
     }
 
     // --- String Comparison ---
-    if (aTypeId == PY_TYPE_STRING && bTypeId == PY_TYPE_STRING)
-    {
+    if (aTypeId == PY_TYPE_STRING && bTypeId == PY_TYPE_STRING) {
+        // ... (Your existing string comparison logic for LT, LE, GT, GE) ...
+        // This logic is only reached if neither 'a' nor 'b' is None.
         const char* strA = py_extract_string(a);
         const char* strB = py_extract_string(b);
-        if (!strA) strA = "";
-        if (!strB) strB = "";
+        // Since a and b are not C NULL here, strA and strB should not be NULL
+        // unless py_extract_string can return NULL for valid string objects (which it shouldn't).
 
-        int cmpResult = strcmp(strA, strB);
-        bool result = false;
-        switch (op)
-        {
-            case PY_CMP_LT:
-                result = (cmpResult < 0);
-                break;
-            case PY_CMP_LE:
-                result = (cmpResult <= 0);
-                break;
-            // EQ/NE handled above
-            case PY_CMP_GT:
-                result = (cmpResult > 0);
-                break;
-            case PY_CMP_GE:
-                result = (cmpResult >= 0);
-                break;
-            default:  // Should not happen
-                fprintf(stderr, "Internal Error: Unhandled comparison operator %d for strings\n", op);
-                return NULL;
+        int cmpResult_str = strcmp(strA, strB); // Assuming strA and strB are valid
+        bool final_result_str = false;
+        switch (op) {
+            case PY_CMP_LT: final_result_str = (cmpResult_str < 0); break;
+            case PY_CMP_LE: final_result_str = (cmpResult_str <= 0); break;
+            case PY_CMP_GT: final_result_str = (cmpResult_str > 0); break;
+            case PY_CMP_GE: final_result_str = (cmpResult_str >= 0); break;
+            default: fprintf(stderr, "Internal Error: Unhandled string comparison op %d\n", op); return NULL;
         }
-        return py_create_bool(result);
+        return py_create_bool(final_result_str);
     }
 
-    // 4. Incompatible types for ordering comparison -> TypeError
+    // Step 4: Incompatible types for ordering comparison.
     fprintf(stderr, "TypeError: '%s' not supported between instances of '%s' and '%s'\n",
             py_compare_op_name(op),
             py_type_name(aTypeId), py_type_name(bTypeId));
-    return NULL;  // Indicate TypeError
+    return NULL; // Indicate TypeError
 }
 
 // 获取compare_op名字的赋值函数

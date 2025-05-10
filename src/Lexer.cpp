@@ -583,7 +583,7 @@ PyToken PyLexer::handleNumber()
         if (isDigit(peekNext()))
         {
             isFloat = true;
-            advance(); // 消费 '.'
+            advance();  // 消费 '.'
 
             while (isDigit(peek()))
             {
@@ -606,13 +606,13 @@ PyToken PyLexer::handleNumber()
         if (isDigit(firstDigitChar))
         {
             // 这是一个有效的指数部分
-            isFloat = true; // 包含指数部分则一定是浮点数
+            isFloat = true;  // 包含指数部分则一定是浮点数
             hasExponent = true;
-            advance(); // 消费 'e' 或 'E'
+            advance();  // 消费 'e' 或 'E'
 
             if (hasSign)
             {
-                advance(); // 消费符号 '+' 或 '-'
+                advance();  // 消费符号 '+' 或 '-'
             }
 
             // 消费指数数字
