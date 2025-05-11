@@ -1,5 +1,5 @@
 # llvmpy v3.0
-中文 |（还没弄好就先不弄英文版本了）
+中文 | [English](./README_EN.md)
 
 # 简介
 **这是一个`Python`的前端编译器，主要用于把`Python`代码编译成`LLVM`的`IR`代码，最后生成可执行文件的过程由`Clang`来完成。**
@@ -15,24 +15,26 @@
   - [x] 支持`float`浮点数
   - [x] 支持`int`整数
   - [x] 支持`bool`布尔值
-  - [ ] 支持`complex`复数
+  - [ ] 支持`complex`复数(暂无计划)
 
 ### 特殊类型
 - [x] 支持`None`空值
 - [x] 支持`Any`任意类型
-- [ ] 支持`Ellipsis`省略号
+- [x] 支持函数对象
+- [ ] 自定义类对象
+- [ ] 支持`Ellipsis`省略号 (暂无计划)
 
 ### 容器
 - [x] 支持`string`字符串
   - [x] 支持转义字符
   - [x] 支持字符串拼接
-  - [ ] `f-string`
+  - [ ] `f-string` (暂无计划)
 - [x] 支持`list`列表
   - [x] 支持多维列表 ,支持混合类型
 - [x] 支持`dict`字典
   - [x] 支持混合类型的 **key-value**(RunTime中支持hash的都可以**key-value**)
-- [ ] 支持`set`集合
-- [ ] 支持`tuple`元组
+- [ ] 支持`set`集合(暂无计划)
+- [ ] 支持`tuple`元组(暂无计划)
 ---
 
 ### 语法
@@ -59,14 +61,18 @@
 - [ ] 支持`try-except`语句
 - [ ] 支持`with`语句
 
+- [ ] 支持`class` 
+
+- [ ] 支持`async` `await`语句(暂无计划)
+
 
 
 ## 多文件
 - [x] 目前只支持单文件main()作为入口点,全局执行也可以
 - [ ] 支持多文件编译
 - [ ] 支持`import` `from-import` `import as` `from-import as`语句
-- [ ] 支持`__name__` `__main__`语句
-- [ ] 支持`__all__`
+- [ ] 支持`__name__` `__main__`语句 (暂无计划)
+- [ ] 支持`__all__` (暂无计划)
 - [ ] 支持`__init__.py`
 ---
 ## 测试案例
@@ -83,11 +89,9 @@
 - 使用了`libffi`来实现未知签名调用,比原生的`C函数`调用要慢1.5倍左右
 - 静态分析做的特别差
 
+## License
+![License: CC BY-NC-SA 4.0](./assets/images/by-nc-sa.svg)
 
-
-
-
-
-
-
-
+本项目采用  
+[Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License](https://creativecommons.org/licenses/by-nc-sa/4.0/)  
+进行许可。
