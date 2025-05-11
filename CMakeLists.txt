@@ -60,7 +60,7 @@ file(GLOB RUNTIME_SOURCES
 
 # 添加源文件
 add_executable(llvmpy
-    main.cpp
+    src/main.cpp
     #src/runtime.cpp # 假设这些是旧文件或不需要了
     src/Lexer.cpp
     src/Parser.cpp
