@@ -563,7 +563,7 @@ PyObject* py_convert_int_to_double(PyObject* obj)
 
     mpf_t temp_f;
     // Initialize with a default precision (e.g., 256 bits) or obj's precision if available
-    mpf_init2(temp_f, 256);
+    mpf_init2(temp_f, RUNTIME_FLOATE_PRECISION);
     // Convert GMP integer to GMP float
     mpf_set_z(temp_f, ((PyPrimitiveObject*)obj)->value.intValue);
 
@@ -729,7 +729,7 @@ PyObject* py_convert_any_to_double(PyObject* obj)
     }
 
     mpf_t temp_f;
-    mpf_init2(temp_f, 256); // Initialize temporary with default precision
+    mpf_init2(temp_f, RUNTIME_FLOATE_PRECISION); // Initialize temporary with default precision
     bool conversion_ok = true;
 
     switch (obj->typeId)

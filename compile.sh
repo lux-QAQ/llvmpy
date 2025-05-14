@@ -31,7 +31,7 @@ for src_file in src/RunTime/*.cpp; do
     obj_file="runtime_objs/$(basename ${src_file%.cpp}.o)"
     echo "  Compiling $src_file -> $obj_file"
     # 使用 clang++ 编译 C++ 文件，添加 -fPIC 如果需要的话
-    clang++ -c "$src_file" -o "$obj_file" -Iinclude/ -O0 -std=c++20 -fPIC
+    clang++ -c "$src_file" -o "$obj_file" -Iinclude/ -O0 -std=c++23 -fPIC
     if [ $? -ne 0 ]; then
         echo "编译 Runtime 文件 $src_file 失败"
         exit 1
@@ -47,6 +47,8 @@ if [ $? -ne 0 ]; then
     echo "编译 entry.c 失败"
     exit 1
 fi
+
+
 
 # 5. 链接所有目标文件 <---- 修改此步骤
 echo "链接目标文件..."

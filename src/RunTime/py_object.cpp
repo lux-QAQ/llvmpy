@@ -179,7 +179,7 @@ PyObject* py_create_double_bystring(const char* s, int base, mp_bitcnt_t precisi
     obj->header.typeId = PY_TYPE_DOUBLE;
 
     // Determine precision: use provided precision or a default (e.g., 256)
-    mp_bitcnt_t prec_to_use = (precision > 0) ? precision : 256;  // Default precision
+    mp_bitcnt_t prec_to_use = (precision > 0) ? precision : RUNTIME_FLOATE_PRECISION;  // Default precision
 
     // --- MODIFIED: Use mpf_init2 and mpf_set_str separately ---
     // 1. Initialize the mpf_t with the desired precision
@@ -211,7 +211,7 @@ PyObject* py_create_double(double value)
     obj->header.refCount = 1;
     obj->header.typeId = PY_TYPE_DOUBLE;
     // 初始化 GMP 浮点数 (设置默认精度，例如 256 位)
-    mpf_init2(obj->value.doubleValue, 256);
+    mpf_init2(obj->value.doubleValue, RUNTIME_FLOATE_PRECISION);
     mpf_set_d(obj->value.doubleValue, value);
     return (PyObject*)obj;
 }

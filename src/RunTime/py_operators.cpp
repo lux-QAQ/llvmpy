@@ -100,11 +100,11 @@ PyObject* py_object_add(PyObject* a, PyObject* b)
         if (result_is_float)
         {
             mpf_t result_f;
-            mpf_init2(result_f, 256);  // Default precision, adjust if needed
+            mpf_init2(result_f, RUNTIME_FLOATE_PRECISION);  // Default precision, adjust if needed
 
             mpf_t temp_a, temp_b;  // Temporaries for potential conversions
-            mpf_init2(temp_a, 256);
-            mpf_init2(temp_b, 256);
+            mpf_init2(temp_a, RUNTIME_FLOATE_PRECISION);
+            mpf_init2(temp_b, RUNTIME_FLOATE_PRECISION);
             bool use_temp_a = false, use_temp_b = false;
 
             mpf_srcptr op_a, op_b;
@@ -361,10 +361,10 @@ PyObject* py_object_subtract(PyObject* a, PyObject* b)
         if (result_is_float)
         {
             mpf_t result_f;
-            mpf_init2(result_f, 256);
+            mpf_init2(result_f, RUNTIME_FLOATE_PRECISION);
             mpf_t temp_a, temp_b;
-            mpf_init2(temp_a, 256);
-            mpf_init2(temp_b, 256);
+            mpf_init2(temp_a, RUNTIME_FLOATE_PRECISION);
+            mpf_init2(temp_b, RUNTIME_FLOATE_PRECISION);
             bool use_temp_a = false, use_temp_b = false;
             mpf_srcptr op_a, op_b;
 
@@ -523,10 +523,10 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
             fprintf(stderr, "DEBUG:   Result type is float.\n");
 #endif
             mpf_t result_f;
-            mpf_init2(result_f, 256);
+            mpf_init2(result_f, RUNTIME_FLOATE_PRECISION);
             mpf_t temp_a, temp_b;
-            mpf_init2(temp_a, 256);
-            mpf_init2(temp_b, 256);
+            mpf_init2(temp_a, RUNTIME_FLOATE_PRECISION);
+            mpf_init2(temp_b, RUNTIME_FLOATE_PRECISION);
             bool use_temp_a = false, use_temp_b = false;
             mpf_srcptr op_a, op_b;
 
@@ -841,10 +841,10 @@ PyObject* py_object_divide(PyObject* a, PyObject* b)
 
         // Result is always float
         mpf_t result_f;
-        mpf_init2(result_f, 256);
+        mpf_init2(result_f, RUNTIME_FLOATE_PRECISION);
         mpf_t temp_a, temp_b;
-        mpf_init2(temp_a, 256);
-        mpf_init2(temp_b, 256);
+        mpf_init2(temp_a, RUNTIME_FLOATE_PRECISION);
+        mpf_init2(temp_b, RUNTIME_FLOATE_PRECISION);
         bool use_temp_a = false, use_temp_b = false;
         mpf_srcptr op_a, op_b;
 
@@ -951,12 +951,12 @@ PyObject* py_object_modulo(PyObject* a, PyObject* b)
         {
             // --- Corrected Float Modulo Implementation ---
             // Python's float % definition: result = a - floor(a/b) * b
-            mpf_t result_f; mpf_init2(result_f, 256);
-            mpf_t temp_a, temp_b; mpf_init2(temp_a, 256); mpf_init2(temp_b, 256);
+            mpf_t result_f; mpf_init2(result_f, RUNTIME_FLOATE_PRECISION);
+            mpf_t temp_a, temp_b; mpf_init2(temp_a, RUNTIME_FLOATE_PRECISION); mpf_init2(temp_b, RUNTIME_FLOATE_PRECISION);
             mpf_t div_res, floor_div_res, term_to_sub; // Intermediate results
-            mpf_init2(div_res, 256);
-            mpf_init2(floor_div_res, 256);
-            mpf_init2(term_to_sub, 256);
+            mpf_init2(div_res, RUNTIME_FLOATE_PRECISION);
+            mpf_init2(floor_div_res, RUNTIME_FLOATE_PRECISION);
+            mpf_init2(term_to_sub, RUNTIME_FLOATE_PRECISION);
 
             bool use_temp_a = false, use_temp_b = false;
             mpf_srcptr op_a, op_b;
@@ -1119,10 +1119,10 @@ PyObject* py_object_floor_divide(PyObject* a, PyObject* b)
         {
             // Float // Float -> Float
             mpf_t result_f;
-            mpf_init2(result_f, 256);
+            mpf_init2(result_f, RUNTIME_FLOATE_PRECISION);
             mpf_t temp_a, temp_b;
-            mpf_init2(temp_a, 256);
-            mpf_init2(temp_b, 256);
+            mpf_init2(temp_a, RUNTIME_FLOATE_PRECISION);
+            mpf_init2(temp_b, RUNTIME_FLOATE_PRECISION);
             bool use_temp_a = false, use_temp_b = false;
             mpf_srcptr op_a, op_b;
 
@@ -1255,240 +1255,269 @@ PyObject* py_object_floor_divide(PyObject* a, PyObject* b)
     return NULL;
 }
 
+
+
+
+static void mpf_set_from_mpfr(mpf_t rop, const mpfr_t op) {
+    // 直接调用 MPFR 库函数进行转换，避免通过字符串中转
+    mpfr_get_f(rop, op, MPFR_RNDN);
+}
+
+// 辅助函数：检查mpf_t是否表示整数
+/* static bool mpf_integer_p(const mpf_t op) {
+    // 检查浮点数是否为整数（没有小数部分）
+    mpf_t int_part, frac_part;
+    mpf_init(int_part);
+    mpf_init(frac_part);
+    
+    // 分离整数和小数部分
+    mpf_floor(int_part, op);
+    mpf_sub(frac_part, op, int_part);
+    
+    // 检查小数部分是否为0
+    bool is_integer = (mpf_sgn(frac_part) == 0);
+    
+    mpf_clear(int_part);
+    mpf_clear(frac_part);
+    return is_integer;
+} */
+
+// 辅助函数：安全地将mpf_t转换为long整数，如果超出范围返回非零错误码
+static int mpf_get_si_checked(long *result, const mpf_t op) {
+    // 检查是否在long范围内
+    if (mpf_cmp_si(op, LONG_MAX) > 0 || mpf_cmp_si(op, LONG_MIN) < 0) {
+        return -1;  // 超出范围
+    }
+    
+    // 转换为长整型
+    *result = mpf_get_si(op);
+    return 0;  // 成功
+}
+
 // 幂运算操作符
-PyObject* py_object_power(PyObject* a, PyObject* b)
-{
-    if (!a || !b)
-    {
+// 优化后的幂运算操作符
+PyObject* py_object_power(PyObject* a, PyObject* b) {
+    if (!a || !b) {
         fprintf(stderr, "TypeError: Cannot perform power operation with None\n");
         return NULL;
     }
 
     int aTypeId = getBaseTypeId(a->typeId);
     int bTypeId = getBaseTypeId(b->typeId);
-
-    bool aIsNumeric = (aTypeId == PY_TYPE_INT || aTypeId == PY_TYPE_DOUBLE || aTypeId == PY_TYPE_BOOL);
-    bool bIsNumeric = (bTypeId == PY_TYPE_INT || bTypeId == PY_TYPE_DOUBLE || bTypeId == PY_TYPE_BOOL);
-
-    if (aIsNumeric && bIsNumeric)
-    {
-        mpz_ptr a_int = py_extract_int(a);
-        mpf_ptr a_float = py_extract_double(a);
-        bool a_bool_val;
-        bool a_is_bool = (aTypeId == PY_TYPE_BOOL);
-        if (a_is_bool) a_bool_val = py_extract_bool(a);
-        mpz_ptr b_int = py_extract_int(b);
-        mpf_ptr b_float = py_extract_double(b);
-        bool b_bool_val;
-        bool b_is_bool = (bTypeId == PY_TYPE_BOOL);
-        if (b_is_bool) b_bool_val = py_extract_bool(b);
-
-        // --- Case 1: Integer base, Integer exponent ---
-        if ((a_int || a_is_bool) && (b_int || b_is_bool))
-        {
-            mpz_t base_z, exp_z, result_z;
-            mpz_init(base_z);
-            mpz_init(exp_z);
-            mpz_init(result_z);
-
-            if (a_int)
-                mpz_set(base_z, a_int);
-            else
-                mpz_set_ui(base_z, a_bool_val ? 1 : 0);
-            if (b_int)
-                mpz_set(exp_z, b_int);
-            else
-                mpz_set_ui(exp_z, b_bool_val ? 1 : 0);
-
-            // Handle negative exponent: result is float
-            if (mpz_sgn(exp_z) < 0)
-            {
-                // Check base == 0
-                if (mpz_sgn(base_z) == 0)
-                {
-                    fprintf(stderr, "ZeroDivisionError: 0 cannot be raised to a negative power\n");
-                    mpz_clear(base_z);
-                    mpz_clear(exp_z);
-                    mpz_clear(result_z);
-                    return NULL;
-                }
-                // Convert base and exponent to float and calculate
-                mpf_t base_f, exp_f, result_f;
-                mpf_init2(base_f, 256);
-                mpf_init2(exp_f, 256);
-                mpf_init2(result_f, 256);
-                mpf_set_z(base_f, base_z);
-                mpf_set_z(exp_f, exp_z);  // mpf can handle negative exponent for pow
-
-                // mpf_pow_ui requires unsigned long exponent. Need general float power.
-                // GMP doesn't have a direct mpf_pow_f. Use logarithms or external library (like MPFR's mpfr_pow).
-                // Simple fallback: convert to double and use pow()
-                fprintf(stderr, "Warning: GMP mpf_pow with float exponent not directly available. Using double precision via pow().\n");
-                double base_d = mpf_get_d(base_f);
-                double exp_d = mpf_get_d(exp_f);
-                double result_d = pow(base_d, exp_d);
-                mpf_set_d(result_f, result_d);
-
-                PyObject* resultObj = py_create_double_from_mpf(result_f);
-                mpf_clear(base_f);
-                mpf_clear(exp_f);
-                mpf_clear(result_f);
-                mpz_clear(base_z);
-                mpz_clear(exp_z);
-                mpz_clear(result_z);
-                return resultObj;
-            }
-            else
-            {  // Non-negative integer exponent
-                // Check if exponent fits in unsigned long for mpz_pow_ui
-                if (mpz_fits_ulong_p(exp_z))
-                {
-                    unsigned long exp_ul = mpz_get_ui(exp_z);
-                    mpz_pow_ui(result_z, base_z, exp_ul);
-                    PyObject* resultObj = py_create_int_from_mpz(result_z);
-                    mpz_clear(base_z);
-                    mpz_clear(exp_z);
-                    mpz_clear(result_z);
-                    return resultObj;
-                }
-                else
-                {
-                    // Exponent too large for mpz_pow_ui. Result will be huge or potentially float.
-                    // Fallback to float calculation for simplicity, though precision is lost.
-                    fprintf(stderr, "Warning: Integer exponent too large for mpz_pow_ui. Falling back to float calculation.\n");
-                    // Fall through to float case below
-                }
-            }
-            mpz_clear(base_z);
-            mpz_clear(exp_z);
-            mpz_clear(result_z);  // Clear temps if falling through
-        }
-
-        // --- Case 2: At least one operand is float (or large int exponent fallback) ---
-        // Result is always float
-        mpf_t base_f, exp_f, result_f;
-        mpf_init2(base_f, 256);
-        mpf_init2(exp_f, 256);
-        mpf_init2(result_f, 256);
-        mpf_t temp_a, temp_b;
-        mpf_init2(temp_a, 256);
-        mpf_init2(temp_b, 256);  // For conversions
-        bool use_temp_a = false, use_temp_b = false;
-        mpf_srcptr op_a_f, op_b_f;  // Operands as floats
-
-        // Convert base A to float
-        if (a_float)
-            op_a_f = a_float;
-        else if (a_int)
-        {
-            mpf_set_z(temp_a, a_int);
-            op_a_f = temp_a;
-            use_temp_a = true;
-        }
-        else if (a_is_bool)
-        {
-            mpf_set_ui(temp_a, a_bool_val ? 1 : 0);
-            op_a_f = temp_a;
-            use_temp_a = true;
-        }
-        else
-        { /* Error */
-            mpf_clear(base_f);
-            mpf_clear(exp_f);
-            mpf_clear(result_f);
-            mpf_clear(temp_a);
-            mpf_clear(temp_b);
-            return NULL;
-        }
-
-        // Convert exponent B to float
-        if (b_float)
-            op_b_f = b_float;
-        else if (b_int)
-        {
-            mpf_set_z(temp_b, b_int);
-            op_b_f = temp_b;
-            use_temp_b = true;
-        }
-        else if (b_is_bool)
-        {
-            mpf_set_ui(temp_b, b_bool_val ? 1 : 0);
-            op_b_f = temp_b;
-            use_temp_b = true;
-        }
-        else
-        { /* Error */
-            mpf_clear(base_f);
-            mpf_clear(exp_f);
-            mpf_clear(result_f);
-            mpf_clear(temp_a);
-            mpf_clear(temp_b);
-            return NULL;
-        }
-
-        // Check 0.0 ** negative
-        if (mpf_sgn(op_a_f) == 0 && mpf_sgn(op_b_f) < 0)
-        {
-            fprintf(stderr, "ZeroDivisionError: 0.0 cannot be raised to a negative power\n");
-            mpf_clear(base_f);
-            mpf_clear(exp_f);
-            mpf_clear(result_f);
-            if (use_temp_a) mpf_clear(temp_a);
-            if (use_temp_b) mpf_clear(temp_b);
-            return NULL;
-        }
-
-        // Use mpf_pow_ui if exponent is a non-negative integer representable as ulong
-        bool exp_is_simple_int = false;
-        unsigned long exp_ul = 0;
-        if (!b_float && b_int && mpz_sgn(b_int) >= 0 && mpz_fits_ulong_p(b_int))
-        {
-            exp_ul = mpz_get_ui(b_int);
-            exp_is_simple_int = true;
-        }
-        else if (!b_float && b_is_bool)
-        {
-            exp_ul = b_bool_val ? 1 : 0;
-            exp_is_simple_int = true;
-        }
-
-        if (exp_is_simple_int)
-        {
-            mpf_pow_ui(result_f, op_a_f, exp_ul);
-        }
-        else
-        {
-            // General float power - use double precision fallback
-            fprintf(stderr, "Warning: GMP mpf_pow with float exponent not directly available. Using double precision via pow().\n");
-            double base_d = mpf_get_d(op_a_f);
-            double exp_d = mpf_get_d(op_b_f);
-            // Add domain error check for pow (e.g., negative base to non-integer power)
-            if (base_d < 0 && exp_d != floor(exp_d))
-            {
-                fprintf(stderr, "ValueError: negative number cannot be raised to a fractional power\n");
-                mpf_clear(base_f);
-                mpf_clear(exp_f);
-                mpf_clear(result_f);
-                if (use_temp_a) mpf_clear(temp_a);
-                if (use_temp_b) mpf_clear(temp_b);
-                return NULL;
-            }
-            double result_d = pow(base_d, exp_d);
-            mpf_set_d(result_f, result_d);
-        }
-
-        PyObject* resultObj = py_create_double_from_mpf(result_f);
-        mpf_clear(base_f);
-        mpf_clear(exp_f);
-        mpf_clear(result_f);
-        if (use_temp_a) mpf_clear(temp_a);
-        if (use_temp_b) mpf_clear(temp_b);
-        return resultObj;
+    bool aIsNumeric = (aTypeId==PY_TYPE_INT||aTypeId==PY_TYPE_DOUBLE||aTypeId==PY_TYPE_BOOL);
+    bool bIsNumeric = (bTypeId==PY_TYPE_INT||bTypeId==PY_TYPE_DOUBLE||bTypeId==PY_TYPE_BOOL);
+    if (!aIsNumeric || !bIsNumeric) {
+        fprintf(stderr,
+            "TypeError: Unsupported operand types for **: %s and %s\n",
+            py_type_name(aTypeId), py_type_name(bTypeId));
+        return NULL;
     }
 
-    fprintf(stderr, "TypeError: Unsupported operand types for **: %s and %s\n",
-            py_type_name(aTypeId), py_type_name(bTypeId));
-    return NULL;
+    // 提取原始值
+    mpz_ptr a_int   = py_extract_int(a);
+    mpf_ptr a_float = py_extract_double(a);
+    bool   a_is_bool= (aTypeId==PY_TYPE_BOOL);
+    bool   a_bool_v = a_is_bool?py_extract_bool(a):false;
+    mpz_ptr b_int   = py_extract_int(b);
+    mpf_ptr b_float = py_extract_double(b);
+    bool   b_is_bool= (bTypeId==PY_TYPE_BOOL);
+    bool   b_bool_v = b_is_bool?py_extract_bool(b):false;
+
+    // 快速路径1: 特殊情况处理
+    // x^0 = 1 (x != 0)
+    if ((b_int && mpz_sgn(b_int) == 0) || (b_is_bool && !b_bool_v)) {
+        if ((a_int && mpz_sgn(a_int) == 0) || (a_is_bool && !a_bool_v)) {
+            // Python中 0^0 = 1
+            return py_create_int(1);
+        }
+        return py_create_int(1);
+    }
+    
+    // x^1 = x
+    if ((b_int && mpz_cmp_ui(b_int, 1) == 0) || (b_is_bool && b_bool_v)) {
+        // 直接返回底数
+        if (a_int) {
+            py_incref(a);  // 因为不创建新对象，需要增加引用计数
+            return a;
+        } else if (a_float) {
+            py_incref(a);
+            return a;
+        } else if (a_is_bool) {
+            py_incref(a);
+            return a;
+        }
+    }
+    
+    // 1^x = 1
+    if ((a_int && mpz_cmp_ui(a_int, 1) == 0) || (a_is_bool && a_bool_v && b_int && mpz_sgn(b_int) >= 0)) {
+        return py_create_int(1);
+    }
+    
+    // 0^x = 0 (x > 0)
+    if ((a_int && mpz_sgn(a_int) == 0) || (a_is_bool && !a_bool_v)) {
+        if ((b_int && mpz_sgn(b_int) > 0) || (b_is_bool && b_bool_v)) {
+            return py_create_int(0);
+        } else if ((b_int && mpz_sgn(b_int) < 0) || (b_float && mpf_sgn(b_float) < 0)) {
+            // 0^负数 -> 错误
+            fprintf(stderr, "ZeroDivisionError: 0 cannot be raised to a negative power\n");
+            return NULL;
+        }
+    }
+
+    // 快速路径2: 整型底数 + 小正整数指数 (针对常见情况优化)
+    if ((a_int || a_is_bool) && (b_int || b_is_bool)) {
+        mpz_t base_z, exp_z, result_z;
+        mpz_init(base_z); 
+        
+        if (a_int) mpz_set(base_z, a_int);
+        else mpz_set_ui(base_z, a_bool_v?1:0);
+        
+        // 只有当指数是正整数且可存入unsigned long时才使用快速路径
+        if (b_int) {
+            if (mpz_sgn(b_int) >= 0 && mpz_fits_ulong_p(b_int)) {
+                unsigned long e = mpz_get_ui(b_int);
+                mpz_init(result_z);
+                mpz_pow_ui(result_z, base_z, e);
+                PyObject* ret = py_create_int_from_mpz(result_z);
+                mpz_clear(result_z);
+                mpz_clear(base_z);
+                return ret;
+            } else if (mpz_sgn(b_int) < 0 && mpz_sgn(base_z) == 0) {
+                // 0^负数 -> 错误
+                mpz_clear(base_z);
+                fprintf(stderr, "ZeroDivisionError: 0 cannot be raised to a negative power\n");
+                return NULL;
+            }
+        } else if (b_is_bool && b_bool_v) { // b是True，即b=1
+            PyObject* ret = py_create_int_from_mpz(base_z);
+            mpz_clear(base_z);
+            return ret;
+        } else if (b_is_bool && !b_bool_v) { // b是False，即b=0
+            mpz_clear(base_z);
+            return py_create_int(1); // x^0 = 1
+        }
+        
+        mpz_clear(base_z);
+    }
+
+    // 快速路径3: 整数/布尔底数 + 浮点指数，且指数为整数值
+    if ((a_int || a_is_bool) && b_float) {
+        mpf_t result_f;
+        long exp_val;
+        
+        // 检查浮点指数是否为整数，并且可以表示为long
+        if (mpf_integer_p(b_float) && mpf_get_si_checked(&exp_val, b_float) == 0) {
+            if (exp_val >= 0) {
+                // 使用整数幂算法
+                mpz_t base_z, result_z;
+                mpz_init(base_z);
+                mpz_init(result_z);
+                
+                if (a_int) mpz_set(base_z, a_int);
+                else mpz_set_ui(base_z, a_bool_v?1:0);
+                
+                // 如果底数为0且指数为负，则报错
+                if (mpz_sgn(base_z) == 0 && exp_val < 0) {
+                    mpz_clears(base_z, result_z, NULL);
+                    fprintf(stderr, "ZeroDivisionError: 0 cannot be raised to a negative power\n");
+                    return NULL;
+                }
+                
+                mpz_pow_ui(result_z, base_z, (unsigned long)exp_val);
+                PyObject* ret = py_create_int_from_mpz(result_z);
+                mpz_clears(base_z, result_z, NULL);
+                return ret;
+            } else if (exp_val < 0) {
+                // 负指数，结果是浮点数
+                mpf_init2(result_f, RUNTIME_FLOATE_PRECISION);
+                
+                // 计算整数底数^正整数指数，然后取倒数
+                mpz_t base_z;
+                mpz_init(base_z);
+                if (a_int) mpz_set(base_z, a_int);
+                else mpz_set_ui(base_z, a_bool_v?1:0);
+                
+                // 如果底数为0且指数为负，则报错
+                if (mpz_sgn(base_z) == 0) {
+                    mpz_clear(base_z);
+                    mpf_clear(result_f);
+                    fprintf(stderr, "ZeroDivisionError: 0 cannot be raised to a negative power\n");
+                    return NULL;
+                }
+                
+                // 计算base^(-exp_val)的倒数
+                if (mpz_fits_sint_p(base_z)) {
+                    // 对于小整数底数，可以直接用浮点运算
+                    long base_val = mpz_get_si(base_z);
+                    mpf_set_d(result_f, pow(base_val, exp_val));
+                } else {
+                    // 对于大整数底数，先计算base^|exp_val|，然后取倒数
+                    mpz_t temp;
+                    mpz_init(temp);
+                    mpz_pow_ui(temp, base_z, (unsigned long)(-exp_val));
+                    
+                    // 将大整数结果转为浮点
+                    mpf_set_z(result_f, temp);
+                    mpf_ui_div(result_f, 1, result_f);  // 1/result
+                    mpz_clear(temp);
+                }
+                
+                mpz_clear(base_z);
+                PyObject* ret = py_create_double_from_mpf(result_f);
+                mpf_clear(result_f);
+                return ret;
+            }
+        }
+    }
+
+    // Case 2: 浮点或大指数 → MPFR 计算
+    mpfr_t base_f, exp_f, result_f;
+    mpfr_init2(base_f, RUNTIME_FLOATE_PRECISION);
+    mpfr_init2(exp_f, RUNTIME_FLOATE_PRECISION);
+    mpfr_init2(result_f, RUNTIME_FLOATE_PRECISION);
+
+    // 无损导入 GMP → MPFR
+    if (a_int)        mpfr_set_z(base_f, a_int, MPFR_RNDN);
+    else if (a_float) mpfr_set_f(base_f, a_float, MPFR_RNDN);
+    else              mpfr_set_ui(base_f, a_bool_v?1:0, MPFR_RNDN);
+
+    if (b_int)        mpfr_set_z(exp_f, b_int, MPFR_RNDN);
+    else if (b_float) mpfr_set_f(exp_f, b_float, MPFR_RNDN);
+    else              mpfr_set_ui(exp_f, b_bool_v?1:0, MPFR_RNDN);
+
+    // 0^负数 -> 错误
+    if (mpfr_zero_p(base_f) && mpfr_sgn(exp_f)<0) {
+        mpfr_clears(base_f, exp_f, result_f, NULL);
+        fprintf(stderr,"ZeroDivisionError: 0.0 cannot be raised to a negative power\n");
+        return NULL;
+    }
+
+    // 优化: 检查指数是否为整数，使用更高效的mpfr_pow_si
+    if (mpfr_integer_p(exp_f) && mpfr_fits_slong_p(exp_f, MPFR_RNDN)) {
+        long exp_val = mpfr_get_si(exp_f, MPFR_RNDN);
+        mpfr_pow_si(result_f, base_f, exp_val, MPFR_RNDN);
+    } else {
+        // 通用幂运算
+        mpfr_pow(result_f, base_f, exp_f, MPFR_RNDN);
+    }
+
+    // 负底数+非整数指数 → NaN
+    if (mpfr_nan_p(result_f)) {
+        mpfr_clears(base_f, exp_f, result_f, NULL);
+        fprintf(stderr,"ValueError: negative number cannot be raised to a fractional power\n");
+        return NULL;
+    }
+
+    // 将 mpfr_t 转回 mpf_t，再 py_create
+    mpf_t gmp_res;
+    mpf_init2(gmp_res, mpfr_get_prec(result_f));
+    mpf_set_from_mpfr(gmp_res, result_f);
+    PyObject* ret = py_create_double_from_mpf(gmp_res);
+
+    // 清理
+    mpf_clear(gmp_res);
+    mpfr_clears(base_f, exp_f, result_f, NULL);
+    return ret;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1668,7 +1697,7 @@ PyObject* py_object_compare(PyObject* a, PyObject* b, PyCompareOp op)
 
         if (a_float || b_float) {
             mpf_t temp_a, temp_b;
-            mpf_init2(temp_a, 256); mpf_init2(temp_b, 256);
+            mpf_init2(temp_a, RUNTIME_FLOATE_PRECISION); mpf_init2(temp_b, RUNTIME_FLOATE_PRECISION);
             bool use_temp_a = false, use_temp_b = false;
             mpf_srcptr op_a_f, op_b_f;
 

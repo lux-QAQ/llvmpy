@@ -6,6 +6,7 @@
 #include <climits>
 
 #include <gmp.h>   // <--- 包含 GMP 头文件
+#include <mpfr.h>
 #include <atomic>  // For thread-safe one-time initialization (optional but safer)
 
 #include "Debugdefine.h"

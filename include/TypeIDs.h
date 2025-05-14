@@ -26,7 +26,7 @@ namespace llvmpy
  *          一个全局类型注册表或基于名称/哈希的类型识别系统。
  * @todo 未来可能需要一个更复杂的系统来编码或注册这些具体类型。
  */
-enum PyTypeId
+enum PyTypeId : int
 {
     PY_TYPE_NONE = 0,    // 无类型
     PY_TYPE_INT = 1,     // 整数类型
@@ -57,9 +57,9 @@ enum PyTypeId
     PY_TYPE_INSTANCE = 13,  // 通用实例类型 ID (或者作为基类)
 
     // 迭代器类型 ID 基础
-    PY_TYPE_ITERATOR_BASE = 50, // 新的基础 ID
-    PY_TYPE_LIST_ITERATOR = PY_TYPE_ITERATOR_BASE + 0,   // 50
-    PY_TYPE_STRING_ITERATOR = PY_TYPE_ITERATOR_BASE + 1, // 51
+    PY_TYPE_ITERATOR_BASE = 50,                           // 新的基础 ID
+    PY_TYPE_LIST_ITERATOR = PY_TYPE_ITERATOR_BASE + 0,    // 50
+    PY_TYPE_STRING_ITERATOR = PY_TYPE_ITERATOR_BASE + 1,  // 51
     // PY_TYPE_DICT_ITERATOR = PY_TYPE_ITERATOR_BASE + 2, // etc.
 
     // 复合类型ID基础 - 用于运行时扩展类型ID
@@ -89,12 +89,12 @@ enum PyTypeId
  * @todo 随着类型系统变得复杂（例如支持继承），这个函数的逻辑可能需要调整，
  *       或者被 `PyType` 类层次结构中的方法所取代。
  */
-inline int getBaseTypeId(int typeId)
+inline constexpr int getBaseTypeId(int typeId)
 {
     // 用户自定义实例都映射到 PY_TYPE_INSTANCE
     if (typeId >= PY_TYPE_INSTANCE_BASE) return PY_TYPE_INSTANCE;
     // @note 函数类型目前没有统一的基础映射，返回 NONE 可能不理想，需要重新考虑。
-    if (typeId >= PY_TYPE_FUNC_BASE) return PY_TYPE_FUNC; // 映射回 PY_TYPE_FUNC
+    if (typeId >= PY_TYPE_FUNC_BASE) return PY_TYPE_FUNC;  // 映射回 PY_TYPE_FUNC
     // 具体字典类型映射回 PY_TYPE_DICT
     if (typeId >= PY_TYPE_DICT_BASE) return PY_TYPE_DICT;
     // 具体列表类型映射回 PY_TYPE_LIST
@@ -105,8 +105,9 @@ inline int getBaseTypeId(int typeId)
     // 通用实例类型（虽然通常不会直接使用此 ID）
     if (typeId == PY_TYPE_INSTANCE) return PY_TYPE_INSTANCE;
 
-        // 新增：迭代器基础类型判断
-    if (typeId >= PY_TYPE_ITERATOR_BASE && typeId < PY_TYPE_LIST_BASE) { 
+    // 新增：迭代器基础类型判断
+    if (typeId >= PY_TYPE_ITERATOR_BASE && typeId < PY_TYPE_LIST_BASE)
+    {
         return PY_TYPE_ITERATOR_BASE;
     }
 
@@ -117,7 +118,7 @@ inline int getBaseTypeId(int typeId)
 
 // 从内部类型ID映射到运行时类型ID
 // TODO：runtime解构
-inline int mapToRuntimeTypeId(int internalTypeId)
+inline constexpr int mapToRuntimeTypeId(int internalTypeId)
 {
     return getBaseTypeId(internalTypeId);
 }

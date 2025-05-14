@@ -227,6 +227,9 @@ static int py_class_setattr_handler(PyObject* obj, const char* attr_name, PyObje
 
 void py_initialize_builtin_type_methods()
 {
+
+    // 设置GMP默认精度
+    mpf_set_default_prec(RUNTIME_FLOATE_PRECISION);  // 设置默认精度为256位
     // 注册内置类型的方法
     py_register_type_methods(llvmpy::PY_TYPE_INT, &int_methods);
     py_register_type_methods(llvmpy::PY_TYPE_DOUBLE, &float_methods);

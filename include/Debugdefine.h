@@ -9,21 +9,21 @@
 #ifdef DEBUG
 
 //main
-//#define DEBUG_MAIN_TOKEN_DUMP
+#define DEBUG_MAIN_TOKEN_DUMP
 
 //lexer
-//#define DEBUG_LEXER
+#define DEBUG_LEXER
 
 //#define DEBUG_LEXER_INDENT
 
 
 
 // 定义RECOVER_SOURCE_FROM_TOKENS宏来启用从Token恢复源代码
-//#define RECOVER_SOURCE_FROM_TOKENS
+#define RECOVER_SOURCE_FROM_TOKENS
 
-//#define DEBUG_PARSER_Block
-//#define DEBUG_PARSER_Expr
-//#define DEBUG_PARSER_Stmt
+#define DEBUG_PARSER_Block
+#define DEBUG_PARSER_Expr
+#define DEBUG_PARSER_Stmt
 //#define DEBUG_PARSER_NextToken_detailed
 //#define DEBUG_PARSER_NextToken
 
@@ -73,6 +73,7 @@ ENABLE_LOGS_FOR_FUNCTION("py_iter")
 ENABLE_LOGS_FOR_FUNCTION("py_next")
 ENABLE_LOGS_FOR_FUNCTION("py_iterator_decref_specialized")
 
+#define RUNTIME_TIMER
 
 // 定义DEBUG_PRINT宏来启用调试打印
 
