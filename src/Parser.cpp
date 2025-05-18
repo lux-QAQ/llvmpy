@@ -647,32 +647,10 @@ std::unique_ptr<ExprAST> PyParser::parseCallSuffix(std::unique_ptr<ExprAST> call
         return nullptr;
     }
 
-    // Need to get the callee name if it was a simple variable
-    std::string calleeName;
-    if (auto* var = dynamic_cast<VariableExprAST*>(callee.get()))
-    {
-        calleeName = var->getName();
-    }
-    else
-    {
-        // Handle calls on complex expressions like (lambda x: x+1)(5) or obj.method() later
-        // For now, assume simple function name for CallExprAST constructor
-        // A better CallExprAST might store the callee expression directly.
-        // Let's assume CallExprAST can take an ExprAST* callee for now, or adjust CallExprAST.
-        // If CallExprAST requires a string name, this needs more work.
-        // For simplicity, let's log an error if it's not a simple name for now.
-        logParseError<ExprAST>("Calling complex expressions not fully supported yet.");
-        // Fallback: create a CallExprAST with an empty name or handle differently
-        calleeName = "<complex_callee>";  // Placeholder
-    }
-
-    // Assuming CallExprAST constructor takes name and args
-    // This matches the provided CallExprAST definition
-    auto callExpr = makeExpr<CallExprAST>(calleeName, std::move(args));
-    // The TODO below is relevant if CallExprAST were changed to store the expression directly
-    // // TODO: If CallExprAST should store the callee expression:
-    // // auto callExpr = makeExpr<CallExprAST>(std::move(callee), std::move(args));
-    callExpr->setLocation(line, column);  // Location of the '(' token
+    // 'callee' 参数已经是被调用的表达式 (std::unique_ptr<ExprAST>)
+    // CallExprAST 的构造函数现在接受 std::unique_ptr<ExprAST> 作为被调用者
+    auto callExpr = makeExpr<CallExprAST>(std::move(callee), std::move(args));
+    callExpr->setLocation(line, column);  // 将位置设置为 '(' 符号的位置
     return callExpr;
 }
 

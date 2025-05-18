@@ -542,6 +542,11 @@ public:
     {
         cachedType = type;
     }
+
+        /** @brief LLVM RTTI support. */
+    static bool classof(const ASTNode *N) {
+        return N->kind() == ASTKind::VariableExpr;
+    }
 };
 
 /**
@@ -631,22 +636,23 @@ public:
  */
 class CallExprAST : public ExprASTBase<CallExprAST, ASTKind::CallExpr>
 {
-    std::string callee;                          ///< 被调用函数或方法的名称。
+    // std::string callee;                          ///< 被调用函数或方法的名称。
+    std::unique_ptr<ExprAST> calleeExpr;         ///< 被调用的表达式 (可以是变量、函数调用结果、索引结果等)。
     std::vector<std::unique_ptr<ExprAST>> args;  ///< 参数列表。
     /** @brief 缓存推断出的函数返回类型。*/
     mutable std::shared_ptr<PyType> cachedType;
 
 public:
     /** @brief 构造函数。*/
-    CallExprAST(const std::string& callee, std::vector<std::unique_ptr<ExprAST>> args)
-        : callee(callee), args(std::move(args))
+    CallExprAST(std::unique_ptr<ExprAST> callee, std::vector<std::unique_ptr<ExprAST>> args)
+        : calleeExpr(std::move(callee)), args(std::move(args))
     {
     }
 
-    /** @brief 获取被调用者名称。*/
-    const std::string& getCallee() const
+    /** @brief 获取被调用者表达式。*/
+    const ExprAST* getCalleeExpr() const
     {
-        return callee;
+        return calleeExpr.get();
     }
     /** @brief 获取参数列表。*/
     const std::vector<std::unique_ptr<ExprAST>>& getArgs() const
@@ -664,7 +670,7 @@ public:
     /** @brief 函数调用结果通常需要复制或进行引用计数管理。*/
     bool needsCopy() const override
     {
-        return true;
+        return true; // 通常函数调用的结果需要特殊处理（如复制或引用计数）
     }
 };
 

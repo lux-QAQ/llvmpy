@@ -45,6 +45,7 @@ bool CodeGenModule::generateModule(ModuleAST* module, bool isEntryPoint)
 #ifdef DEBUG_CODEGEN_generateModule
     DEBUG_LOG_DETAIL("GenMod", "Entering generateModule. isEntryPoint=" + std::string(isEntryPoint ? "true" : "false"));
 #endif
+
     if (!module)
     {
         codeGen.logError("Cannot generate code for null module AST.");
@@ -63,7 +64,7 @@ bool CodeGenModule::generateModule(ModuleAST* module, bool isEntryPoint)
 #ifdef DEBUG_CODEGEN_generateModule
         DEBUG_LOG_DETAIL("GenMod", "Module resources initialized (runtime functions, global ctor).");
 #endif
-    }
+    } 
 
     // 获取语句生成器
     auto* stmtGen = codeGen.getStmtGen();

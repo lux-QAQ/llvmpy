@@ -744,15 +744,43 @@ std::shared_ptr<PyType> FunctionAST::inferReturnType() const
             }
 
             // 3.4 如果是函数调用，尝试获取函数返回类型
-            if (auto callExpr = dynamic_cast<const CallExprAST*>(retExpr))
+            if (auto callExprAst = dynamic_cast<const CallExprAST*>(retExpr))  // 使用 callExprAst 避免命名冲突
             {
-                FunctionType* funcType = TypeRegistry::getInstance().getFunctionType(callExpr->getCallee());
-                if (funcType)
+                const ExprAST* calleeNode = callExprAst->getCalleeExpr();  // 修改: getCallee() -> getCalleeExpr()
+                if (calleeNode)
                 {
-                    ObjectType* returnType = const_cast<ObjectType*>(funcType->getReturnType());
-                    if (returnType)
+                    if (auto varCallee = dynamic_cast<const VariableExprAST*>(calleeNode))
                     {
-                        return std::make_shared<PyType>(returnType);
+                        // 如果被调用者是简单的变量名
+                        const std::string& funcName = varCallee->getName();
+                        FunctionType* funcRegistryType = TypeRegistry::getInstance().getFunctionType(funcName);
+                        if (funcRegistryType)
+                        {
+                            ObjectType* returnObjType = const_cast<ObjectType*>(funcRegistryType->getReturnType());
+                            if (returnObjType)
+                            {
+                                return std::make_shared<PyType>(returnObjType);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // 如果被调用者是更复杂的表达式 (例如 (lambda x: x)() 或 obj.method())
+                        // 需要推断 calleeNode 本身的类型
+                        std::shared_ptr<PyType> calleePyType = calleeNode->getType();  // 假设 getType() 已实现并有效
+                        if (calleePyType && calleePyType->isFunction())
+                        {
+                            // 如果 calleeNode 的类型是函数类型，获取其返回类型
+                            if (auto actualFuncType = dynamic_cast<const FunctionType*>(calleePyType->getObjectType()))
+                            {
+                                ObjectType* returnObjType = const_cast<ObjectType*>(actualFuncType->getReturnType());
+                                if (returnObjType)
+                                {
+                                    return PyType::fromObjectType(returnObjType);
+                                }
+                            }
+                        }
+                        // 此处可能需要更高级的推断或回退逻辑
                     }
                 }
             }
@@ -824,7 +852,7 @@ std::shared_ptr<PyType> FunctionAST::getReturnType() const
     return cachedReturnType;
 }
 
-void FunctionAST::resolveParamTypes()
+/* void FunctionAST::resolveParamTypes()
 {
     // 如果已经解析过参数类型，直接返回
     if (allParamsResolved)
@@ -833,7 +861,12 @@ void FunctionAST::resolveParamTypes()
     }
 
     for (auto& param : params)
+
     {
+        if (param.resolvedType)
+        {
+            continue;
+        }
         if (!param.resolvedType)
         {
             if (!param.typeName.empty())
@@ -852,8 +885,58 @@ void FunctionAST::resolveParamTypes()
         // 确保resolvedType不为空
         if (!param.resolvedType)
         {
-            std::cerr << "警告: 无法解析参数 " << param.name << " 的类型，使用默认int类型" << std::endl;
+            std::cerr << "警告: 无法解析参数 " << param.name << " 的类型，使用默认int类型" << std::endl;// 逆天?
             param.resolvedType = PyType::getInt();
+        }
+    }
+
+    // 标记所有参数已解析
+    allParamsResolved = true;
+} */
+
+void FunctionAST::resolveParamTypes()
+{
+    // 如果已经解析过参数类型，直接返回
+    if (allParamsResolved)
+    {
+        return;
+    }
+
+    for (auto& param : params) // Ensure 'params' is a member that can be modified or 'param' is a reference
+    {
+        if (param.resolvedType) // 如果已经有解析好的类型，则跳过
+        {
+            continue;
+        }
+
+        if (!param.typeName.empty())
+        {
+            // 如果有类型注解字符串 (param.typeName)，尝试从字符串解析
+            param.resolvedType = PyType::fromString(param.typeName);
+            if (!param.resolvedType || (param.resolvedType->isAny() && param.typeName != "any")) {
+                // 如果 fromString 返回 nullptr (表示无法识别类型名)
+                // 或者返回了 Any 但原始注解不是 "any" (说明解析可能不完全符合预期)
+                // 打印警告并回退到 Any
+                std::cerr << "警告: 无法完全解析参数 '" << param.name
+                          << "' 的类型注解 '" << param.typeName
+                          << "'。将使用 'Any' 类型。" << std::endl;
+                param.resolvedType = PyType::getAny();
+            }
+        }
+        else
+        {
+            // 如果没有类型注解 (param.typeName 为空)，则默认设置为 Any 类型
+            param.resolvedType = PyType::getAny();
+        }
+
+        // 最后的保障：如果经过上述步骤 param.resolvedType 仍然是 nullptr
+        // (理论上不应该发生，因为 PyType::fromString 和 PyType::getAny 应该总能返回一个有效的 PyType)
+        // 则强制设置为 Any 并打印错误。
+        if (!param.resolvedType)
+        {
+            std::cerr << "错误: 参数 '" << param.name
+                      << "' 的类型解析最终失败。强制使用 'Any' 类型。" << std::endl;
+            param.resolvedType = PyType::getAny();
         }
     }
 

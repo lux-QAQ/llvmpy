@@ -131,6 +131,13 @@ void TypeOperationRegistry::initializeBuiltinOperations()
     registerBinaryOp(TOK_EQ, PY_TYPE_ANY,    PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true); // ANY == None
     registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_ANY,    PY_TYPE_BOOL, "py_object_compare", true); // None == ANY
     registerBinaryOp(TOK_EQ, PY_TYPE_NONE,   PY_TYPE_NONE,   PY_TYPE_BOOL, "py_object_compare", true); // None == None
+    registerBinaryOp(TOK_EQ, PY_TYPE_FUNC, PY_TYPE_FUNC, PY_TYPE_BOOL, "py_object_compare", true); // func == func
+    registerBinaryOp(TOK_EQ, PY_TYPE_ANY, PY_TYPE_FUNC, PY_TYPE_BOOL, "py_object_compare", true); // Any == func
+    registerBinaryOp(TOK_EQ, PY_TYPE_FUNC, PY_TYPE_ANY, PY_TYPE_BOOL, "py_object_compare", true); // func == Any
+    registerBinaryOp(TOK_EQ, PY_TYPE_FUNC, PY_TYPE_LIST, PY_TYPE_BOOL, "py_object_compare", true); // func != LIST
+    registerBinaryOp(TOK_EQ, PY_TYPE_LIST, PY_TYPE_FUNC, PY_TYPE_BOOL, "py_object_compare", true); // func != Any  
+    // 非常逆天的设计 对于这种具有可交换性的操作符 , 居然不能使用参数控制自动交换
+
 
     // For TOK_NEQ (!=)
        registerBinaryOp(TOK_NEQ, PY_TYPE_BOOL, PY_TYPE_BOOL, PY_TYPE_BOOL, "py_object_compare", true);
@@ -151,7 +158,11 @@ void TypeOperationRegistry::initializeBuiltinOperations()
     registerBinaryOp(TOK_NEQ, PY_TYPE_ANY,    PY_TYPE_NONE, PY_TYPE_BOOL, "py_object_compare", true); // ANY != None
     registerBinaryOp(TOK_NEQ, PY_TYPE_NONE,   PY_TYPE_ANY,    PY_TYPE_BOOL, "py_object_compare", true); // None != ANY
     registerBinaryOp(TOK_NEQ, PY_TYPE_NONE,   PY_TYPE_NONE,   PY_TYPE_BOOL, "py_object_compare", true); // None != None
-
+     registerBinaryOp(TOK_NEQ, PY_TYPE_FUNC, PY_TYPE_FUNC, PY_TYPE_BOOL, "py_object_compare", true); // func != func
+        registerBinaryOp(TOK_NEQ, PY_TYPE_ANY, PY_TYPE_FUNC, PY_TYPE_BOOL, "py_object_compare", true); // Any != func
+    registerBinaryOp(TOK_NEQ, PY_TYPE_FUNC, PY_TYPE_ANY, PY_TYPE_BOOL, "py_object_compare", true); // func != Any
+    registerBinaryOp(TOK_NEQ, PY_TYPE_FUNC, PY_TYPE_LIST, PY_TYPE_BOOL, "py_object_compare", true); // func != LIST
+    registerBinaryOp(TOK_NEQ, PY_TYPE_LIST, PY_TYPE_FUNC, PY_TYPE_BOOL, "py_object_compare", true); // func != Any  
 
 
     // 注册类型转换

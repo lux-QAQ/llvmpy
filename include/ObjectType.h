@@ -197,6 +197,12 @@ public:
     {
         return paramTypes;
     }
+        /** @brief LLVM RTTI support. */
+    static bool classof(const ObjectType *O) {
+        // ObjectType::TypeCategory is an enum within ObjectType.
+        // We access its members directly.
+        return O && O->getCategory() == ObjectType::Function;
+    }
 
 private:
     ObjectType* returnType;
@@ -255,6 +261,8 @@ public:
             registerBuiltinTypes();
         }
     }
+
+    
 
 private:
     TypeRegistry();

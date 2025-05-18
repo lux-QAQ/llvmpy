@@ -3,7 +3,7 @@
 #include "CodeGen/CodeGenType.h"
 #include "CodeGen/CodeGenRuntime.h"
 #include "CodeGen/CodeGenModule.h"
-#include "CodeGen/CodeGenUtil.h"
+#include "CodeGen/CodeGenUtil.h"  // For llvmObjToString
 
 //#include "ObjectRuntime.h"
 #include "TypeOperations.h"
@@ -12,6 +12,7 @@
 #include "Parser.h"  // For PyTypeParser
 
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/ValueSymbolTable.h>
 
 #include <cmath>
 #include <iostream>  // For errors
@@ -184,7 +185,38 @@ llvm::Value* CodeGenExpr::handleVariableExpr(VariableExprAST* expr)
 #endif
             // 获取代表函数对象的全局变量
             std::string gvName = name + "_obj_gv";  // 与 CodeGenModule 中创建 GV 的名称一致
-            llvm::GlobalVariable* funcObjGV = codeGen.getModule()->getGlobalVariable(gvName);
+
+            
+
+#ifdef DEBUG_CODEGEN_handleVariableExpr
+            llvm::Module* currentModule = codeGen.getModule();
+            if (currentModule) {
+                DEBUG_LOG_DETAIL("HdlVarExpr", "Attempting to find GlobalVariable with name: '" + gvName + "' in Module: " + currentModule->getModuleIdentifier() + " (" + llvmObjToString(currentModule) + ")");
+                DEBUG_LOG_DETAIL("HdlVarExpr", "Listing all GlobalVariables in module " + currentModule->getModuleIdentifier() + ":");
+                if (currentModule->global_empty()) {
+                    DEBUG_LOG_DETAIL("HdlVarExpr", "  Module has no global variables.");
+                } else {
+                    for (const llvm::GlobalVariable &gv : currentModule->globals()) {
+                        DEBUG_LOG_DETAIL("HdlVarExpr", "  Found GV: '" + gv.getName().str() + "' (" + llvmObjToString(&gv) + ")");
+                    }
+                }
+                DEBUG_LOG_DETAIL("HdlVarExpr", "Listing all NamedValues in module " + currentModule->getModuleIdentifier() + ":");
+                if (currentModule->empty()) { // Checks if there are any named values (functions, GVs, aliases)
+                     DEBUG_LOG_DETAIL("HdlVarExpr", "  Module has no named values.");
+                } else {
+                    for (auto it = currentModule->getValueSymbolTable().begin(), 
+                              end = currentModule->getValueSymbolTable().end(); it != end; ++it) {
+                        DEBUG_LOG_DETAIL("HdlVarExpr", "  Found NamedValue: '" + it->getKey().str() + "'");
+                    }
+                }
+
+            } else {
+                DEBUG_LOG_DETAIL("HdlVarExpr", "CRITICAL: codeGen.getModule() returned nullptr before getGlobalVariable call!");
+            }
+#endif
+
+
+            llvm::GlobalVariable* funcObjGV = codeGen.getModule()->getGlobalVariable(gvName,true);
 
             if (!funcObjGV)
             {
@@ -321,105 +353,124 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
     auto* typeGen = codeGen.getTypeGen();
     auto& symTable = codeGen.getSymbolTable();
 
-    const std::string& calleeName = expr->getCallee();
+    const ExprAST* calleeAstNode = expr->getCalleeExpr();
+    if (!calleeAstNode) {
+        return codeGen.logError("Call expression has no callee.",
+                                expr->line.value_or(0), expr->column.value_or(0));
+    }
 
-    llvm::Value* callableValue = nullptr;  // Can be llvm::Function* or PyObject* GV
+    llvm::Value* callableValue = nullptr;  // Can be llvm::Function* or PyObject*
     std::shared_ptr<PyType> callableType = nullptr;
     bool isDirectCall = false;  // Flag to indicate direct LLVM call
+    std::string calleeNameForContext; // Used for lookups if callee is VariableExpr, and for logging
 
-    // 1. Check if it's a variable in the symbol table
-    if (symTable.hasVariable(calleeName))
-    {
-        llvm::Value* varValue = symTable.getVariable(calleeName);
-        ObjectType* objType = symTable.getVariableType(calleeName);
-        callableType = objType ? PyType::fromObjectType(objType) : PyType::getAny();
+    if (auto* varExpr = llvm::dyn_cast<VariableExprAST>(calleeAstNode)) {
+        calleeNameForContext = varExpr->getName();
 
-        // Load the PyObject* from the variable (GV or Alloca)
-        if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(varValue))
+        // 1. Check if it's a variable in the symbol table
+        if (symTable.hasVariable(calleeNameForContext))
         {
-            callableValue = builder.CreateLoad(gv->getValueType(), gv, calleeName + "_callable_loaded");
-        }
-        else if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(varValue))
-        {
-            callableValue = builder.CreateLoad(allocaInst->getAllocatedType(), allocaInst, calleeName + "_callable_loaded");
-        }
-        else
-        {
-            callableValue = varValue;  // Should already be PyObject* (e.g., nested func)
-        }
+            llvm::Value* varValue = symTable.getVariable(calleeNameForContext);
+            ObjectType* objType = symTable.getVariableType(calleeNameForContext);
+            callableType = objType ? PyType::fromObjectType(objType) : PyType::getAny();
 
-        if (!callableType->isFunction() && !callableType->isAny())
-        {
-            return codeGen.logTypeError("Variable '" + calleeName + "' is not callable.",
-                                        expr->line.value_or(0), expr->column.value_or(0));
-        }
-        // It's a variable, so it's NOT a direct call to the llvm::Function
-        isDirectCall = false;
-    }
-    // 2. If not a variable, check if it's a known FunctionAST
-    else
-    {
-        const FunctionAST* funcAST = symTable.findFunctionAST(calleeName);
-        if (funcAST)
-        {
-#ifdef DEBUG_CODEGEN_handleCallExpr
-            DEBUG_LOG_DETAIL("HdlCallExpr", "Found FunctionAST for '" + calleeName + "' in symbol table.");
-#endif
-            // Get LLVM function info from the module cache
-            llvm::Function* llvmFunc = codeGen.getModuleGen()->getCachedFunction(funcAST);
-
-            if (!llvmFunc)
+            // Load the PyObject* from the variable (GV or Alloca)
+            if (auto* gv = llvm::dyn_cast<llvm::GlobalVariable>(varValue))
             {
-                // This error should not happen now with the pre-caching
-                return codeGen.logError("Internal Error: Found FunctionAST for '" + calleeName + "' but failed to get LLVM function from cache (should be pre-cached).",
-                                        expr->line.value_or(0), expr->column.value_or(0));
+                callableValue = builder.CreateLoad(gv->getValueType(), gv, calleeNameForContext + "_callable_loaded");
             }
-
-            // Get the function's type
-            ObjectType* funcObjType = codeGen.getTypeGen()->getFunctionObjectType(funcAST);
-            if (!funcObjType || funcObjType->getCategory() != ObjectType::Function)
+            else if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(varValue))
             {
-                return codeGen.logError("Found FunctionAST for '" + calleeName + "' but failed to get valid ObjectType.",
-                                        expr->line.value_or(0), expr->column.value_or(0));
-            }
-            callableType = PyType::fromObjectType(funcObjType);
-
-            // --- REVISED LOGIC ---
-            // If we found the FunctionAST and its corresponding LLVM Function,
-            // we can perform a direct call. No need to load from _obj_gv here.
-            isDirectCall = true;
-            callableValue = llvmFunc;  // Store the llvm::Function* itself
-#ifdef DEBUG_CODEGEN_handleCallExpr
-            if (llvmFunc == codeGen.getCurrentFunction())
-            {
-                DEBUG_LOG_DETAIL("HdlCallExpr", "Detected RECURSIVE call to '" + calleeName + "'. Will generate direct call.");
+                callableValue = builder.CreateLoad(allocaInst->getAllocatedType(), allocaInst, calleeNameForContext + "_callable_loaded");
             }
             else
             {
-                DEBUG_LOG_DETAIL("HdlCallExpr", "Detected call to known function '" + calleeName + "' (possibly outer scope). Will generate direct call.");
+                callableValue = varValue;  // Should already be PyObject* (e.g., nested func)
             }
-#endif
-            // --- END REVISED LOGIC ---
+
+            if (!callableType->isFunction() && !callableType->isAny())
+            {
+                return codeGen.logTypeError("Variable '" + calleeNameForContext + "' is not callable.",
+                                            expr->line.value_or(0), expr->column.value_or(0));
+            }
+            isDirectCall = false;
         }
+        // 2. If not a variable, check if it's a known FunctionAST
         else
         {
-            // --- MODIFICATION: Print symbol table on lookup failure ---
-            std::cerr << "--- Symbol Table Dump (Variable and AST Lookup Failed for '" << calleeName << "') ---" << std::endl;
-            symTable.dump(std::cerr);
-            std::cerr << "---------------------------------------------------------" << std::endl;
-            // --- End Modification ---
-            return codeGen.logError("Unknown function or variable: " + calleeName,
-                                    expr->line.value_or(0), expr->column.value_or(0));
+            const FunctionAST* funcAST = symTable.findFunctionAST(calleeNameForContext);
+            if (funcAST)
+            {
+    #ifdef DEBUG_CODEGEN_handleCallExpr
+                DEBUG_LOG_DETAIL("HdlCallExpr", "Found FunctionAST for '" + calleeNameForContext + "' in symbol table.");
+    #endif
+                llvm::Function* llvmFunc = codeGen.getModuleGen()->getCachedFunction(funcAST);
+
+                if (!llvmFunc)
+                {
+                    return codeGen.logError("Internal Error: Found FunctionAST for '" + calleeNameForContext + "' but failed to get LLVM function from cache (should be pre-cached).",
+                                            expr->line.value_or(0), expr->column.value_or(0));
+                }
+
+                ObjectType* funcObjType = codeGen.getTypeGen()->getFunctionObjectType(funcAST);
+                if (!funcObjType || funcObjType->getCategory() != ObjectType::Function)
+                {
+                    return codeGen.logError("Found FunctionAST for '" + calleeNameForContext + "' but failed to get valid ObjectType.",
+                                            expr->line.value_or(0), expr->column.value_or(0));
+                }
+                callableType = PyType::fromObjectType(funcObjType);
+                isDirectCall = true;
+                callableValue = llvmFunc;
+    #ifdef DEBUG_CODEGEN_handleCallExpr
+                if (llvmFunc == codeGen.getCurrentFunction())
+                {
+                    DEBUG_LOG_DETAIL("HdlCallExpr", "Detected RECURSIVE call to '" + calleeNameForContext + "'. Will generate direct call.");
+                }
+                else
+                {
+                    DEBUG_LOG_DETAIL("HdlCallExpr", "Detected call to known function '" + calleeNameForContext + "' (possibly outer scope). Will generate direct call.");
+                }
+    #endif
+            }
+            else
+            {
+                std::cerr << "--- Symbol Table Dump (Variable and AST Lookup Failed for '" << calleeNameForContext << "') ---" << std::endl;
+                symTable.dump(std::cerr);
+                std::cerr << "---------------------------------------------------------" << std::endl;
+                return codeGen.logError("Unknown function or variable: " + calleeNameForContext,
+                                        expr->line.value_or(0), expr->column.value_or(0));
+            }
         }
+    }
+    else
+    {
+        calleeNameForContext = "(complex callee)";
+        callableValue = handleExpr(calleeAstNode);
+        if (!callableValue) {
+            return codeGen.logError("Failed to evaluate callee expression.",
+                                    calleeAstNode->line.value_or(0), calleeAstNode->column.value_or(0));
+        }
+
+        callableType = calleeAstNode->getType();
+        if (!callableType) {
+            callableType = PyType::getAny();
+            codeGen.logWarning("Could not determine type of complex callee expression. Assuming Any.",
+                               calleeAstNode->line.value_or(0), calleeAstNode->column.value_or(0));
+        }
+
+        if (!callableType->isFunction() && !callableType->isAny()) {
+            return codeGen.logTypeError("Expression resulting in type '" + callableType->toString() + "' is not callable.",
+                                        calleeAstNode->line.value_or(0), calleeAstNode->column.value_or(0));
+        }
+        isDirectCall = false;
     }
 
     if (!callableValue)
     {
-        return codeGen.logError("Could not resolve callable expression: " + calleeName,
+        return codeGen.logError("Could not resolve callable expression: " + calleeNameForContext,
                                 expr->line.value_or(0), expr->column.value_or(0));
     }
 
-    // 4. Generate arguments (same as before)
     std::vector<llvm::Value*> args;
     std::vector<std::shared_ptr<PyType>> argTypes;
     for (const auto& arg : expr->getArgs())
@@ -430,83 +481,136 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
         argTypes.push_back(arg->getType());
     }
 
-    // 5. Prepare arguments based on call type
     std::vector<llvm::Value*> preparedArgs;
     if (isDirectCall)
     {
-#ifdef DEBUG_CODEGEN_handleCallExpr_isDirectCall
-        DEBUG_LOG_DETAIL("HdlCallExpr", "Preparing arguments for direct call to '" + calleeName + "'");
-#endif
-        // For direct calls, arguments should match the LLVM function signature (likely ptr)
-        // Assuming prepareArgument handles this or we adjust here.
-        // Let's assume prepareArgument is smart enough for now, or returns the ptr directly.
+    #ifdef DEBUG_CODEGEN_handleCallExpr_isDirectCall
+        DEBUG_LOG_DETAIL("HdlCallExpr", "Preparing arguments for direct call to '" + calleeNameForContext + "'");
+    #endif
         llvm::Function* targetFunc = llvm::cast<llvm::Function>(callableValue);
         llvm::FunctionType* funcType = targetFunc->getFunctionType();
         if (args.size() != funcType->getNumParams())
         {
-            return codeGen.logError("Argument count mismatch for direct call to '" + calleeName + "'. Expected "
+            return codeGen.logError("Argument count mismatch for direct call to '" + calleeNameForContext + "'. Expected "
                                             + std::to_string(funcType->getNumParams()) + ", got " + std::to_string(args.size()) + ".",
                                     expr->line.value_or(0), expr->column.value_or(0));
         }
         for (size_t i = 0; i < args.size(); ++i)
         {
-            // We need to ensure the argument is a PyObject* (ptr) for the direct call
-            // Assuming handleExpr returns PyObject* and prepareArgument doesn't change it unnecessarily.
-            // A simple pass-through might be sufficient if handleExpr guarantees PyObject*.
-            llvm::Value* preparedArg = runtime->prepareArgument(args[i], argTypes[i], nullptr);  // Pass nullptr for expected type? Or get from funcType?
-            if (!preparedArg || preparedArg->getType() != funcType->getParamType(i))
-            {
-                return codeGen.logError("Failed to prepare or type mismatch for argument " + std::to_string(i + 1) + " in direct call to '" + calleeName + "'. Expected " + llvmObjToString(funcType->getParamType(i)) + ".",
+            std::shared_ptr<PyType> expectedPyTypeForLlvmParam;
+
+            // FIX: Removed call to non-existent typeGen->mapLLVMTypeToObjectType
+            // Since CodeGenType.h does not provide a direct method to map llvm::Type*
+            // back to a PyType or ObjectType*, we default to PyType::getAny().
+            // This means runtime->prepareArgument will receive PyType::getAny()
+            // as the expected Python-level type for this LLVM parameter.
+            // A more precise mapping would require enhancing CodeGenType.
+
+            std::string llvmParamTypeStr;
+            llvm::raw_string_ostream rso(llvmParamTypeStr);
+            funcType->getParamType(i)->print(rso);
+
+            codeGen.logWarning("Direct call to '" + calleeNameForContext +
+                               "': Cannot reliably map LLVM param type (" + rso.str() +
+                               ") to a specific PyType for param " + std::to_string(i) +
+                               ". Using PyType::getAny() for argument preparation.",
+                               expr->line.value_or(0), expr->column.value_or(0));
+            expectedPyTypeForLlvmParam = PyType::getAny();
+
+            llvm::Value* preparedArg = runtime->prepareArgument(args[i], argTypes[i], expectedPyTypeForLlvmParam);
+            if (!preparedArg) {
+                 return codeGen.logError("Failed to prepare argument " + std::to_string(i + 1) + " for direct call to '" + calleeNameForContext + "'.",
                                         expr->line.value_or(0), expr->column.value_or(0));
+            }
+
+            if (preparedArg->getType() != funcType->getParamType(i))
+            {
+                if (llvm::CastInst::isBitCastable(preparedArg->getType(), funcType->getParamType(i))) {
+                    preparedArg = builder.CreateBitCast(preparedArg, funcType->getParamType(i), "arg_cast");
+                } else {
+                    std::string actualTypeStr, expectedTypeStr;
+                    llvm::raw_string_ostream rso_actual(actualTypeStr);
+                    preparedArg->getType()->print(rso_actual);
+                    llvm::raw_string_ostream rso_expected(expectedTypeStr);
+                    funcType->getParamType(i)->print(rso_expected);
+
+                    return codeGen.logError("Type mismatch for argument " + std::to_string(i + 1) +
+                                            " in direct call to '" + calleeNameForContext + "'. Expected " +
+                                            expectedTypeStr + " but got " + actualTypeStr + ".",
+                                            expr->line.value_or(0), expr->column.value_or(0));
+                }
             }
             preparedArgs.push_back(preparedArg);
         }
     }
     else
     {
-        // For runtime calls, prepare arguments for py_call_function (usually PyObject*)
-        std::vector<std::shared_ptr<PyType>> expectedParamTypes;  // TODO: Get from callableType if possible
+        std::vector<std::shared_ptr<PyType>> expectedParamTypes;
+        if (callableType && callableType->isFunction() && callableType->getObjectType()) {
+            // FIX 3: Changed FunctionObjectType to FunctionType
+            if (auto* funcOt = llvm::dyn_cast<FunctionType>(callableType->getObjectType())) {
+                for(const auto& paramOt : funcOt->getParamTypes()) {
+                    // Ensure paramOt is not null before creating PyType from it
+                    if (paramOt) {
+                        auto pyParamType = PyType::fromObjectType(paramOt);
+                        if (pyParamType) {
+                            expectedParamTypes.push_back(pyParamType);
+                        } else {
+                            codeGen.logWarning("Runtime call to '" + calleeNameForContext +
+                                               "': Could not create PyType from parameter ObjectType. Using Any.",
+                                               expr->line.value_or(0), expr->column.value_or(0));
+                            expectedParamTypes.push_back(PyType::getAny());
+                        }
+                    } else {
+                         codeGen.logWarning("Runtime call to '" + calleeNameForContext +
+                                           "': Encountered null parameter ObjectType. Using Any.",
+                                           expr->line.value_or(0), expr->column.value_or(0));
+                        expectedParamTypes.push_back(PyType::getAny());
+                    }
+                }
+            } else {
+                 codeGen.logWarning("Runtime call to '" + calleeNameForContext +
+                                   "': Callable's ObjectType is not a FunctionType. Cannot determine expected param types.",
+                                   expr->line.value_or(0), expr->column.value_or(0));
+            }
+        }
+
         for (size_t i = 0; i < args.size(); ++i)
         {
-            std::shared_ptr<PyType> expectedType = (i < expectedParamTypes.size()) ? expectedParamTypes[i] : nullptr;
+            std::shared_ptr<PyType> expectedType = (i < expectedParamTypes.size()) ? expectedParamTypes[i] : PyType::getAny();
             llvm::Value* preparedArg = runtime->prepareArgument(args[i], argTypes[i], expectedType);
             if (!preparedArg)
             {
-                return codeGen.logError("Failed to prepare argument " + std::to_string(i + 1) + " for runtime call.",
+                return codeGen.logError("Failed to prepare argument " + std::to_string(i + 1) + " for runtime call to '" + calleeNameForContext + "'.",
                                         expr->line.value_or(0), expr->column.value_or(0));
             }
             preparedArgs.push_back(preparedArg);
         }
     }
 
-    // 6. Generate the call instruction
     llvm::Value* callResult = nullptr;
     if (isDirectCall)
     {
-#ifdef DEBUG_CODEGEN_handleCallExpr
-        DEBUG_LOG_DETAIL("HdlCallExpr", "Generating direct LLVM call instruction to '" + calleeName + "'");
-#endif
+    #ifdef DEBUG_CODEGEN_handleCallExpr
+        DEBUG_LOG_DETAIL("HdlCallExpr", "Generating direct LLVM call instruction to '" + calleeNameForContext + "'");
+    #endif
         llvm::Function* targetFunc = llvm::cast<llvm::Function>(callableValue);
-        callResult = builder.CreateCall(targetFunc->getFunctionType(), targetFunc, preparedArgs, "direct_call_res");
+        callResult = builder.CreateCall(targetFunc->getFunctionType(), targetFunc, preparedArgs, calleeNameForContext + "_direct_call_res");
     }
     else
     {
-#ifdef DEBUG_CODEGEN_handleCallExpr
-        DEBUG_LOG_DETAIL("HdlCallExpr", "Generating runtime call via py_call_function for '" + calleeName + "'");
-#endif
-        // callableValue here is the loaded PyObject*
+    #ifdef DEBUG_CODEGEN_handleCallExpr
+        DEBUG_LOG_DETAIL("HdlCallExpr", "Generating runtime call via py_call_function for '" + calleeNameForContext + "'");
+    #endif
         callResult = runtime->createCallFunction(callableValue, preparedArgs);
         if (!callResult)
         {
-            return codeGen.logError("Failed to generate code for runtime function call.",
+            return codeGen.logError("Failed to generate code for runtime function call to '" + calleeNameForContext + "'.",
                                     expr->line.value_or(0), expr->column.value_or(0));
         }
     }
 
-    // 7. Mark return value source (same as before)
     runtime->markObjectSource(callResult, ObjectLifecycleManager::ObjectSource::FUNCTION_RETURN);
-
-    // 8. Infer and set return type (same as before)
     std::shared_ptr<PyType> returnType = typeGen->inferCallReturnType(callableType, argTypes);
     expr->setType(returnType);
 

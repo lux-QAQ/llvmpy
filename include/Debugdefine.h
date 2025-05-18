@@ -9,23 +9,23 @@
 #ifdef DEBUG
 
 //main
-#define DEBUG_MAIN_TOKEN_DUMP
+//#define DEBUG_MAIN_TOKEN_DUMP
 
 //lexer
-#define DEBUG_LEXER
+//#define DEBUG_LEXER
 
 //#define DEBUG_LEXER_INDENT
 
 
 
 // 定义RECOVER_SOURCE_FROM_TOKENS宏来启用从Token恢复源代码
-#define RECOVER_SOURCE_FROM_TOKENS
+//#define RECOVER_SOURCE_FROM_TOKENS
 
 #define DEBUG_PARSER_Block
 #define DEBUG_PARSER_Expr
 #define DEBUG_PARSER_Stmt
-//#define DEBUG_PARSER_NextToken_detailed
-//#define DEBUG_PARSER_NextToken
+#define DEBUG_PARSER_NextToken_detailed
+#define DEBUG_PARSER_NextToken
 
 
 
@@ -47,13 +47,16 @@
 #define DEBUG_CODEGEN_STMT
 #define DEBUG_WhileSTmt_terminated
 #define DEBUG_CODEGEN_verifyFunction
-//#define DEBUG_CODEGEN_getCachedFunction
+#define DEBUG_CODEGEN_handleVariableExpr
+#define DEBUG_CODEGEN_getCachedFunction
 
-//#define DEBUG_CODEGEN_createListWithValues
-//#define DEBUG_CODEGEN_getCommonType
-//#define DEBUG_CODEGEN_inferListElementType
+#define DEBUG_CODEGEN_createListWithValues
+#define DEBUG_CODEGEN_getCommonType
+#define DEBUG_CODEGEN_inferListElementType
 
 #define DEBUG_SYMBOL_TABLE
+
+#define DEBUG_inferExprType_expr
 
 
 

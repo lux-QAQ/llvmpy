@@ -244,7 +244,7 @@ void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
     auto& builder = codeGen.getBuilder();
     auto& context = codeGen.getContext();
     auto* runtime = codeGen.getRuntimeGen();
-    auto& symTable = codeGen.getSymbolTable();                         // Get symbol table
+    auto& symTable = codeGen.getSymbolTable();
     llvm::Type* pyObjectPtrType = llvm::PointerType::get(context, 0);  // PyObject*
 
     // --- 将 FunctionAST 注册到符号表 ---
@@ -252,23 +252,53 @@ void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
     DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Defining FunctionAST '" + pyFuncName + "' in current symbol table scope.");
 #endif
     symTable.defineFunctionAST(pyFuncName, funcAST);
-// --- 步骤 1: 调用 CodeGenModule 生成唯一的 LLVM 函数 ---
+
+    // --- 新增步骤：为顶层函数预声明 GlobalVariable ---
+    llvm::GlobalVariable* preDeclaredFuncObjGV = nullptr;
+    llvm::Function* currentDefiningFunction = codeGen.getCurrentFunction(); // The function context where 'def' occurs
+    bool isTopLevelDefinition = !currentDefiningFunction || currentDefiningFunction->getName() == "__llvmpy_entry";
+    std::string gvNameForLookup;
+
+    if (isTopLevelDefinition) // Or any other condition that implies GV storage
+    {
+        gvNameForLookup = pyFuncName + "_obj_gv";
+        preDeclaredFuncObjGV = codeGen.getModule()->getGlobalVariable(gvNameForLookup,true);
+        if (!preDeclaredFuncObjGV)
+        {
+            preDeclaredFuncObjGV = new llvm::GlobalVariable(
+                *codeGen.getModule(),
+                pyObjectPtrType,
+                false, // isConstant
+                llvm::GlobalValue::InternalLinkage,
+                llvm::Constant::getNullValue(pyObjectPtrType), // Initializer = null for now
+                gvNameForLookup);
+            preDeclaredFuncObjGV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "PRE-DECLARED GlobalVariable: " + llvmObjToString(preDeclaredFuncObjGV) + " for '" + pyFuncName + "'");
+#endif
+        }
+        // At this point, the GlobalVariable exists in the module.
+        // CodeGenExpr::handleVariableExpr will be able to find it by name.
+    }
+
+    // --- 步骤 1: 调用 CodeGenModule 生成唯一的 LLVM 函数 (函数体在这里生成) ---
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
     DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling ModuleGen->handleFunctionDef for '" + pyFuncName + "'...");
 #endif
-    llvm::Function* llvmFunc = codeGen.getModuleGen()->handleFunctionDef(funcAST);  // Gets the unique LLVM function (e.g., @test.L4.C8)
+    llvm::Function* llvmFunc = codeGen.getModuleGen()->handleFunctionDef(funcAST);
     if (!llvmFunc)
     {
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
         DEBUG_LOG_DETAIL("HdlFuncDefStmt", "ModuleGen->handleFunctionDef FAILED for '" + pyFuncName + "'.");
 #endif
-        return;  // Error logged by handleFunctionDef
+        return;
     }
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
     std::string uniqueLLVMName = llvmFunc->getName().str();
     DEBUG_LOG_DETAIL("HdlFuncDefStmt", "ModuleGen->handleFunctionDef SUCCEEDED for '" + pyFuncName + "'. Got LLVM Func: " + llvmObjToString(llvmFunc) + " ('" + uniqueLLVMName + "')");
 #endif
-// --- 步骤 2: 调用 CodeGenType 获取 Python 函数类型 ---
+
+    // --- 步骤 2: 调用 CodeGenType 获取 Python 函数类型 ---
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
     DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling TypeGen->getFunctionObjectType for '" + pyFuncName + "'...");
 #endif
@@ -284,11 +314,12 @@ void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
     DEBUG_LOG_DETAIL("HdlFuncDefStmt", "TypeGen->getFunctionObjectType SUCCEEDED for '" + pyFuncName + "'. Type: " + funcObjectType->getName());
 #endif
-// --- 步骤 3: 调用 CodeGenRuntime 创建 Python 函数对象 ---
+
+    // --- 步骤 3: 调用 CodeGenRuntime 创建 Python 函数对象 ---
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
     DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling RuntimeGen->createFunctionObject using LLVM func '" + llvmFunc->getName().str() + "'...");
 #endif
-    llvm::Value* pyFuncObj = runtime->createFunctionObject(llvmFunc, funcObjectType);  // Wraps the unique LLVM function
+    llvm::Value* pyFuncObj = runtime->createFunctionObject(llvmFunc, funcObjectType);
     if (!pyFuncObj)
     {
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
@@ -301,167 +332,103 @@ void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
     DEBUG_LOG_DETAIL("HdlFuncDefStmt", "RuntimeGen->createFunctionObject SUCCEEDED for '" + pyFuncName + "'. Value: " + llvmObjToString(pyFuncObj));
 #endif
 
-    // --- 步骤 4: 确定存储位置 (Alloca 或 GlobalVariable) ---
-    llvm::Function* currentCodeGenFunction = codeGen.getCurrentFunction();
-    bool isTopLevel = !currentCodeGenFunction || currentCodeGenFunction->getName() == "__llvmpy_entry";
-    llvm::Value* storage = nullptr;  // Pointer to the storage location (AllocaInst* or GlobalVariable*)
+    // --- 步骤 4: 确定存储位置 (Alloca 或 GlobalVariable) 并存储 Python 函数对象 ---
+    llvm::Value* storage = nullptr;
 
-    if (isTopLevel)
+    if (isTopLevelDefinition)
     {
-// --- 顶层函数：查找或创建 GlobalVariable ---
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Function '" + pyFuncName + "' is top-level. Looking for/Creating GlobalVariable.");
-#endif
-        std::string gvName = pyFuncName + "_obj_gv";  // Name for the global variable pointer
-        storage = codeGen.getModule()->getGlobalVariable(gvName);
-        if (!storage)
-        {
-            llvm::GlobalVariable* funcObjGV = new llvm::GlobalVariable(
-                    *codeGen.getModule(),
-                    pyObjectPtrType,                                // Type of the global is PyObject*
-                    false,                                          // isConstant = false (value can change)
-                    llvm::GlobalValue::InternalLinkage,             // Linkage
-                    llvm::Constant::getNullValue(pyObjectPtrType),  // Initializer = null
-                    gvName);
-            // Use None since the name is important for lookup
-            funcObjGV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
-            storage = funcObjGV;
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created GlobalVariable: " + llvmObjToString(storage) + " in Module@ " + std::to_string(reinterpret_cast<uintptr_t>(codeGen.getModule())));
-#endif
-        }
-        else
-        {
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Found existing GlobalVariable: " + llvmObjToString(storage));
-#endif
-            // Ensure the type matches if GV already exists
-            if (auto* existingGV = llvm::dyn_cast<llvm::GlobalVariable>(storage))
-            {
-                if (existingGV->getValueType() != pyObjectPtrType)
-                {
-                    codeGen.logError("GlobalVariable '" + gvName + "' exists but holds the wrong type (expected PyObject*).", line, col);
-                    return;
-                }
-            }
-            else
-            {
-                // 如果 storage 不是 GlobalVariable*，这是一个内部错误
-                codeGen.logError("Internal error: Found storage for '" + gvName + "' but it's not a GlobalVariable.", line, col);
-                return;
-            }
-        }
+        // --- 顶层函数：使用预声明的 GlobalVariable ---
+        storage = preDeclaredFuncObjGV; // This is the llvm::GlobalVariable*
 
+#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
+        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Function '" + pyFuncName + "' is top-level. Using PRE-DECLARED GlobalVariable: " + llvmObjToString(storage));
+#endif
         // Store the new function object into the GlobalVariable
-        llvm::BasicBlock* currentBlock = builder.GetInsertBlock();
-        if (currentBlock && currentCodeGenFunction)  // Store in current function if possible
+        llvm::BasicBlock* currentBlockForStore = builder.GetInsertBlock();
+        // Ensure we are in a valid block within the function where 'def' is processed (e.g., __llvmpy_entry)
+        if (currentBlockForStore && currentDefiningFunction)
         {
-            // TODO: Handle DecRef for the *previous* value in the GV if overwriting?
-            // This is complex for GVs initialized potentially by ctors.
-            // For simplicity, assume the GV just holds the latest reference.
             builder.CreateStore(pyFuncObj, storage);
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* into GlobalVariable: " + llvmObjToString(storage) + " in block " + llvmObjToString(currentBlock));
+            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* into GlobalVariable: " + llvmObjToString(storage) + " in block " + llvmObjToString(currentBlockForStore));
 #endif
         }
         else
         {
-            // TODO: Store in global constructor if not in a function context.
-            codeGen.logWarning("Cannot find insert block to store GlobalVariable for top-level function " + pyFuncName + ". Storage might be delayed or require global ctor.", line, col);
-            // Fallback: Try to add to global ctor (complex, needs careful handling)
+            codeGen.logWarning("Cannot find insert block in current function (" + (currentDefiningFunction ? currentDefiningFunction->getName().str() : "null") + ") to store GlobalVariable for top-level function " + pyFuncName + ". Storage might be delayed or require global ctor.", line, col);
         }
-        // GV now holds the reference returned by createFunctionObject (+1). No extra IncRef needed here.
     }
-    else  // isTopLevel == false (Nested function)
+    else  // Nested function
     {
-// --- 嵌套函数：查找或创建 AllocaInst ---
+        // --- 嵌套函数：查找或创建 AllocaInst (现有逻辑) ---
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
         DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Function '" + pyFuncName + "' is nested. Looking for/Creating AllocaInst.");
 #endif
-
         llvm::AllocaInst* funcObjAlloca = nullptr;
-        bool isNewAlloca = false;  // <<<--- 添加标志位
+        bool isNewAlloca = false;
 
-        // 1. Check if variable already exists in the current or parent scopes
         if (symTable.hasVariable(pyFuncName))
         {
             llvm::Value* existingVar = symTable.getVariable(pyFuncName);
-            // Ensure it's an AllocaInst (could be a function arg or other value)
             if (llvm::isa<llvm::AllocaInst>(existingVar))
             {
                 funcObjAlloca = llvm::cast<llvm::AllocaInst>(existingVar);
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
                 DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Found existing AllocaInst for '" + pyFuncName + "': " + llvmObjToString(funcObjAlloca));
 #endif
-                // Ensure type matches
                 if (funcObjAlloca->getAllocatedType() != pyObjectPtrType)
                 {
                     codeGen.logError("AllocaInst '" + pyFuncName + "' exists with wrong type.", line, col);
                     return;
                 }
-                isNewAlloca = false;  // <<<--- 标记为复用
+                isNewAlloca = false;
             }
             else
             {
-// Variable exists but isn't an Alloca (e.g., function parameter).
-// Python allows shadowing parameters with local defs. Create a *new* alloca.
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
                 DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Variable '" + pyFuncName + "' exists but is not Alloca. Creating new Alloca for shadowing.");
 #endif
                 funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName);
-                if (!funcObjAlloca) return;  // Error logged by createEntryBlockAlloca
-                isNewAlloca = true;          // <<<--- 标记为新建
+                if (!funcObjAlloca) return;
+                isNewAlloca = true;
             }
         }
         else
         {
-// 2. Variable doesn't exist, create a new AllocaInst
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
             DEBUG_LOG_DETAIL("HdlFuncDefStmt", "No existing variable/AllocaInst found for '" + pyFuncName + "'. Creating new AllocaInst.");
 #endif
             funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName);
-            if (!funcObjAlloca) return;  // Error logged by createEntryBlockAlloca
+            if (!funcObjAlloca) return;
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
             DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created new AllocaInst for '" + pyFuncName + "': " + llvmObjToString(funcObjAlloca));
 #endif
-            isNewAlloca = true;  // <<<--- 标记为新建
+            isNewAlloca = true;
         }
-        storage = funcObjAlloca;  // Storage location is the alloca
+        storage = funcObjAlloca;
 
-        // 3. Store the new function object into the alloca, handling overwrites
-        llvm::BasicBlock* currentBlock = builder.GetInsertBlock();
-        if (currentBlock)
+        llvm::BasicBlock* currentBlockForStore = builder.GetInsertBlock();
+        if (currentBlockForStore)
         {
-            // --- MODIFICATION: Only handle overwrite if alloca is NOT new ---
             if (!isNewAlloca)
             {
-                // --- Overwrite Handling: DecRef old value ---
                 llvm::Value* oldValue = builder.CreateLoad(pyObjectPtrType, funcObjAlloca, pyFuncName + ".old");
                 llvm::Value* isNotNull = builder.CreateIsNotNull(oldValue, "isOldValueNotNull");
-                llvm::BasicBlock* decRefBlock = codeGen.createBasicBlock("decRefOldFunc", currentCodeGenFunction);
-                llvm::BasicBlock* storeNewBlock = codeGen.createBasicBlock("storeNewFunc", currentCodeGenFunction);  // Need continuation block regardless
+                llvm::BasicBlock* decRefBlock = codeGen.createBasicBlock("decRefOldFunc", currentDefiningFunction);
+                llvm::BasicBlock* storeNewBlock = codeGen.createBasicBlock("storeNewFunc", currentDefiningFunction);
 
-                builder.CreateCondBr(isNotNull, decRefBlock, storeNewBlock);  // Branch to decref or directly to store
+                builder.CreateCondBr(isNotNull, decRefBlock, storeNewBlock);
 
-                // DecRef Block:
                 builder.SetInsertPoint(decRefBlock);
                 runtime->decRef(oldValue);
-                builder.CreateBr(storeNewBlock);  // Branch to store after decref
+                builder.CreateBr(storeNewBlock);
 
-                // Store New Block: (Builder now points here)
                 builder.SetInsertPoint(storeNewBlock);
             }
-            // --- END MODIFICATION ---
-            // If it was a new alloca, the builder's insert point is still where it was,
-            // and we directly proceed to store the new value without the decref logic.
-
-            // Store the *new* function object
             builder.CreateStore(pyFuncObj, funcObjAlloca);
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* (" + llvmObjToString(pyFuncObj) + ") into AllocaInst: " + llvmObjToString(funcObjAlloca) + " in block " + llvmObjToString(builder.GetInsertBlock()));  // Use current block
+            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* (" + llvmObjToString(pyFuncObj) + ") into AllocaInst: " + llvmObjToString(funcObjAlloca) + " in block " + llvmObjToString(builder.GetInsertBlock()));
 #endif
-
-            // Increment ref count of the *new* object...
             runtime->incRef(pyFuncObj);
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
             DEBUG_LOG_DETAIL("HdlFuncDefStmt", "IncRef'd new PyObject* (" + llvmObjToString(pyFuncObj) + ") for nested function storage.");
@@ -470,15 +437,13 @@ void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
         else
         {
             codeGen.logError("Cannot find insert block to store nested function object " + pyFuncName, line, col);
-            storage = nullptr;  // Mark storage as failed
+            storage = nullptr;
         }
     }
 
     // --- 步骤 5: 调用 PySymbolTable 绑定/更新存储位置 ---
     if (storage)
     {
-// Bind the Python name `pyFuncName` to the `storage` location (AllocaInst* or GlobalVariable*)
-// This handles both initial definition and re-binding (overwriting).
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
         DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Binding/Rebinding SymbolTable entry for '" + pyFuncName + "' to storage: " + llvmObjToString(storage));
 #endif

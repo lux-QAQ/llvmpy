@@ -27,6 +27,35 @@ std::shared_ptr<PyType> CodeGenType::inferExprType(const ExprAST* expr)
         return PyType::getAny();
     }
 
+#ifdef DEBUG_inferExprType_expr
+
+    std::cerr << "Debug [analyzeReturnExpr]: Analyzing expr at address: " << static_cast<const void*>(expr) << std::endl;
+    if (expr->line.has_value())
+    {
+        std::cerr << "  expr->line: " << expr->line.value() << std::endl;
+    }
+    else
+    {
+        std::cerr << "  expr->line: not set (nullopt)" << std::endl;
+    }
+    if (expr->column.has_value())
+    {
+        // 尝试打印，但如果它是垃圾数据，这本身也可能不安全或无意义
+        // 为了避免因打印垃圾数据导致额外问题，可以先检查一个合理范围
+        long long col_val_raw = expr->column.value_or(-1);  // 获取原始值，如果nullopt则为-1
+        std::cerr << "  expr->column.has_value(): true, raw value (approx): " << col_val_raw << std::endl;
+        // 如果怀疑是垃圾数据，不要直接使用 .value() 打印，除非在调试器中安全查看
+        
+    }
+    else
+    {
+        std::cerr << "  expr->column: not set (nullopt)" << std::endl;
+        std::cerr << "  expr->kind(): " << static_cast<int>(expr->kind()) << std::endl;
+    }
+
+    
+#endif
+
     // 首先检查缓存
     auto it = typeCache.find(expr);
     if (it != typeCache.end())
@@ -124,7 +153,7 @@ std::shared_ptr<PyType> CodeGenType::inferExprType(const ExprAST* expr)
             }
 
             // 使用函数调用类型推导
-            resultType = inferCallExprType(callExpr->getCallee(), argTypes);
+            resultType = inferCallExprType(callExpr->getCalleeExpr(), argTypes);
             break;
         }
 
@@ -428,7 +457,7 @@ std::shared_ptr<PyType> CodeGenType::inferIndexExprType(
     return PyType::getAny();
 }
 
-std::shared_ptr<PyType> CodeGenType::inferCallReturnType(
+/* std::shared_ptr<PyType> CodeGenType::inferCallReturnType(
         std::shared_ptr<PyType> callableType,
         const std::vector<std::shared_ptr<PyType>>& argTypes)
 {
@@ -446,24 +475,132 @@ std::shared_ptr<PyType> CodeGenType::inferCallReturnType(
     // If the callable type is not a function or Any, it's an error handled elsewhere.
     // Return Any as a fallback, though ideally an error type might be better.
     return PyType::getAny();
+} */
+// ...existing code...
+std::shared_ptr<PyType> CodeGenType::inferCallReturnType(
+        std::shared_ptr<PyType> callableType,
+        const std::vector<std::shared_ptr<PyType>>& argTypes)
+{
+    if (!callableType)
+    {
+        return PyType::getAny();
+    }
+
+    // 如果可调用对象的类型是 Any，则返回类型也是 Any
+    if (callableType->isAny())
+    {
+        return PyType::getAny();
+    }
+
+    // 如果可调用对象的类型是函数类型
+    if (callableType->isFunction())
+    {
+        // 尝试获取具体的函数对象类型信息
+        ObjectType* objType = callableType->getObjectType();
+        if (objType)
+        {
+            // 检查它是否是存储了返回和参数类型的 FunctionType
+            if (auto* funcObjType = dynamic_cast<const FunctionType*>(objType))
+            {
+                // 从 FunctionType 获取返回类型
+                ObjectType* returnObjType = const_cast<ObjectType*>(funcObjType->getReturnType());
+                if (returnObjType)
+                {
+                    // 递归调用的情况：如果返回类型与调用的函数类型相同，应该返回实际的返回值类型
+                    int typeId = returnObjType->getTypeId();
+                    const std::string& typeName = returnObjType->getName();
+
+                    // 避免将返回类型误判为函数类型
+                    if (typeId == PY_TYPE_FUNC || typeId == PY_TYPE_FUNC_BASE)
+                    {
+                        // 如果函数返回函数，则保留函数类型
+                        return PyType::fromObjectType(returnObjType);
+                    }
+                    // 递归函数调用时，类型推断应该使用函数声明的返回类型，而不是函数类型本身
+                    else if (typeName == "int" || typeName == "float" || typeName == "double" || typeName == "bool" || typeName == "string" || typeName == "any")
+                    {
+                        return PyType::fromObjectType(returnObjType);
+                    }
+                    // 若无法确定明确类型，默认为 any 而非函数类型
+                    else
+                    {
+                        return PyType::getAny();
+                    }
+                }
+            }
+
+            // 特殊处理：如果函数有标记指示它返回什么类型
+            if (objType->hasFeature("returns_numeric"))
+            {
+                return PyType::getInt();  // 或创建通用数值类型
+            }
+            if (objType->hasFeature("returns_string"))
+            {
+                return PyType::getString();
+            }
+            if (objType->hasFeature("returns_bool"))
+            {
+                return PyType::getBool();
+            }
+        }
+
+        // 默认返回 any 类型，而不是函数类型本身
+        return PyType::getAny();
+    }
+
+    // 如果不是函数类型也不是 Any 类型
+    return PyType::getAny();
 }
 
+std::shared_ptr<PyType> CodeGenType::inferCallExprType(
+        const ExprAST* calleeExpr,
+        const std::vector<std::shared_ptr<PyType>>& argTypes)
+{
+    if (!calleeExpr)
+    {
+        // Log an error or warning if necessary
+        codeGen.logError("Cannot infer call expression type from a null callee expression.", 0, 0);  // Provide line/col if available
+        return PyType::getAny();
+    }
+
+    // If the callee is a simple variable (e.g., a function name),
+    // we can try to use the string-based overload.
+    if (calleeExpr->kind() == ASTKind::VariableExpr)
+    {
+        auto varExpr = static_cast<const VariableExprAST*>(calleeExpr);
+        return inferCallExprType(varExpr->getName(), argTypes);
+    }
+
+    // For other types of callee expressions (e.g., an expression that evaluates to a callable,
+    // like (lambda x: x)(), or obj.method()), we first infer the type of the callee itself.
+    std::shared_ptr<PyType> callableType = inferExprType(calleeExpr);
+
+    // Then, use the inferCallReturnType method, which is designed to take the
+    // type of the callable and the argument types to determine the return type of the call.
+    return inferCallReturnType(callableType, argTypes);
+}
 std::shared_ptr<PyType> CodeGenType::inferCallExprType(
         const std::string& funcName,
         const std::vector<std::shared_ptr<PyType>>& argTypes)
 {
     // 首先尝试从符号表中获取函数信息
-    const FunctionAST* funcAST = getFunctionAST(funcName); // This searches scope and module
+    const FunctionAST* funcAST = getFunctionAST(funcName);  // 这会搜索作用域和模块顶层
 
     if (funcAST)
     {
-        // 如果找到了 FunctionAST，使用其静态类型信息（注解或推断）
-        // getFunctionObjectType 解析注解，getReturnType 包含注解和推断逻辑
-        std::shared_ptr<PyType> staticReturnType = funcAST->getReturnType(); // Assumes getReturnType is const and handles inference/annotation
-        if (staticReturnType && !staticReturnType->isAny()) { // Prefer static type if available and not Any
-             return staticReturnType;
+        // Prioritize analysis of the function body for return type
+        std::shared_ptr<PyType> analyzedReturn = analyzeFunctionReturnType(funcAST, argTypes);
+        if (analyzedReturn && !analyzedReturn->isAny())
+        {
+            return analyzedReturn;
         }
-        // 如果静态类型是 Any 或获取失败，继续后续逻辑
+        // Fallback to statically declared/inferred return type on FunctionAST itself if body analysis is 'Any'
+        std::shared_ptr<PyType> staticReturnType = funcAST->getReturnType();
+        if (staticReturnType && !staticReturnType->isAny())
+        {
+            return staticReturnType;
+        }
+        // Further fallback if needed, e.g. to what getFunctionObjectType would produce for the return component
     }
 
     // 处理内置函数的返回类型
@@ -485,7 +622,7 @@ std::shared_ptr<PyType> CodeGenType::inferCallExprType(
     }
     else if (funcName == "list")
     {
-        // 如果有参数，尝试推导列表元素类型
+        /*         // 如果有参数，尝试推导列表元素类型
         if (!argTypes.empty())
         {
             return PyType::getList(argTypes[0]);
@@ -494,19 +631,48 @@ std::shared_ptr<PyType> CodeGenType::inferCallExprType(
         {
             // 空列表，元素类型为Any
             return PyType::getList(PyType::getAny());
+        } */
+        if (!argTypes.empty() && argTypes[0])
+        {
+            // 更准确的做法是检查 argTypes[0] 是否为可迭代类型，并获取其元素类型
+            // 为简单起见，如果 argTypes[0] 是 list[X]，则返回 list[X]
+            // 否则，如果它是 T，则返回 list[T] (假设 list(iterable_of_T) -> list[T])
+            // 这是一个简化的例子：
+            if (argTypes[0]->isList())
+            {
+                return PyType::getList(PyType::getListElementType(argTypes[0]));
+            }
+            // 如果是其他类型，假设它可以被迭代，元素类型是它本身 (这不完全准确)
+            // return PyType::getList(argTypes[0]);
+            // 更安全的做法是，如果不能确定元素类型，则返回 list[any]
+            return PyType::getList(PyType::getAny());
+        }
+        else
+        {
+            // 空列表构造 list() -> list[any]
+            return PyType::getList(PyType::getAny());
         }
     }
+    // 也许这里可能兼容更多内置函数? TODO
 
     // 通用函数类型推导 - 根据函数体分析
     //const FunctionAST* funcAST = getFunctionAST(funcName);
     if (funcAST)
     {
-        // 如果能找到函数定义，分析函数体内的返回语句
-        return analyzeFunctionReturnType(funcAST, argTypes);
+        // 如果能找到函数定义，并且静态类型是 Any，则尝试更深入地分析函数体内的返回语句
+        // analyzeFunctionReturnType 应该考虑参数类型来处理泛型或依赖参数的返回
+        std::shared_ptr<PyType> analyzedReturn = analyzeFunctionReturnType(funcAST, argTypes);
+        if (analyzedReturn && !analyzedReturn->isAny())
+        {
+            return analyzedReturn;
+        }
     }
-
-    // 如果找不到函数定义，尝试基于参数类型和一般规则推导
-    return inferReturnTypeFromContext(funcName, argTypes);
+    std::shared_ptr<PyType> contextReturn = inferReturnTypeFromContext(funcName, argTypes);
+    if (contextReturn && !contextReturn->isAny())
+    {
+        return contextReturn;
+    }
+    return PyType::getAny();
 }
 
 // 根据函数名查找函数AST定义
@@ -586,7 +752,7 @@ std::shared_ptr<PyType> CodeGenType::analyzeFunctionReturnType(
     // 2. 尝试使用 FunctionAST 的内部推断 (保持不变)
     //    (确保 func->inferReturnType() 是 const 且不依赖外部缓存)
     std::shared_ptr<PyType> inferredType = func->inferReturnType();
-    if (inferredType && !inferredType->isAny()) // Prefer inferred if not Any
+    if (inferredType && !inferredType->isAny())  // Prefer inferred if not Any
     {
         return inferredType;
     }
@@ -607,13 +773,16 @@ std::shared_ptr<PyType> CodeGenType::analyzeFunctionReturnType(
             }
             else
             {
-                currentReturnType = PyType::getVoid(); // 'return' or 'return None' -> NoneType
+                currentReturnType = PyType::getVoid();  // 'return' or 'return None' -> NoneType
             }
 
-            if (firstReturn) {
+            if (firstReturn)
+            {
                 commonReturnType = currentReturnType;
                 firstReturn = false;
-            } else if (commonReturnType) {
+            }
+            else if (commonReturnType)
+            {
                 commonReturnType = getCommonType(commonReturnType, currentReturnType);
             }
             // If commonReturnType becomes Any, we can potentially stop early
@@ -622,20 +791,21 @@ std::shared_ptr<PyType> CodeGenType::analyzeFunctionReturnType(
     }
 
     // 如果分析了返回语句并得到了非空的共同类型
-    if (commonReturnType) {
+    if (commonReturnType)
+    {
         return commonReturnType;
     }
 
     // 4. 如果函数没有 return 语句（或只有 return None），则返回 NoneType
-    if (firstReturn) { // No return statements found
+    if (firstReturn)
+    {  // No return statements found
         return PyType::getVoid();
     }
-
 
     // 5. 最终回退：如果之前的步骤都无法确定具体类型，则基于上下文推导或返回 Any
     //    (inferReturnTypeFromContext 保持不变)
     // return inferReturnTypeFromContext(func->getName(), argTypes); // Or just return Any if context inference is unreliable
-    return PyType::getAny(); // Safer fallback if analysis is complex
+    return PyType::getAny();  // Safer fallback if analysis is complex
 }
 
 // 分析返回表达式类型
@@ -648,6 +818,24 @@ std::shared_ptr<PyType> CodeGenType::analyzeReturnExpr(
     // 针对常见模式的表达式类型推导
     switch (expr->kind())
     {
+        case ASTKind::VariableExpr:
+        {
+            auto varExpr = static_cast<const VariableExprAST*>(expr);
+            std::string name = varExpr->getName();
+
+            // 检查是否是函数对象
+            const FunctionAST* funcAST = codeGen.getSymbolTable().findFunctionAST(name);
+            if (funcAST)
+            {
+                // 返回的是函数对象，需要返回函数类型而不是一般对象
+                ObjectType* funcObjType = getFunctionObjectType(funcAST);
+                if (funcObjType)
+                {
+                    return PyType::fromObjectType(funcObjType);
+                }
+            }
+            break;
+        }
         case ASTKind::BinaryExpr:
         {
             // 处理二元运算表达式，如 a+1
@@ -840,7 +1028,7 @@ std::shared_ptr<PyType> CodeGenType::inferListElementType(
 
     /// !!!这里更好的办法可能是直接返回Any，因为后续可能有更多复杂的类型，他们是否允许被加入或者处理，应该留在rt
     // 然后与其他元素类型求共同类型
-/*     for (size_t i = 1; i < elements.size(); i++)
+    /*     for (size_t i = 1; i < elements.size(); i++)
     {
         std::shared_ptr<PyType> elemType = inferExprType(elements[i].get());
 #ifdef DEBUG_CODEGEN_inferListElementType
@@ -853,7 +1041,7 @@ std::shared_ptr<PyType> CodeGenType::inferListElementType(
 #endif
     } */
 
-    return  PyType::getAny(); // 这里显然还是感觉有问题，因为没有正确推断而是把这些全留给了RT
+    return PyType::getAny();  // 这里显然还是感觉有问题，因为没有正确推断而是把这些全留给了RT
 }
 std::shared_ptr<PyType> CodeGenType::getCommonType(
         std::shared_ptr<PyType> typeA,

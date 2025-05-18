@@ -66,9 +66,9 @@ public:
             std::shared_ptr<PyType> indexType);
 
     // 推导函数调用表达式类型
-    std::shared_ptr<PyType> inferCallExprType(
-            const std::string& funcName,
-            const std::vector<std::shared_ptr<PyType>>& argTypes);
+    std::shared_ptr<PyType> inferCallExprType(const std::string& funcName, const std::vector<std::shared_ptr<PyType>>& argTypes);
+
+    std::shared_ptr<PyType> inferCallExprType(const ExprAST* calleeExpr, const std::vector<std::shared_ptr<PyType>>& argTypes);
 
     // 推导列表元素类型
     std::shared_ptr<PyType> inferListElementType(

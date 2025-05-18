@@ -53,6 +53,7 @@ std::string ObjectType::getTypeSignature() const {
 
 bool ObjectType::hasFeature(const std::string& feature) const {
     auto typeIt = typeFeatures.find(name);
+
     if (typeIt != typeFeatures.end()) {
         auto featureIt = typeIt->second.find(feature);
         if (featureIt != typeIt->second.end()) {
@@ -359,6 +360,25 @@ void TypeRegistry::registerBuiltinTypes() {
         [](const std::string& name) { return new PrimitiveType(name); });
     registerTypeCreator<PrimitiveType>("ptr_double", 
         [](const std::string& name) { return new PrimitiveType(name); });
+
+    // 注册函数类型
+
+    // 添加函数类型的特性
+    ObjectType::registerFeature("func_base", "callable", true);
+    ObjectType::registerFeature("func_base", "reference", true);
+    
+    // 添加通用函数类型特性
+    ObjectType::registerFeature("func", "callable", true);
+    ObjectType::registerFeature("func", "reference", true);
+    ObjectType::registerFeature("func", "returns_callable", true);
+    ObjectType::registerFeature("func", "returns_self", true);
+    // 为函数复杂调用方式打的补丁 , 主要是object类型会影响类型分析
+        ObjectType::registerFeature("object", "callable", true);     // 新增
+    ObjectType::registerFeature("object", "returns_callable", true); // 新增
+    ObjectType::registerFeature("object", "returns_self", true);  // 新增
+    
+    
+    
 }
 
 

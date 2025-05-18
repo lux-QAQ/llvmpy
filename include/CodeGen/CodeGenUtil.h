@@ -38,6 +38,15 @@ inline std::string llvmObjToString(const llvm::Function* F) {
     if (!F) return "<null Function>";
     return F->getName().str();
 }
+
+
+
+// Add this new overload for llvm::Module
+inline std::string llvmObjToString(const llvm::Module* M) {
+    if (!M) return "<null Module>";
+    return M->getModuleIdentifier(); // Or M->getName().str() if you prefer the LLVM name
+}
+
 inline std::string ipToString(const llvm::IRBuilderBase::InsertPoint& IP) {
     if (!IP.getBlock()) return "<invalid IP>";
     return "Block: " + llvmObjToString(IP.getBlock()) + ", Point: " + (IP.getPoint() == IP.getBlock()->end() ? "end" : llvmObjToString(&*IP.getPoint()));
