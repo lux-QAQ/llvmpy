@@ -1,7 +1,7 @@
 #include "CodeGen/CodeGenRuntime.h"
 #include "CodeGen/CodeGenBase.h"
-#include "CodeGen/CodeGenType.h"
-#include "CodeGen/CodeGenUtil.h"
+//#include "CodeGen/CodeGenType.h"
+//#include "CodeGen/CodeGenUtil.h"
 
 #include "ObjectType.h"
 #include "CodeGen/PyCodeGen.h"
@@ -12,7 +12,7 @@
 #include <llvm/IR/MDBuilder.h>
 #include <llvm/IR/Instructions.h> 
 
-#include <iostream>
+
 
 namespace llvmpy
 {

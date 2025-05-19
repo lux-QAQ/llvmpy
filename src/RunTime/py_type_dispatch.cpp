@@ -227,7 +227,6 @@ static int py_class_setattr_handler(PyObject* obj, const char* attr_name, PyObje
 
 void py_initialize_builtin_type_methods()
 {
-
     // 设置GMP默认精度
     mpf_set_default_prec(RUNTIME_FLOATE_PRECISION);  // 设置默认精度为256位
     // 注册内置类型的方法
@@ -261,14 +260,39 @@ void py_initialize_builtin_type_methods()
 void py_initialize_builtin_log()
 {
 #ifdef DEBUG
-    // 如果定义了 DEBUG，则启用更详细的日志记录，例如 MSG_DEBUG
-    ulog_set_min_level(MSG_DEBUG);
-    LOG_INFO("调试模式已启用。日志级别设置为 DEBUG。");
-#else
-    // 如果未定义 DEBUG，则坚持使用默认的 MSG_ERROR 或其他生产环境级别
-    // g_current_min_log_level 默认已是 MSG_ERROR，这里可以显式设置或依赖默认值
-    ulog_set_min_level(MSG_ERROR);
-    // LOG_INFO("生产模式。日志级别设置为 ERROR。"); // 这条INFO在ERROR级别下不会显示
+    // 在 DEBUG 模式下，使用 runtime_debug_config.h 中定义的 RUNTIME_g_current_min_log_level 来初始化日志系统。
+    // py_log_init 会负责设置全局最小日志级别，并加载 ENABLE_LOGS_FOR_FUNCTION 列表。
+    py_log_init(RUNTIME_g_current_min_log_level);
+
+    // 获取当前实际设置的日志级别用于打印
+    msg_type current_set_level = ulog_get_min_level();
+    const char* level_name_str = "UNKNOWN";
+    switch (current_set_level) {
+        case MSG_DEBUG: level_name_str = "DEBUG"; break;
+        case MSG_INFO:  level_name_str = "INFO";  break;
+        case MSG_WARN:  level_name_str = "WARN";  break;
+        case MSG_ERROR: level_name_str = "ERROR"; break;
+        default:
+            level_name_str = "UNKNOWN"; break;
+    }
+
+    // 使用 LOG_INFO 记录调试模式已启用以及当前的日志级别。
+    // 这条日志能否打印取决于 RUNTIME_g_current_min_log_level 是否允许 MSG_INFO，
+    // 以及 "py_initialize_builtin_log" 是否在 runtime_debug_config.h 中被 ENABLE_LOGS_FOR_FUNCTION 启用。
+    LOG_INFO("调试模式已启用。日志系统已初始化，最低日志级别设置为: %s (%d)。", level_name_str, (int)current_set_level);
+
+    // 可以根据需要添加更详细的 DEBUG 级别日志
+    LOG_DEBUG("py_initialize_builtin_log 函数执行完毕。");
+
+#else // 非 DEBUG 模式 (生产环境)
+    // 在生产环境中，通常将日志级别设置为 MSG_ERROR。
+    // ENABLE_LOGS_FOR_FUNCTION 列表仍然会被加载，但只有 ERROR 级别的日志会通过。
+    py_log_init(MSG_ERROR);
+
+    // 在生产模式下，通常不需要打印 INFO 级别的初始化日志。
+    // 如果确实需要记录，可以考虑使用 LOG_WARN 或确保在特定条件下调整日志级别。
+    // 例如: LOG_WARN("生产模式日志系统已初始化，最低日志级别设置为: ERROR (3)。");
+    // 但通常情况下，生产环境的初始化日志应尽量少。
 #endif
 }
 

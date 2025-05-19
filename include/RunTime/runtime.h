@@ -10,8 +10,9 @@
 #include <atomic>  // For thread-safe one-time initialization (optional but safer)
 
 #include "Debugdefine.h"
-#include "runtime_level.h"
 #include "runtime_common.h"
+#include "runtime_level.h"
+#include "runtime_debug_config.h"
 
 #include "py_object.h"
 #include "py_type.h"
@@ -23,6 +24,7 @@
 #include "py_function.h"
 #include "py_log.h"
 #include "py_error.h"
+
 // 此头文件集中导出所有运行时API
 // 不需要任何额外代码，只需包含其他模块头文件
 

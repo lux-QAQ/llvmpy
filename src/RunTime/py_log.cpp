@@ -1,4 +1,5 @@
-#include "RunTime/py_log.h"
+
+#include "RunTime/runtime.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -6,7 +7,7 @@
 #include <stdbool.h>
 
 // Global state for logging
-static msg_type g_current_min_log_level = MSG_ERROR; // Default: only errors and higher
+static msg_type g_current_min_log_level = RUNTIME_g_current_min_log_level; // Default: only errors and higher
 static bool g_py_log_initialized = false;
 
 // Configuration for function-specific logging
@@ -104,6 +105,8 @@ void ulog_core(const char* file, int line, const char* func_name, msg_type type,
 
 // Define ENABLE_LOGS_FOR_FUNCTION temporarily for processing Debugdefine.h
 // This macro will now populate the C array.
+#pragma push_macro("ENABLE_LOGS_FOR_FUNCTION")
+#undef ENABLE_LOGS_FOR_FUNCTION // Undefine the version from py_log.h (which is a no-op)
 #define ENABLE_LOGS_FOR_FUNCTION(func_name_str) \
     do { \
         if (g_log_enabled_function_count < MAX_LOG_ENABLED_FUNCTIONS) { \
@@ -115,28 +118,32 @@ void ulog_core(const char* file, int line, const char* func_name, msg_type type,
         } \
     } while (0)
 
-void py_log_init(void) {
+void py_log_init(msg_type de_type) {
     if (g_py_log_initialized) {
         return;
     }
-    // Initialize the array/count before including Debugdefine.h
+    // Initialize the array/count before including the config file
     g_log_enabled_function_count = 0; 
-    // memset(g_log_enabled_function_names, 0, sizeof(g_log_enabled_function_names)); // Optional: clear array
+    memset(g_log_enabled_function_names, 0, sizeof(g_log_enabled_function_names)); // Optional: clear array
 
     // The macro ENABLE_LOGS_FOR_FUNCTION is defined above this function.
-    // Including Debugdefine.h here will execute those macro calls.
-    //#include "Debugdefine.h" // Populates g_log_enabled_function_names
+    // Including py_log_config.h here will execute those macro calls.
+    #include "RunTime/runtime_debug_config.h" // Populates g_log_enabled_function_names
 
     g_py_log_initialized = true;
+    ulog_set_min_level(de_type);
 }
 
+// Restore the original definition of ENABLE_LOGS_FOR_FUNCTION from py_log.h
+#pragma pop_macro("ENABLE_LOGS_FOR_FUNCTION")
+
 // Undefine the macro after its use in py_log_init
-#undef ENABLE_LOGS_FOR_FUNCTION
+//#undef ENABLE_LOGS_FOR_FUNCTION
 
 
 bool py_should_log(const char* func_name, msg_type type) {
     if (!g_py_log_initialized) {
-        py_log_init(); // Ensure initialization
+        py_log_init(RUNTIME_g_current_min_log_level); // Ensure initialization
     }
 
     if (type == MSG_ERROR) {

@@ -4,8 +4,8 @@
 #include "CodeGen/CodeGenBase.h"
 //#include "Ast.h"
 #include "ObjectType.h"
-#include "TypeOperations.h"
-#include "TypeIDs.h"
+//#include "TypeOperations.h"
+//#include "TypeIDs.h"
 #include <llvm/IR/Type.h>
 #include <memory>
 

@@ -14,11 +14,11 @@
 #include <map>
 #include <stack>
 #include <unordered_map>
-#include <functional>
+//#include <functional>
 
 #include "Ast.h"
 #include "ObjectType.h"
-#include "TypeIDs.h"
+//#include "TypeIDs.h"
 #include "CodeGen/VariableUpdateContext.h"
 #include "CodeGen/VariableUpdateStrategy.h"
 namespace llvmpy

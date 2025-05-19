@@ -1,7 +1,7 @@
 #ifndef PY_LOG_H
 #define PY_LOG_H
 
-#include <stdio.h>
+//#include <stdio.h>
 #include <stdbool.h> // For bool type in C, if not in C++ mode or implicitly available
 
 // msg_type 定义了日志的级别
@@ -21,7 +21,7 @@ msg_type ulog_get_min_level(void);
 void ulog_core(const char* file, int line, const char* func_name, msg_type type, const char* format, ...);
 
 // Initialization function to be called once at startup
-void py_log_init(void);
+void py_log_init(msg_type de_type);
 
 // Runtime check function
 bool py_should_log(const char* func_name, msg_type type);

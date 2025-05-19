@@ -21,7 +21,7 @@ class PyType;
 #include <optional>
 #include <unordered_map>
 #include <functional>
-#include <typeindex>
+//#include <typeindex>
 #include <utility>  // For std::pair
 
 #include <llvm/IR/Value.h>
