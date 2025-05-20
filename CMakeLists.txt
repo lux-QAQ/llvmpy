@@ -184,7 +184,7 @@ target_link_libraries(llvmpy
     PRIVATE
     ${llvm_libs}
     ZLIB::ZLIB
-    ${Z3_INCLUDE_DIRS}
+
     llvmpy_runtime # 链接运行时库
 )
 
