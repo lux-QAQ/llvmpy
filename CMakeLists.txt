@@ -112,6 +112,7 @@ find_package(ZLIB REQUIRED)
 find_package(zstd QUIET)
 
 
+
 #set(LLVM_DIR "/home/ljs/llvmall/lib/cmake/llvm")
 
 find_package(LLVM
@@ -177,11 +178,13 @@ endif()
 llvm_map_components_to_libnames(llvm_libs support core irreader analysis instcombine
     scalaropts passes ipo transformutils)
 
+
 # 链接主程序依赖项 
 target_link_libraries(llvmpy
     PRIVATE
     ${llvm_libs}
     ZLIB::ZLIB
+    ${Z3_INCLUDE_DIRS}
     llvmpy_runtime # 链接运行时库
 )
 
