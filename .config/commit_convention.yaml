@@ -11,5 +11,5 @@
 #   - ci: changes to the Continuous Integration (CI) system
 #   - refactor: changes the code without changing behavior
 #   - revert: reverts prior changes
-# scopes:
-#   - scope: description of what the short-form `scope` represents
+scopes:
+ - cmake: build config
