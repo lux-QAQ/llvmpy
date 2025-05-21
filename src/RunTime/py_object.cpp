@@ -10,7 +10,7 @@ using namespace llvmpy;
 // 对象创建函数实现
 //===----------------------------------------------------------------------===//
 
-PyObject* py_create_class(const char* name, PyObject* bases_tuple_obj, PyObject* class_dict_obj) // Renamed base_cls_obj for clarity
+PyObject* py_create_class(const char* name, PyObject* bases_tuple_obj, PyObject* class_dict_obj)  // Renamed base_cls_obj for clarity
 {
     // 参数类型检查
     if (!name || !class_dict_obj || class_dict_obj->typeId != llvmpy::PY_TYPE_DICT)
@@ -19,28 +19,36 @@ PyObject* py_create_class(const char* name, PyObject* bases_tuple_obj, PyObject*
         return NULL;
     }
     // bases_tuple_obj 必须是一个元组
-    if (!bases_tuple_obj || bases_tuple_obj->typeId != llvmpy::PY_TYPE_TUPLE) {
+    if (!bases_tuple_obj || bases_tuple_obj->typeId != llvmpy::PY_TYPE_TUPLE)
+    {
         fprintf(stderr, "Error: Second argument to py_create_class (bases) must be a tuple.\n");
         return NULL;
     }
 
     PyTupleObject* bases_tuple = (PyTupleObject*)bases_tuple_obj;
-    PyClassObject* base_to_set = NULL; // The actual base class to set
+    PyClassObject* base_to_set = NULL;  // The actual base class to set
 
-    if (bases_tuple->size > 0) {
+    if (bases_tuple->size > 0)
+    {
         // Simplified: For now, assume single inheritance, take the first base.
         // A full implementation would handle MRO for multiple inheritance.
         PyObject* first_base_in_tuple = bases_tuple->items[0];
-        if (first_base_in_tuple && first_base_in_tuple->typeId == llvmpy::PY_TYPE_CLASS) {
+        if (first_base_in_tuple && first_base_in_tuple->typeId == llvmpy::PY_TYPE_CLASS)
+        {
             base_to_set = (PyClassObject*)first_base_in_tuple;
-        } else if (first_base_in_tuple) {
+        }
+        else if (first_base_in_tuple)
+        {
             fprintf(stderr, "Error: Object in bases tuple is not a class (typeId: %d)\n", first_base_in_tuple->typeId);
             return NULL;
-        } else {
+        }
+        else
+        {
             fprintf(stderr, "Error: NULL object found in bases tuple.\n");
             return NULL;
         }
-        if (bases_tuple->size > 1) {
+        if (bases_tuple->size > 1)
+        {
             // Log a warning or extend to support multiple bases properly.
             fprintf(stderr, "Warning: Multiple inheritance is not fully supported; using only the first base class.\n");
         }
@@ -63,15 +71,16 @@ PyObject* py_create_class(const char* name, PyObject* bases_tuple_obj, PyObject*
         fprintf(stderr, "MemoryError: Failed to duplicate class name\n");
         return NULL;
     }
-    cls->base = base_to_set; // Use the determined base class
+    cls->base = base_to_set;  // Use the determined base class
     cls->class_dict = (PyDictObject*)class_dict_obj;
 
     // 增加实际基类和类字典的引用计数
     // bases_tuple_obj itself is managed by the caller (CodeGenStmt decrefs it)
-    if (cls->base) {
+    if (cls->base)
+    {
         py_incref((PyObject*)cls->base);
     }
-    py_incref((PyObject*)cls->class_dict); // class_dict is now owned by the class object
+    py_incref((PyObject*)cls->class_dict);  // class_dict is now owned by the class object
 
     // Register instance methods for this new class type
     // This assumes PY_TYPE_CLASS is a "base" type for method dispatch,
@@ -82,7 +91,7 @@ PyObject* py_create_class(const char* name, PyObject* bases_tuple_obj, PyObject*
     // those are handled by py_class_getattr_handler.
     // For instances of this class, they will use PY_TYPE_INSTANCE.
     // py_register_type_methods(cls->header.typeId, &instance_methods); // This might be too simplistic.
-                                                                    // Instance method lookup usually goes through instance->cls.
+    // Instance method lookup usually goes through instance->cls.
 
     return (PyObject*)cls;
 }
@@ -104,7 +113,7 @@ PyObject* py_create_instance(PyObject* cls_obj)
     }
 
     instance->header.refCount = 1;
-    instance->header.typeId = llvmpy::PY_TYPE_INSTANCE; // Instances get this type ID
+    instance->header.typeId = llvmpy::PY_TYPE_INSTANCE;  // Instances get this type ID
     instance->cls = cls;
     instance->instance_dict = (PyDictObject*)py_create_dict(8, llvmpy::PY_TYPE_STRING);
     if (!instance->instance_dict)

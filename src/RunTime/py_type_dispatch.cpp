@@ -242,9 +242,8 @@ void py_initialize_builtin_type_methods()
     py_register_type_methods(llvmpy::PY_TYPE_DICT, &dict_methods);
 
     // 注册 Instance 和 Class 的方法
-     py_register_type_methods(llvmpy::PY_TYPE_INSTANCE, &instance_methods);
+    py_register_type_methods(llvmpy::PY_TYPE_INSTANCE, &instance_methods);
     py_register_type_methods(llvmpy::PY_TYPE_CLASS, &class_methods);
-
 
     initialize_static_gmp_bools();
     // 注意：List 和 Dict 应该是不可哈希的，所以它们的 hash 槽位应该是 NULL
