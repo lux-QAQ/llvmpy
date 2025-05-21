@@ -10,19 +10,42 @@ using namespace llvmpy;
 // 对象创建函数实现
 //===----------------------------------------------------------------------===//
 
-PyObject* py_create_class(const char* name, PyObject* base_cls_obj, PyObject* class_dict_obj)
+PyObject* py_create_class(const char* name, PyObject* bases_tuple_obj, PyObject* class_dict_obj) // Renamed base_cls_obj for clarity
 {
     // 参数类型检查
     if (!name || !class_dict_obj || class_dict_obj->typeId != llvmpy::PY_TYPE_DICT)
     {
-        fprintf(stderr, "Error: Invalid arguments for py_create_class\n");
+        fprintf(stderr, "Error: Invalid arguments for py_create_class (name or class_dict missing/invalid)\n");
         return NULL;
     }
-    if (base_cls_obj && base_cls_obj->typeId != llvmpy::PY_TYPE_CLASS)
-    {
-        fprintf(stderr, "Error: Base class must be a class object\n");
+    // bases_tuple_obj 必须是一个元组
+    if (!bases_tuple_obj || bases_tuple_obj->typeId != llvmpy::PY_TYPE_TUPLE) {
+        fprintf(stderr, "Error: Second argument to py_create_class (bases) must be a tuple.\n");
         return NULL;
     }
+
+    PyTupleObject* bases_tuple = (PyTupleObject*)bases_tuple_obj;
+    PyClassObject* base_to_set = NULL; // The actual base class to set
+
+    if (bases_tuple->size > 0) {
+        // Simplified: For now, assume single inheritance, take the first base.
+        // A full implementation would handle MRO for multiple inheritance.
+        PyObject* first_base_in_tuple = bases_tuple->items[0];
+        if (first_base_in_tuple && first_base_in_tuple->typeId == llvmpy::PY_TYPE_CLASS) {
+            base_to_set = (PyClassObject*)first_base_in_tuple;
+        } else if (first_base_in_tuple) {
+            fprintf(stderr, "Error: Object in bases tuple is not a class (typeId: %d)\n", first_base_in_tuple->typeId);
+            return NULL;
+        } else {
+            fprintf(stderr, "Error: NULL object found in bases tuple.\n");
+            return NULL;
+        }
+        if (bases_tuple->size > 1) {
+            // Log a warning or extend to support multiple bases properly.
+            fprintf(stderr, "Warning: Multiple inheritance is not fully supported; using only the first base class.\n");
+        }
+    }
+    // If bases_tuple is empty, base_to_set remains NULL, meaning it inherits from the default base (object).
 
     PyClassObject* cls = (PyClassObject*)malloc(sizeof(PyClassObject));
     if (!cls)
@@ -31,23 +54,35 @@ PyObject* py_create_class(const char* name, PyObject* base_cls_obj, PyObject* cl
         return NULL;
     }
 
-    cls->header.refCount = 1;  // 初始引用计数为 1
+    cls->header.refCount = 1;
     cls->header.typeId = llvmpy::PY_TYPE_CLASS;
-    cls->name = strdup(name);  // 复制类名
+    cls->name = strdup(name);
     if (!cls->name)
     {
         free(cls);
         fprintf(stderr, "MemoryError: Failed to duplicate class name\n");
         return NULL;
     }
-    cls->base = (PyClassObject*)base_cls_obj;
+    cls->base = base_to_set; // Use the determined base class
     cls->class_dict = (PyDictObject*)class_dict_obj;
 
-    // 增加基类和类字典的引用计数
-    if (cls->base) py_incref((PyObject*)cls->base);
-    py_incref((PyObject*)cls->class_dict);
+    // 增加实际基类和类字典的引用计数
+    // bases_tuple_obj itself is managed by the caller (CodeGenStmt decrefs it)
+    if (cls->base) {
+        py_incref((PyObject*)cls->base);
+    }
+    py_incref((PyObject*)cls->class_dict); // class_dict is now owned by the class object
 
-    // TODO: 可以在这里查找或注册特定于此类的 PyTypeMethods
+    // Register instance methods for this new class type
+    // This assumes PY_TYPE_CLASS is a "base" type for method dispatch,
+    // or you have a more dynamic way to associate methods with specific class objects.
+    // For simplicity, we can register generic instance_methods if not already done
+    // or if your type system handles specific class_type_ids.
+    // If PY_TYPE_CLASS itself should have getattr/setattr for static members,
+    // those are handled by py_class_getattr_handler.
+    // For instances of this class, they will use PY_TYPE_INSTANCE.
+    // py_register_type_methods(cls->header.typeId, &instance_methods); // This might be too simplistic.
+                                                                    // Instance method lookup usually goes through instance->cls.
 
     return (PyObject*)cls;
 }
@@ -56,7 +91,7 @@ PyObject* py_create_instance(PyObject* cls_obj)
 {
     if (!cls_obj || cls_obj->typeId != llvmpy::PY_TYPE_CLASS)
     {
-        fprintf(stderr, "TypeError: Cannot create instance from non-class object\n");
+        fprintf(stderr, "TypeError: Cannot create instance from non-class object (typeId: %d)\n", cls_obj ? cls_obj->typeId : -1);
         return NULL;
     }
     PyClassObject* cls = (PyClassObject*)cls_obj;
@@ -69,21 +104,24 @@ PyObject* py_create_instance(PyObject* cls_obj)
     }
 
     instance->header.refCount = 1;
-    // TODO: 分配具体的实例类型 ID，可能需要一个全局计数器或更复杂的方案
-    // 暂时使用通用的 INSTANCE ID，或者如果类对象存储了实例类型ID，则使用它
-    instance->header.typeId = llvmpy::PY_TYPE_INSTANCE;  // 或者 >= PY_TYPE_INSTANCE_BASE
+    instance->header.typeId = llvmpy::PY_TYPE_INSTANCE; // Instances get this type ID
     instance->cls = cls;
-    instance->instance_dict = (PyDictObject*)py_create_dict(8, llvmpy::PY_TYPE_STRING);  // 创建空的实例字典
+    instance->instance_dict = (PyDictObject*)py_create_dict(8, llvmpy::PY_TYPE_STRING);
     if (!instance->instance_dict)
     {
         free(instance);
-        fprintf(stderr, "MemoryError: Failed to create instance dictionary\n");
+        fprintf(stderr, "MemoryError: Failed to create instance dictionary for instance of '%s'\n", cls->name);
         return NULL;
     }
 
-    py_incref((PyObject*)instance->cls);  // 增加类对象的引用计数
+    py_incref((PyObject*)instance->cls);
 
-    // TODO: 调用类的 __init__ 方法 (需要函数调用机制)
+    // TODO: Call __init__ method if it exists.
+    // This involves:
+    // 1. Looking up "__init__" in instance->cls->class_dict.
+    // 2. If found and it's a function, create a bound method or directly call it.
+    // 3. Pass 'instance' as the first argument ('self').
+    // 4. Pass other arguments if provided during instantiation (e.g., A(1, 2)).
 
     return (PyObject*)instance;
 }

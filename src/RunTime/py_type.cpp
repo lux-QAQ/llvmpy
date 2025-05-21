@@ -194,7 +194,19 @@ const char* py_type_name(int typeId)
             return "tuple";
         case PY_TYPE_FUNC:
             return "function";
+        case PY_TYPE_CLASS:         // <--- 添加 CLASS 类型名称
+            return "type";          // 类对象的类型是 'type'
+        case PY_TYPE_INSTANCE:      // <--- 添加 INSTANCE 类型名称
+            return "object";        // 实例的默认基类类型是 'object' (或者更具体的类名，但这里是通用实例)
+        case PY_TYPE_ITERATOR_BASE: // <--- 添加迭代器基础类型名称
+            // 对于迭代器，可能需要更具体的名称，但 "iterator" 作为基类名是可接受的
+            // 或者，如果 py_get_safe_type_id 返回的是具体的迭代器类型，这里可以有更细致的 case
+            if (typeId == PY_TYPE_LIST_ITERATOR) return "list_iterator";
+            if (typeId == PY_TYPE_STRING_ITERATOR) return "str_iterator";
+            return "iterator";      // 通用迭代器名称
         default:
+            // 可以考虑为 PY_TYPE_INSTANCE_BASE 返回一个通用名称，
+            // 或者让 py_instance_getattr_handler 等函数在打印错误时使用实例的 cls->name
             return "unknown";
     }
 }

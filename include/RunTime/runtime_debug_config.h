@@ -1,5 +1,5 @@
 #include "RunTime/py_log.h"
-#define RUNTIME_g_current_min_log_level MSG_INFO
+#define RUNTIME_g_current_min_log_level MSG_DEBUG
 
 //#define DEBUG_RUNTIME_py_object_set_index
 //#define DEBUG_RUNTIME_OPERATORS

@@ -67,26 +67,53 @@ static bool get_ffi_signature(int signature_id, int num_args,
 PyObject* py_call_function(PyObject* callable, int num_args, PyObject** args_array)
 {
 #ifdef DEBUG_RUNTIME_py_call_function
-    fprintf(stderr, "Debug: py_call_function called with %d arguments.\n", num_args);
+    fprintf(stderr, "Debug: py_call_function called with callable %p (type %d), num_args %d.\n",
+            (void*)callable, callable ? callable->typeId : -1, num_args);
 #endif
 
-    // 1. 检查 callable (同之前)
     if (!callable)
     {
         fprintf(stderr, "Runtime Error: Attempted to call null object.\n");
         return NULL;
     }
+
     int type_id = py_get_type_id(callable);
-    // 允许调用 PY_TYPE_FUNC 或更具体的函数类型 (>= FUNC_BASE)
+
+    // Handle class instantiation: A()
+    if (type_id == llvmpy::PY_TYPE_CLASS)
+    {
+        if (num_args != 0)
+        {  // Simplified: assume no args to constructor for now
+            fprintf(stderr, "Runtime Error: Class instantiation with arguments not yet fully supported.\n");
+            // TODO: Pass args to __init__
+        }
+        PyObject* instance = py_create_instance(callable);
+        // py_create_instance already returns with refCount = 1
+        // TODO: Call __init__ method on 'instance'
+        // PyObject* init_method = py_object_getattr(instance, "__init__");
+        // if (init_method) {
+        //    if (py_get_type_id(init_method) == llvmpy::PY_TYPE_FUNC || py_get_type_id(init_method) >= llvmpy::PY_TYPE_FUNC_BASE) {
+        //        // Need to prepare 'self' (instance) and other args for __init__
+        //        // This is complex due to bound methods / passing 'self'
+        //        // For now, skipping __init__ call for simplicity
+        //        fprintf(stderr, "Debug: Found __init__, but calling it is not yet implemented.\n");
+        //    }
+        //    py_decref(init_method);
+        // }
+        return instance;  // py_create_instance returns a new reference
+    }
+
+    // Existing check for function types
     if (type_id != llvmpy::PY_TYPE_FUNC && type_id < llvmpy::PY_TYPE_FUNC_BASE)
     {
-        fprintf(stderr, "Runtime Error: Attempted to call non-function object (Type ID: %d).\n", type_id);
+        fprintf(stderr, "Runtime Error: Attempted to call non-function, non-class object (Type ID: %d, Name: %s).\n",
+                type_id, py_type_name(type_id));
         return NULL;
     }
 
     PyFunctionObject* py_func = (PyFunctionObject*)callable;
     void* generic_func_ptr = py_func->func_ptr;
-    int signature_id = py_func->signature_type_id;  // 获取签名ID
+    int signature_id = py_func->signature_type_id;
 
     if (!generic_func_ptr)
     {
@@ -194,7 +221,7 @@ PyObject* py_call_function(PyObject* callable, int num_args, PyObject** args_arr
     return result;  // 返回新引用
 }
 
-PyObject* py_create_function(void* func_ptr, int signature_type_id) // 新
+PyObject* py_create_function(void* func_ptr, int signature_type_id)  // 新
 {
     if (!func_ptr)
     {
@@ -218,7 +245,6 @@ PyObject* py_create_function(void* func_ptr, int signature_type_id) // 新
     // 设置函数特定字段
     func_obj->func_ptr = func_ptr;
     func_obj->signature_type_id = signature_type_id;
-
 
     // TODO: 初始化其他可能的字段 (如 __name__)
 
