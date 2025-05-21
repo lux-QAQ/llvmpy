@@ -87,6 +87,14 @@ void CodeGenExpr::initializeHandlers()
         return static_cast<CodeGenExpr*>(cg.getExprGen())->handleIndexExpr(static_cast<IndexExprAST*>(expr));
     };
 
+    exprHandlers[ASTKind::ConditionalExpr] = [](CodeGenBase& cg, ExprAST* expr)
+    {
+        return static_cast<CodeGenExpr*>(cg.getExprGen())->handleConditionalExpr(static_cast<ConditionalExprAST*>(expr));
+    };
+    exprHandlers[ASTKind::AttributeExpr] = [](CodeGenBase& cg, ExprAST* expr) {                                        
+        return static_cast<CodeGenExpr*>(cg.getExprGen())->handleAttributeExpr(static_cast<AttributeExprAST*>(expr));  
+    };
+
     handlersInitialized = true;
 }
 
@@ -186,37 +194,45 @@ llvm::Value* CodeGenExpr::handleVariableExpr(VariableExprAST* expr)
             // 获取代表函数对象的全局变量
             std::string gvName = name + "_obj_gv";  // 与 CodeGenModule 中创建 GV 的名称一致
 
-            
-
 #ifdef DEBUG_CODEGEN_handleVariableExpr
             llvm::Module* currentModule = codeGen.getModule();
-            if (currentModule) {
+            if (currentModule)
+            {
                 DEBUG_LOG_DETAIL("HdlVarExpr", "Attempting to find GlobalVariable with name: '" + gvName + "' in Module: " + currentModule->getModuleIdentifier() + " (" + llvmObjToString(currentModule) + ")");
                 DEBUG_LOG_DETAIL("HdlVarExpr", "Listing all GlobalVariables in module " + currentModule->getModuleIdentifier() + ":");
-                if (currentModule->global_empty()) {
+                if (currentModule->global_empty())
+                {
                     DEBUG_LOG_DETAIL("HdlVarExpr", "  Module has no global variables.");
-                } else {
-                    for (const llvm::GlobalVariable &gv : currentModule->globals()) {
+                }
+                else
+                {
+                    for (const llvm::GlobalVariable& gv : currentModule->globals())
+                    {
                         DEBUG_LOG_DETAIL("HdlVarExpr", "  Found GV: '" + gv.getName().str() + "' (" + llvmObjToString(&gv) + ")");
                     }
                 }
                 DEBUG_LOG_DETAIL("HdlVarExpr", "Listing all NamedValues in module " + currentModule->getModuleIdentifier() + ":");
-                if (currentModule->empty()) { // Checks if there are any named values (functions, GVs, aliases)
-                     DEBUG_LOG_DETAIL("HdlVarExpr", "  Module has no named values.");
-                } else {
-                    for (auto it = currentModule->getValueSymbolTable().begin(), 
-                              end = currentModule->getValueSymbolTable().end(); it != end; ++it) {
+                if (currentModule->empty())
+                {  // Checks if there are any named values (functions, GVs, aliases)
+                    DEBUG_LOG_DETAIL("HdlVarExpr", "  Module has no named values.");
+                }
+                else
+                {
+                    for (auto it = currentModule->getValueSymbolTable().begin(),
+                              end = currentModule->getValueSymbolTable().end();
+                         it != end; ++it)
+                    {
                         DEBUG_LOG_DETAIL("HdlVarExpr", "  Found NamedValue: '" + it->getKey().str() + "'");
                     }
                 }
-
-            } else {
+            }
+            else
+            {
                 DEBUG_LOG_DETAIL("HdlVarExpr", "CRITICAL: codeGen.getModule() returned nullptr before getGlobalVariable call!");
             }
 #endif
 
-
-            llvm::GlobalVariable* funcObjGV = codeGen.getModule()->getGlobalVariable(gvName,true);
+            llvm::GlobalVariable* funcObjGV = codeGen.getModule()->getGlobalVariable(gvName, true);
 
             if (!funcObjGV)
             {
@@ -354,17 +370,19 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
     auto& symTable = codeGen.getSymbolTable();
 
     const ExprAST* calleeAstNode = expr->getCalleeExpr();
-    if (!calleeAstNode) {
+    if (!calleeAstNode)
+    {
         return codeGen.logError("Call expression has no callee.",
                                 expr->line.value_or(0), expr->column.value_or(0));
     }
 
     llvm::Value* callableValue = nullptr;  // Can be llvm::Function* or PyObject*
     std::shared_ptr<PyType> callableType = nullptr;
-    bool isDirectCall = false;  // Flag to indicate direct LLVM call
-    std::string calleeNameForContext; // Used for lookups if callee is VariableExpr, and for logging
+    bool isDirectCall = false;         // Flag to indicate direct LLVM call
+    std::string calleeNameForContext;  // Used for lookups if callee is VariableExpr, and for logging
 
-    if (auto* varExpr = llvm::dyn_cast<VariableExprAST>(calleeAstNode)) {
+    if (auto* varExpr = llvm::dyn_cast<VariableExprAST>(calleeAstNode))
+    {
         calleeNameForContext = varExpr->getName();
 
         // 1. Check if it's a variable in the symbol table
@@ -401,9 +419,9 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
             const FunctionAST* funcAST = symTable.findFunctionAST(calleeNameForContext);
             if (funcAST)
             {
-    #ifdef DEBUG_CODEGEN_handleCallExpr
+#ifdef DEBUG_CODEGEN_handleCallExpr
                 DEBUG_LOG_DETAIL("HdlCallExpr", "Found FunctionAST for '" + calleeNameForContext + "' in symbol table.");
-    #endif
+#endif
                 llvm::Function* llvmFunc = codeGen.getModuleGen()->getCachedFunction(funcAST);
 
                 if (!llvmFunc)
@@ -421,7 +439,7 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
                 callableType = PyType::fromObjectType(funcObjType);
                 isDirectCall = true;
                 callableValue = llvmFunc;
-    #ifdef DEBUG_CODEGEN_handleCallExpr
+#ifdef DEBUG_CODEGEN_handleCallExpr
                 if (llvmFunc == codeGen.getCurrentFunction())
                 {
                     DEBUG_LOG_DETAIL("HdlCallExpr", "Detected RECURSIVE call to '" + calleeNameForContext + "'. Will generate direct call.");
@@ -430,7 +448,7 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
                 {
                     DEBUG_LOG_DETAIL("HdlCallExpr", "Detected call to known function '" + calleeNameForContext + "' (possibly outer scope). Will generate direct call.");
                 }
-    #endif
+#endif
             }
             else
             {
@@ -446,19 +464,22 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
     {
         calleeNameForContext = "(complex callee)";
         callableValue = handleExpr(calleeAstNode);
-        if (!callableValue) {
+        if (!callableValue)
+        {
             return codeGen.logError("Failed to evaluate callee expression.",
                                     calleeAstNode->line.value_or(0), calleeAstNode->column.value_or(0));
         }
 
         callableType = calleeAstNode->getType();
-        if (!callableType) {
+        if (!callableType)
+        {
             callableType = PyType::getAny();
             codeGen.logWarning("Could not determine type of complex callee expression. Assuming Any.",
                                calleeAstNode->line.value_or(0), calleeAstNode->column.value_or(0));
         }
 
-        if (!callableType->isFunction() && !callableType->isAny()) {
+        if (!callableType->isFunction() && !callableType->isAny())
+        {
             return codeGen.logTypeError("Expression resulting in type '" + callableType->toString() + "' is not callable.",
                                         calleeAstNode->line.value_or(0), calleeAstNode->column.value_or(0));
         }
@@ -484,9 +505,9 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
     std::vector<llvm::Value*> preparedArgs;
     if (isDirectCall)
     {
-    #ifdef DEBUG_CODEGEN_handleCallExpr_isDirectCall
+#ifdef DEBUG_CODEGEN_handleCallExpr_isDirectCall
         DEBUG_LOG_DETAIL("HdlCallExpr", "Preparing arguments for direct call to '" + calleeNameForContext + "'");
-    #endif
+#endif
         llvm::Function* targetFunc = llvm::cast<llvm::Function>(callableValue);
         llvm::FunctionType* funcType = targetFunc->getFunctionType();
         if (args.size() != funcType->getNumParams())
@@ -510,33 +531,32 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
             llvm::raw_string_ostream rso(llvmParamTypeStr);
             funcType->getParamType(i)->print(rso);
 
-            codeGen.logWarning("Direct call to '" + calleeNameForContext +
-                               "': Cannot reliably map LLVM param type (" + rso.str() +
-                               ") to a specific PyType for param " + std::to_string(i) +
-                               ". Using PyType::getAny() for argument preparation.",
+            codeGen.logWarning("Direct call to '" + calleeNameForContext + "': Cannot reliably map LLVM param type (" + rso.str() + ") to a specific PyType for param " + std::to_string(i) + ". Using PyType::getAny() for argument preparation.",
                                expr->line.value_or(0), expr->column.value_or(0));
             expectedPyTypeForLlvmParam = PyType::getAny();
 
             llvm::Value* preparedArg = runtime->prepareArgument(args[i], argTypes[i], expectedPyTypeForLlvmParam);
-            if (!preparedArg) {
-                 return codeGen.logError("Failed to prepare argument " + std::to_string(i + 1) + " for direct call to '" + calleeNameForContext + "'.",
+            if (!preparedArg)
+            {
+                return codeGen.logError("Failed to prepare argument " + std::to_string(i + 1) + " for direct call to '" + calleeNameForContext + "'.",
                                         expr->line.value_or(0), expr->column.value_or(0));
             }
 
             if (preparedArg->getType() != funcType->getParamType(i))
             {
-                if (llvm::CastInst::isBitCastable(preparedArg->getType(), funcType->getParamType(i))) {
+                if (llvm::CastInst::isBitCastable(preparedArg->getType(), funcType->getParamType(i)))
+                {
                     preparedArg = builder.CreateBitCast(preparedArg, funcType->getParamType(i), "arg_cast");
-                } else {
+                }
+                else
+                {
                     std::string actualTypeStr, expectedTypeStr;
                     llvm::raw_string_ostream rso_actual(actualTypeStr);
                     preparedArg->getType()->print(rso_actual);
                     llvm::raw_string_ostream rso_expected(expectedTypeStr);
                     funcType->getParamType(i)->print(rso_expected);
 
-                    return codeGen.logError("Type mismatch for argument " + std::to_string(i + 1) +
-                                            " in direct call to '" + calleeNameForContext + "'. Expected " +
-                                            expectedTypeStr + " but got " + actualTypeStr + ".",
+                    return codeGen.logError("Type mismatch for argument " + std::to_string(i + 1) + " in direct call to '" + calleeNameForContext + "'. Expected " + expectedTypeStr + " but got " + actualTypeStr + ".",
                                             expr->line.value_or(0), expr->column.value_or(0));
                 }
             }
@@ -546,31 +566,39 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
     else
     {
         std::vector<std::shared_ptr<PyType>> expectedParamTypes;
-        if (callableType && callableType->isFunction() && callableType->getObjectType()) {
+        if (callableType && callableType->isFunction() && callableType->getObjectType())
+        {
             // FIX 3: Changed FunctionObjectType to FunctionType
-            if (auto* funcOt = llvm::dyn_cast<FunctionType>(callableType->getObjectType())) {
-                for(const auto& paramOt : funcOt->getParamTypes()) {
+            if (auto* funcOt = llvm::dyn_cast<FunctionType>(callableType->getObjectType()))
+            {
+                for (const auto& paramOt : funcOt->getParamTypes())
+                {
                     // Ensure paramOt is not null before creating PyType from it
-                    if (paramOt) {
+                    if (paramOt)
+                    {
                         auto pyParamType = PyType::fromObjectType(paramOt);
-                        if (pyParamType) {
+                        if (pyParamType)
+                        {
                             expectedParamTypes.push_back(pyParamType);
-                        } else {
-                            codeGen.logWarning("Runtime call to '" + calleeNameForContext +
-                                               "': Could not create PyType from parameter ObjectType. Using Any.",
+                        }
+                        else
+                        {
+                            codeGen.logWarning("Runtime call to '" + calleeNameForContext + "': Could not create PyType from parameter ObjectType. Using Any.",
                                                expr->line.value_or(0), expr->column.value_or(0));
                             expectedParamTypes.push_back(PyType::getAny());
                         }
-                    } else {
-                         codeGen.logWarning("Runtime call to '" + calleeNameForContext +
-                                           "': Encountered null parameter ObjectType. Using Any.",
+                    }
+                    else
+                    {
+                        codeGen.logWarning("Runtime call to '" + calleeNameForContext + "': Encountered null parameter ObjectType. Using Any.",
                                            expr->line.value_or(0), expr->column.value_or(0));
                         expectedParamTypes.push_back(PyType::getAny());
                     }
                 }
-            } else {
-                 codeGen.logWarning("Runtime call to '" + calleeNameForContext +
-                                   "': Callable's ObjectType is not a FunctionType. Cannot determine expected param types.",
+            }
+            else
+            {
+                codeGen.logWarning("Runtime call to '" + calleeNameForContext + "': Callable's ObjectType is not a FunctionType. Cannot determine expected param types.",
                                    expr->line.value_or(0), expr->column.value_or(0));
             }
         }
@@ -591,17 +619,17 @@ llvm::Value* CodeGenExpr::handleCallExpr(CallExprAST* expr)
     llvm::Value* callResult = nullptr;
     if (isDirectCall)
     {
-    #ifdef DEBUG_CODEGEN_handleCallExpr
+#ifdef DEBUG_CODEGEN_handleCallExpr
         DEBUG_LOG_DETAIL("HdlCallExpr", "Generating direct LLVM call instruction to '" + calleeNameForContext + "'");
-    #endif
+#endif
         llvm::Function* targetFunc = llvm::cast<llvm::Function>(callableValue);
         callResult = builder.CreateCall(targetFunc->getFunctionType(), targetFunc, preparedArgs, calleeNameForContext + "_direct_call_res");
     }
     else
     {
-    #ifdef DEBUG_CODEGEN_handleCallExpr
+#ifdef DEBUG_CODEGEN_handleCallExpr
         DEBUG_LOG_DETAIL("HdlCallExpr", "Generating runtime call via py_call_function for '" + calleeNameForContext + "'");
-    #endif
+#endif
         callResult = runtime->createCallFunction(callableValue, preparedArgs);
         if (!callResult)
         {
@@ -768,6 +796,94 @@ llvm::Value* CodeGenExpr::handleIndexExpr(IndexExprAST* expr)
     return result;
 }
 
+// 处理条件表达式 (A if C else B)
+llvm::Value* CodeGenExpr::handleConditionalExpr(ConditionalExprAST* expr)
+{
+    auto& builder = codeGen.getBuilder();
+    auto& context = codeGen.getContext();
+    auto* runtime = codeGen.getRuntimeGen();
+
+    // 1. 生成条件表达式 C 的代码
+    llvm::Value* condPyObj = handleExpr(expr->getConditionExpr());
+    if (!condPyObj) return nullptr;
+
+    // 2. 将 Python 条件对象转换为 LLVM i1 (布尔值)
+    // 使用现有的 py_object_to_bool 运行时函数
+    llvm::Function* toBoolFunc = codeGen.getOrCreateExternalFunction(
+            "py_object_to_bool",             // <--- 修改函数名
+            llvm::Type::getInt1Ty(context),  // 返回 i1 (bool)
+            {runtime->getPyObjectPtrType()}  // 参数 PyObject*
+    );
+    llvm::Value* condBool = builder.CreateCall(toBoolFunc, {condPyObj}, "cond_is_true");
+    // 运行时函数 py_object_to_bool 应该处理 condPyObj 的引用计数（如果需要）
+    // 通常，作为参数传递给函数，函数内部会处理。
+
+    // 3. 创建基本块
+    llvm::Function* function = builder.GetInsertBlock()->getParent();
+    llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(context, "cond.then", function);
+    llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(context, "cond.else", function);
+    llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(context, "cond.end", function);
+
+    // 4. 创建条件分支
+    builder.CreateCondBr(condBool, thenBB, elseBB);
+
+    // 5. 生成 then 块 (trueExpr A)
+    builder.SetInsertPoint(thenBB);
+    llvm::Value* thenV = handleExpr(expr->getTrueExpr());
+    if (!thenV) return nullptr;
+    // thenV 是 PyObject*，其生命周期由 handleExpr 返回时确定。
+    // 如果它是新创建的，需要被 PHI 节点接管或在不再需要时 decref。
+    // py_object_is_true 消耗了 condPyObj 的一个引用（如果它是临时的话），
+    // 或者 condPyObj 是一个变量，其生命周期由其作用域管理。
+    // 我们需要确保 thenV 和 elseV 的引用计数对于 PHI 节点是正确的。
+    // 通常，如果 thenV/elseV 是新对象，它们在各自块的末尾不需要 decref，
+    // 因为它们将被 PHI 节点“使用”，最终结果的引用计数将由调用者管理。
+    builder.CreateBr(mergeBB);
+    thenBB = builder.GetInsertBlock();  // 获取当前的 thenBB，以备 PHINode 使用
+
+    // 6. 生成 else 块 (falseExpr B)
+    builder.SetInsertPoint(elseBB);
+    llvm::Value* elseV = handleExpr(expr->getFalseExpr());
+    if (!elseV) return nullptr;
+    builder.CreateBr(mergeBB);
+    elseBB = builder.GetInsertBlock();  // 获取当前的 elseBB
+
+    // 7. 生成 merge 块并创建 PHI 节点
+    builder.SetInsertPoint(mergeBB);
+    // 确保 thenV 和 elseV 具有兼容的 LLVM 类型 (都应该是 PyObject*)
+    // 如果类型不匹配，可能需要进行转换，但这通常在 Python 层面处理，
+    // LLVM层面它们都应该是 PyObject*。
+    if (thenV->getType() != elseV->getType())
+    {
+        // This case should ideally not happen if both branches return PyObject*
+        // or if type inference ensures they are compatible at LLVM level.
+        // For now, log an error or attempt a bitcast if they are both pointers.
+        if (thenV->getType()->isPointerTy() && elseV->getType()->isPointerTy())
+        {
+            // Attempt to bitcast one to match the other, e.g., elseV to thenV's type
+            // This is risky if they are not truly compatible PyObject types.
+            // elseV = builder.CreateBitCast(elseV, thenV->getType(), "else_cast_for_phi");
+            codeGen.logWarning("PHI node operands have different pointer types in conditional expression. This might be an issue.", expr->line.value_or(0), expr->column.value_or(0));
+        }
+        else
+        {
+            return codeGen.logError("Type mismatch for PHI node in conditional expression.", expr->line.value_or(0), expr->column.value_or(0));
+        }
+    }
+
+    llvm::PHINode* phiNode = builder.CreatePHI(thenV->getType(), 2, "cond.result");
+    phiNode->addIncoming(thenV, thenBB);
+    phiNode->addIncoming(elseV, elseBB);
+
+    // 结果的 Python 类型由 ConditionalExprAST::getType() 确定
+    // 结果的来源是条件表达式的结果，可以认为是 TEMPORARY 或类似 BINARY_OP
+    runtime->markObjectSource(phiNode, ObjectLifecycleManager::ObjectSource::TEMPORARY);
+    // AST 节点的类型应该已经在解析或类型检查阶段设置好了
+    // expr->setType(PyType::getCommonType(expr->getTrueExpr()->getType(), expr->getFalseExpr()->getType()));
+
+    return phiNode;
+}
+
 // 二元操作处理函数
 llvm::Value* CodeGenExpr::handleBinOp(PyTokenType op, llvm::Value* L, llvm::Value* R,
                                       std::shared_ptr<PyType> leftType,
@@ -918,6 +1034,50 @@ llvm::Value* CodeGenExpr::handleUnaryOp(PyTokenType op, llvm::Value* operand,
     {
         runtime->markObjectSource(result, ObjectLifecycleManager::ObjectSource::UNARY_OP);
     }
+
+    return result;
+}
+
+
+
+llvm::Value* CodeGenExpr::handleAttributeExpr(AttributeExprAST* expr) {
+    auto* runtime = codeGen.getRuntimeGen();
+    auto& builder = codeGen.getBuilder();
+    auto& context = codeGen.getContext(); // Get context for type creation
+
+    // 1. Codegen the object expression
+    llvm::Value* objectVal = handleExpr(expr->getObjectExpr());
+    if (!objectVal) {
+        return codeGen.logError("Failed to generate code for object in attribute access.",
+                                expr->getObjectExpr()->line.value_or(0), expr->getObjectExpr()->column.value_or(0));
+    }
+
+    // Ensure objectVal is PyObject*
+    if (!objectVal->getType()->isPointerTy()) { // Basic check, runtime might do more
+        return codeGen.logError("Object in attribute access is not a PyObject pointer.",
+                                expr->getObjectExpr()->line.value_or(0), expr->getObjectExpr()->column.value_or(0));
+    }
+
+    // 2. Get attribute name as C string
+    const std::string& attrNameStr = expr->getAttributeName();
+    llvm::Value* attrNameCStr = builder.CreateGlobalStringPtr(attrNameStr, attrNameStr + "_attr_name");
+
+    // 3. Call runtime getattr function
+    // PyObject* py_object_getattr(PyObject* obj, const char* attr_name)
+    llvm::Function* getattrFunc = codeGen.getOrCreateExternalFunction(
+        "py_object_getattr",
+        runtime->getPyObjectPtrType(), // Returns PyObject*
+        {runtime->getPyObjectPtrType(), llvm::PointerType::get(llvm::Type::getInt8Ty(context), 0)} // Args: PyObject*, char* (i8*) <--- MODIFIED
+    );
+
+    llvm::Value* result = builder.CreateCall(getattrFunc, {objectVal, attrNameCStr}, "attr_result");
+
+    // 4. Set type and mark source
+    std::shared_ptr<PyType> attrResultType = expr->getType(); 
+
+    runtime->markObjectSource(result, ObjectLifecycleManager::ObjectSource::ATTRIBUTE_ACCESS);
+    codeGen.setLastExprType(attrResultType); 
+    codeGen.setLastExprValue(result);
 
     return result;
 }

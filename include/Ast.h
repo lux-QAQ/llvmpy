@@ -68,7 +68,9 @@ enum class ASTKind
     BoolExpr,         ///< 布尔字面量表达式节点 (True, False)
     NoneExpr,         ///< None 字面量表达式节点
     DictExpr,         ///< 字典字面量表达式节点
+    ConditionalExpr,  ///< 条件表达式节点 (A if C else B)  <--- 新增
     FunctionDefStmt,  ///< 函数定义语句节点包装
+    AttributeExpr,    ///< 属性访问表达式节点 (object.attribute) 
     ForStmt,          ///< for 循环语句节点
     Unknown           ///< 未知或错误节点类型
 };
@@ -790,6 +792,57 @@ public:
     bool isLValue() const override
     {
         return true;
+    }
+};
+
+/**
+ * @brief 条件表达式节点 (例如 true_expr if condition_expr else false_expr)。
+ */
+class ConditionalExprAST : public ExprASTBase<ConditionalExprAST, ASTKind::ConditionalExpr>
+{
+    std::unique_ptr<ExprAST> trueExpr;       ///< 条件为真时评估的表达式。
+    std::unique_ptr<ExprAST> conditionExpr;  ///< 条件表达式。
+    std::unique_ptr<ExprAST> falseExpr;      ///< 条件为假时评估的表达式。
+    mutable std::shared_ptr<PyType> cachedType;
+
+public:
+    ConditionalExprAST(std::unique_ptr<ExprAST> trueE,
+                       std::unique_ptr<ExprAST> condE,
+                       std::unique_ptr<ExprAST> falseE)
+        : trueExpr(std::move(trueE)),
+          conditionExpr(std::move(condE)),
+          falseExpr(std::move(falseE)) {}
+
+    const ExprAST* getTrueExpr() const { return trueExpr.get(); }
+    const ExprAST* getConditionExpr() const { return conditionExpr.get(); }
+    const ExprAST* getFalseExpr() const { return falseExpr.get(); }
+
+    std::shared_ptr<PyType> getType() const override;
+};
+
+
+/**
+ * @brief 属性访问表达式节点 (例如 object.attribute)。
+ */
+class AttributeExprAST : public ExprASTBase<AttributeExprAST, ASTKind::AttributeExpr> {
+    std::unique_ptr<ExprAST> objectExpr; ///< The object whose attribute is being accessed.
+    std::string attributeName;           ///< The name of the attribute.
+    mutable std::shared_ptr<PyType> cachedType;
+
+public:
+    AttributeExprAST(std::unique_ptr<ExprAST> objExpr, const std::string& attrName)
+        : objectExpr(std::move(objExpr)), attributeName(attrName) {}
+
+    const ExprAST* getObjectExpr() const { return objectExpr.get(); }
+    const std::string& getAttributeName() const { return attributeName; }
+
+    std::shared_ptr<PyType> getType() const override;
+
+    bool isLValue() const override { return true; } // Attributes can be assigned to.
+
+    /** @brief LLVM RTTI support. */
+    static bool classof(const ASTNode *N) {
+        return N->kind() == ASTKind::AttributeExpr;
     }
 };
 

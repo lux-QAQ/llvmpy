@@ -83,8 +83,8 @@ void CodeGenStmt::initializeHandlers()
         static_cast<CodeGenStmt*>(cg.getStmtGen())->handleWhileStmt(static_cast<WhileStmtAST*>(stmt));
     };
 
-    stmtHandlers[ASTKind::ForStmt] = [](CodeGenBase& cg, StmtAST* s) { // Added ForStmt handler
-        static_cast<CodeGenStmt*>(cg.getStmtGen())->handleForStmt(static_cast<const ForStmtAST*>(s)); // Corrected cast
+    stmtHandlers[ASTKind::ForStmt] = [](CodeGenBase& cg, StmtAST* s) {                                 // Added ForStmt handler
+        static_cast<CodeGenStmt*>(cg.getStmtGen())->handleForStmt(static_cast<const ForStmtAST*>(s));  // Corrected cast
     };
 
     stmtHandlers[ASTKind::PrintStmt] = [](CodeGenBase& cg, StmtAST* stmt)
@@ -119,9 +119,8 @@ void CodeGenStmt::initializeHandlers()
         static_cast<CodeGenStmt*>(cg.getStmtGen())->handleImportStmt(static_cast<ImportStmtAST*>(stmt));
     };
 
-    stmtHandlers[ASTKind::ClassStmt] = [](CodeGenBase& cg, StmtAST* stmt)
-    {
-        static_cast<CodeGenStmt*>(cg.getStmtGen())->handleClassStmt(static_cast<ClassStmtAST*>(stmt));
+    stmtHandlers[ASTKind::ClassStmt] = [](CodeGenBase& cg, StmtAST* stmt) {                             
+        static_cast<CodeGenStmt*>(cg.getStmtGen())->handleClassStmt(static_cast<ClassStmtAST*>(stmt));  
     };
     // 注册 FunctionDefStmt 的处理器
     stmtHandlers[ASTKind::FunctionDefStmt] = [](CodeGenBase& cg, StmtAST* s)
@@ -255,23 +254,23 @@ void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
 
     // --- 新增步骤：为顶层函数预声明 GlobalVariable ---
     llvm::GlobalVariable* preDeclaredFuncObjGV = nullptr;
-    llvm::Function* currentDefiningFunction = codeGen.getCurrentFunction(); // The function context where 'def' occurs
+    llvm::Function* currentDefiningFunction = codeGen.getCurrentFunction();  // The function context where 'def' occurs
     bool isTopLevelDefinition = !currentDefiningFunction || currentDefiningFunction->getName() == "__llvmpy_entry";
     std::string gvNameForLookup;
 
-    if (isTopLevelDefinition) // Or any other condition that implies GV storage
+    if (isTopLevelDefinition)  // Or any other condition that implies GV storage
     {
         gvNameForLookup = pyFuncName + "_obj_gv";
-        preDeclaredFuncObjGV = codeGen.getModule()->getGlobalVariable(gvNameForLookup,true);
+        preDeclaredFuncObjGV = codeGen.getModule()->getGlobalVariable(gvNameForLookup, true);
         if (!preDeclaredFuncObjGV)
         {
             preDeclaredFuncObjGV = new llvm::GlobalVariable(
-                *codeGen.getModule(),
-                pyObjectPtrType,
-                false, // isConstant
-                llvm::GlobalValue::InternalLinkage,
-                llvm::Constant::getNullValue(pyObjectPtrType), // Initializer = null for now
-                gvNameForLookup);
+                    *codeGen.getModule(),
+                    pyObjectPtrType,
+                    false,  // isConstant
+                    llvm::GlobalValue::InternalLinkage,
+                    llvm::Constant::getNullValue(pyObjectPtrType),  // Initializer = null for now
+                    gvNameForLookup);
             preDeclaredFuncObjGV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
             DEBUG_LOG_DETAIL("HdlFuncDefStmt", "PRE-DECLARED GlobalVariable: " + llvmObjToString(preDeclaredFuncObjGV) + " for '" + pyFuncName + "'");
@@ -338,7 +337,7 @@ void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
     if (isTopLevelDefinition)
     {
         // --- 顶层函数：使用预声明的 GlobalVariable ---
-        storage = preDeclaredFuncObjGV; // This is the llvm::GlobalVariable*
+        storage = preDeclaredFuncObjGV;  // This is the llvm::GlobalVariable*
 
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
         DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Function '" + pyFuncName + "' is top-level. Using PRE-DECLARED GlobalVariable: " + llvmObjToString(storage));
@@ -1425,11 +1424,13 @@ void CodeGenStmt::handleForStmt(const ForStmtAST* stmt)
 
     // --- 1. 生成可迭代对象的代码 ---
     llvm::Value* iterableValue = cg.codegenExpr(iterableExpr);
-    if (!iterableValue) {
+    if (!iterableValue)
+    {
         cg.logError("Failed to generate code for iterable in for loop at line " + std::to_string(stmt->line.value_or(0)));
         return;
     }
-    if (!iterableValue->getType()->isPointerTy()) {
+    if (!iterableValue->getType()->isPointerTy())
+    {
         cg.logError("Iterable in for loop is not an object at line " + std::to_string(stmt->line.value_or(0)));
         return;
     }
@@ -1437,13 +1438,12 @@ void CodeGenStmt::handleForStmt(const ForStmtAST* stmt)
     // --- 2. 获取迭代器对象 ---
     llvm::Type* pyObjectPtrType_for_iter = cg.getRuntimeGen()->getPyObjectPtrType();
     llvm::Function* pyIterFunc = cg.getOrCreateExternalFunction(
-        "py_iter",
-        pyObjectPtrType_for_iter,
-        {pyObjectPtrType_for_iter},
-        false
-    );
+            "py_iter",
+            pyObjectPtrType_for_iter,
+            {pyObjectPtrType_for_iter},
+            false);
     llvm::Value* iteratorObj = builder.CreateCall(pyIterFunc, {iterableValue}, "iterator");
-    
+
     llvm::Value* iterNullCheck = builder.CreateICmpEQ(iteratorObj, llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(pyObjectPtrType_for_iter)), "is_iter_null");
     llvm::BasicBlock* iterErrorBB = llvm::BasicBlock::Create(context, "iter.error", currentFunction);
     llvm::BasicBlock* iterOkBB = llvm::BasicBlock::Create(context, "iter.ok", currentFunction);
@@ -1456,84 +1456,91 @@ void CodeGenStmt::handleForStmt(const ForStmtAST* stmt)
     builder.SetInsertPoint(iterOkBB);
 
     // --- 3. 创建循环的基本块 ---
-    llvm::BasicBlock* loopHeaderBB = llvm::BasicBlock::Create(context, "for.header", currentFunction); // Continue target
+    llvm::BasicBlock* loopHeaderBB = llvm::BasicBlock::Create(context, "for.header", currentFunction);  // Continue target
     llvm::BasicBlock* loopBodyBB = llvm::BasicBlock::Create(context, "for.body", currentFunction);
-    llvm::BasicBlock* loopElseBB = nullptr; 
-    llvm::BasicBlock* loopEndBB = llvm::BasicBlock::Create(context, "for.end", currentFunction);       // Break target, and final merge point
-    llvm::BasicBlock* stopIterationBB = llvm::BasicBlock::Create(context, "for.stop_iteration", currentFunction); 
+    llvm::BasicBlock* loopElseBB = nullptr;
+    llvm::BasicBlock* loopEndBB = llvm::BasicBlock::Create(context, "for.end", currentFunction);  // Break target, and final merge point
+    llvm::BasicBlock* stopIterationBB = llvm::BasicBlock::Create(context, "for.stop_iteration", currentFunction);
 
-    if (stmt->getElseStmt()) {
+    if (stmt->getElseStmt())
+    {
         loopElseBB = llvm::BasicBlock::Create(context, "for.else", currentFunction);
     }
 
-    builder.CreateBr(loopHeaderBB); 
+    builder.CreateBr(loopHeaderBB);
 
     // --- 4. 循环头 (loopHeaderBB) ---
     builder.SetInsertPoint(loopHeaderBB);
     llvm::Type* pyObjectPtrType_for_next = cg.getRuntimeGen()->getPyObjectPtrType();
     llvm::Function* pyNextFunc = cg.getOrCreateExternalFunction(
-        "py_next",
-        pyObjectPtrType_for_next,
-        {pyObjectPtrType_for_next}, 
-        false
-    );
+            "py_next",
+            pyObjectPtrType_for_next,
+            {pyObjectPtrType_for_next},
+            false);
     llvm::Value* nextItem = builder.CreateCall(pyNextFunc, {iteratorObj}, "next_item_or_stop");
     llvm::Value* isStopIteration = builder.CreateICmpEQ(
-        nextItem,
-        llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(pyObjectPtrType_for_next)),
-        "is_stop_iteration"
-    );
-    builder.CreateCondBr(isStopIteration, stopIterationBB, loopBodyBB); 
+            nextItem,
+            llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(pyObjectPtrType_for_next)),
+            "is_stop_iteration");
+    builder.CreateCondBr(isStopIteration, stopIterationBB, loopBodyBB);
 
     // --- stopIterationBB (Normal loop termination) ---
     builder.SetInsertPoint(stopIterationBB);
-    cg.getRuntimeGen()->decRef(iteratorObj); 
-    if (loopElseBB) { // If loop finished normally AND else exists, go to else
+    cg.getRuntimeGen()->decRef(iteratorObj);
+    if (loopElseBB)
+    {  // If loop finished normally AND else exists, go to else
         builder.CreateBr(loopElseBB);
-    } else { // If loop finished normally AND NO else, go to end
+    }
+    else
+    {  // If loop finished normally AND NO else, go to end
         builder.CreateBr(loopEndBB);
     }
 
     // --- 5. 循环体 (loopBodyBB) ---
     builder.SetInsertPoint(loopBodyBB);
-    
+
     // 5.1 将 nextItem 赋值给循环变量
     llvm::AllocaInst* loopVarAlloc = cg.getSymbolTable().lookupAlloca(loopVarName);
     std::shared_ptr<PyType> loopVarPyType = PyType::fromObjectType(TypeRegistry::getInstance().getType("any"));
     ObjectType* loopVarObjectType = loopVarPyType ? loopVarPyType->getObjectType() : nullptr;
     llvm::Type* pyObjectPtrType_for_alloc = cg.getRuntimeGen()->getPyObjectPtrType();
 
-    if (!loopVarAlloc) {
-         loopVarAlloc = cg.createEntryBlockAlloca(pyObjectPtrType_for_alloc, loopVarName);
-         // +++ FIX: Initialize the newly created alloca with nullptr +++
-         builder.CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(pyObjectPtrType_for_alloc)), loopVarAlloc);
-         // +++ END FIX +++
-         cg.getSymbolTable().setVariable(loopVarName, loopVarAlloc, loopVarObjectType);
-    } else {
+    if (!loopVarAlloc)
+    {
+        loopVarAlloc = cg.createEntryBlockAlloca(pyObjectPtrType_for_alloc, loopVarName);
+        // +++ FIX: Initialize the newly created alloca with nullptr +++
+        builder.CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(pyObjectPtrType_for_alloc)), loopVarAlloc);
+        // +++ END FIX +++
+        cg.getSymbolTable().setVariable(loopVarName, loopVarAlloc, loopVarObjectType);
+    }
+    else
+    {
         // If it already exists, assume it's managed correctly by outer scopes or previous logic.
         // However, ensure it's correctly set in the current symbol table context if re-entering a scope.
         cg.getSymbolTable().setVariable(loopVarName, loopVarAlloc, loopVarObjectType);
     }
     llvm::Value* oldLoopVarValue = builder.CreateLoad(pyObjectPtrType_for_alloc, loopVarAlloc, "old_" + loopVarName);
-    cg.getRuntimeGen()->decRef(oldLoopVarValue); // This is now safe if alloca was initialized or held a valid previous object.
+    cg.getRuntimeGen()->decRef(oldLoopVarValue);  // This is now safe if alloca was initialized or held a valid previous object.
     builder.CreateStore(nextItem, loopVarAlloc);
-    cg.getRuntimeGen()->incRef(nextItem); // <<< ADDED: IncRef the new item being stored and now owned by loopVarAlloc
+    cg.getRuntimeGen()->incRef(nextItem);  // <<< ADDED: IncRef the new item being stored and now owned by loopVarAlloc
 
     // 5.2 生成循环体代码
     cg.pushScope();  // Keep original scope management
     // Set loop context for symbol table (if it uses it for other purposes)
     // loopEndBB is the break target, loopHeaderBB is the continue target.
-    cg.getSymbolTable().setLoopContext(loopEndBB, loopHeaderBB); 
+    cg.getSymbolTable().setLoopContext(loopEndBB, loopHeaderBB);
 
     // --- MODIFICATION START: Push targets for CodeGenStmt's break/continue handlers ---
-    pushBreakTarget(loopEndBB);       // Break jumps to loopEndBB (after else)
-    pushContinueTarget(loopHeaderBB); // Continue jumps to loopHeaderBB
+    pushBreakTarget(loopEndBB);        // Break jumps to loopEndBB (after else)
+    pushContinueTarget(loopHeaderBB);  // Continue jumps to loopHeaderBB
     // --- MODIFICATION END ---
 
-    for (const auto& bodyStmt : stmt->getBody()) {
-        cg.codegenStmt(bodyStmt.get()); // Keep original call to PyCodeGen's dispatcher
-        if (builder.GetInsertBlock()->getTerminator() != nullptr) { 
-            break; 
+    for (const auto& bodyStmt : stmt->getBody())
+    {
+        cg.codegenStmt(bodyStmt.get());  // Keep original call to PyCodeGen's dispatcher
+        if (builder.GetInsertBlock()->getTerminator() != nullptr)
+        {
+            break;
         }
     }
 
@@ -1542,31 +1549,38 @@ void CodeGenStmt::handleForStmt(const ForStmtAST* stmt)
     popBreakTarget();
     // --- MODIFICATION END ---
 
-    cg.popScope(); // Keep original scope management
+    cg.popScope();  // Keep original scope management
 
-    if (builder.GetInsertBlock()->getTerminator() == nullptr) { 
+    if (builder.GetInsertBlock()->getTerminator() == nullptr)
+    {
         // cg.getRuntimeGen()->decRef(nextItem); // This was commented out, likely correct.
-        builder.CreateBr(loopHeaderBB); 
+        builder.CreateBr(loopHeaderBB);
     }
 
     // --- 6. Else 子句 (loopElseBB) ---
-    if (loopElseBB) {
+    if (loopElseBB)
+    {
         builder.SetInsertPoint(loopElseBB);
-        cg.pushScope(); // Keep original scope management for else
-        cg.getSymbolTable().clearLoopContext(); // Keep original symbol table context clearing
+        cg.pushScope();                          // Keep original scope management for else
+        cg.getSymbolTable().clearLoopContext();  // Keep original symbol table context clearing
 
-        const auto* elseAstNode = stmt->getElseStmt(); // Use a more generic name
-        if (const auto* elseBlock = dynamic_cast<const BlockStmtAST*>(elseAstNode)) {
-            for (const auto& elseBodyStmt : elseBlock->getStatements()) {
-                cg.codegenStmt(elseBodyStmt.get()); // Keep original call
-                 if (builder.GetInsertBlock()->getTerminator() != nullptr) break;
+        const auto* elseAstNode = stmt->getElseStmt();  // Use a more generic name
+        if (const auto* elseBlock = dynamic_cast<const BlockStmtAST*>(elseAstNode))
+        {
+            for (const auto& elseBodyStmt : elseBlock->getStatements())
+            {
+                cg.codegenStmt(elseBodyStmt.get());  // Keep original call
+                if (builder.GetInsertBlock()->getTerminator() != nullptr) break;
             }
-        } else if (elseAstNode) { // If it's not a BlockStmt but still exists
-            cg.codegenStmt(const_cast<StmtAST*>(elseAstNode)); // Keep original call
         }
-        cg.popScope(); // Keep original scope management for else
-        if (builder.GetInsertBlock()->getTerminator() == nullptr) {
-            builder.CreateBr(loopEndBB); 
+        else if (elseAstNode)
+        {                                                       // If it's not a BlockStmt but still exists
+            cg.codegenStmt(const_cast<StmtAST*>(elseAstNode));  // Keep original call
+        }
+        cg.popScope();  // Keep original scope management for else
+        if (builder.GetInsertBlock()->getTerminator() == nullptr)
+        {
+            builder.CreateBr(loopEndBB);
         }
     }
 
@@ -1579,9 +1593,8 @@ void CodeGenStmt::handleForStmt(const ForStmtAST* stmt)
     // The current decRef in stopIterationBB is for when the iterator is exhausted.
     // If a break occurs, iteratorObj's ref count should naturally lead to its collection if nothing else holds it.
 
-    cg.getSymbolTable().restoreOuterLoopContext(); // Keep original symbol table context restoration
+    cg.getSymbolTable().restoreOuterLoopContext();  // Keep original symbol table context restoration
 }
-
 
 void CodeGenStmt::handlePrintStmt(PrintStmtAST* stmt)
 {
@@ -1965,6 +1978,9 @@ void CodeGenStmt::handleIndexAssignStmt(IndexAssignStmtAST* stmt)
     // 4. 清理生成 target, index, value 时可能产生的临时对象
     runtime->cleanupTemporaryObjects();
 }
+
+
+
 void CodeGenStmt::handlePassStmt(PassStmtAST* stmt)
 {
     // pass语句不生成任何代码
@@ -2008,108 +2024,164 @@ void CodeGenStmt::handleImportStmt(ImportStmtAST* stmt)
     runtime->cleanupTemporaryObjects();
 }
 
-void CodeGenStmt::handleClassStmt(ClassStmtAST* stmt)
-{
-    auto& builder = codeGen.getBuilder();
-    auto* typeGen = codeGen.getTypeGen();
+void CodeGenStmt::handleClassStmt(ClassStmtAST* stmt) {
+    auto* cg = static_cast<PyCodeGen*>(&codeGen);
+    auto& builder = cg->getBuilder();
+    auto* runtime = cg->getRuntimeGen();
+    auto* moduleGen = cg->getModuleGen();
+    auto& context = cg->getContext(); // Get context for type creation
 
-    // 获取类名和基类
     const std::string& className = stmt->getClassName();
-    const std::vector<std::string>& baseClasses = stmt->getBaseClasses();
+#ifdef DEBUG_CODEGEN_STMT
+    DEBUG_LOG_DETAIL("HdlClsStmt", "Starting class definition for: " + className);
+#endif
 
-    // 创建类型对象
-    llvm::Function* createClassFunc = codeGen.getOrCreateExternalFunction(
-            "py_create_class",
-            llvm::PointerType::get(codeGen.getContext(), 0),
-            {
-                    llvm::PointerType::get(codeGen.getContext(), 0),  // class name
-                    llvm::PointerType::get(codeGen.getContext(), 0)   // base classes list
-            });
-
-    // 创建类名字符串
-    llvm::Value* classNameValue = builder.CreateGlobalString(className, "class_name");
-
-    // 创建基类列表
-    llvm::Value* baseClassesList = nullptr;
-    if (baseClasses.empty())
-    {
-        // 没有基类，传入None
-        llvm::Function* getNoneFunc = codeGen.getOrCreateExternalFunction(
-                "py_get_none",
-                llvm::PointerType::get(codeGen.getContext(), 0),
-                {});
-
-        baseClassesList = builder.CreateCall(getNoneFunc, {}, "no_bases");
+    // 1. Create a dictionary for the class body
+    ObjectType* strType = TypeRegistry::getInstance().getType("string");
+    ObjectType* anyType = TypeRegistry::getInstance().getType("any"); // Methods and vars can be of any type
+    if (!strType || !anyType) {
+        cg->logError("Failed to get string/any types for class dictionary.", stmt->line.value_or(0), stmt->column.value_or(0));
+        return;
     }
-    else
-    {
-        // 有基类，创建基类列表
-        auto* exprGen = codeGen.getExprGen();
-        auto elementType = PyType::getAny();
+    llvm::Value* classDictObj = cg->getExprGen()->createDict(strType, anyType);
+    if (!classDictObj) {
+        cg->logError("Failed to create dictionary for class " + className, stmt->line.value_or(0), stmt->column.value_or(0));
+        return;
+    }
+    runtime->incRef(classDictObj); // classDictObj is new, incRef until py_create_class takes it.
 
-        // 创建空列表
-        baseClassesList = exprGen->createList(baseClasses.size(), elementType);
+    // --- Python's class body execution scope ---
+    // Class body executes in a temporary namespace.
+    // We simulate this by pushing a scope, but variables defined go into classDictObj.
+    // This is a simplification; true Python class scope is more nuanced.
+    // For now, we won't create a new symbol table scope here,
+    // as methods are handled by handleFunctionDef (which creates its own scope)
+    // and class variables are directly put into the classDictObj.
 
-        // 填充基类
-        for (size_t i = 0; i < baseClasses.size(); i++)
-        {
-            // 获取基类对象
-            llvm::Value* baseClass = codeGen.getSymbolTable().getVariable(baseClasses[i]);
-            if (!baseClass)
-            {
-                codeGen.logError("Base class not found: " + baseClasses[i]);
+    // 2. Process the class body (methods and class variables)
+    for (const auto& bodyStmtNode : stmt->getBody()) {
+        if (auto* funcDefStmt = dynamic_cast<FunctionDefStmtAST*>(bodyStmtNode.get())) {
+            const FunctionAST* methodAST = funcDefStmt->getFunctionAST();
+            if (!methodAST) {
+                 cg->logError("Null FunctionAST in FunctionDefStmt within class " + className,
+                             funcDefStmt->line.value_or(0), funcDefStmt->column.value_or(0));
                 continue;
             }
+            // Note: handleFunctionDef in CodeGenModule generates the LLVM function
+            // and handleFunctionDefStmt in CodeGenStmt creates the PyFunctionObject.
+            // For methods, the PyFunctionObject is what we need.
+            // We need to ensure that when handleFunctionDefStmt is called for a method,
+            // it doesn't try to store it in the current *lexical* scope's symbol table
+            // in the same way as a regular function.
+            // A simple way: CodeGenModule::handleFunctionDef generates the LLVM func.
+            // Then, here, we create the PyFunctionObject and add it to classDictObj.
 
-            // 添加到列表
-            llvm::Value* index = llvm::ConstantInt::get(
-                    llvm::Type::getInt32Ty(codeGen.getContext()), i);
+            // Generate the LLVM function for the method
+            llvm::Function* llvmMethod = moduleGen->handleFunctionDef(methodAST);
+            if (!llvmMethod) {
+                 cg->logError("Failed to generate LLVM function for method: " + methodAST->getName() + " in class " + className,
+                             methodAST->line.value_or(0), methodAST->column.value_or(0));
+                continue;
+            }
+            // Create the Python function object for this method
+            ObjectType* methodObjType = cg->getTypeGen()->getFunctionObjectType(methodAST);
+            llvm::Value* methodPyObj = runtime->createFunctionObject(llvmMethod, methodObjType);
+             if (!methodPyObj) {
+                cg->logError("Failed to create Python function object for method: " + methodAST->getName() + " in class " + className,
+                             methodAST->line.value_or(0), methodAST->column.value_or(0));
+                continue;
+            }
+            // Add method object to classDictObj
+            llvm::Value* methodNameStrObj = cg->getExprGen()->createStringLiteral(methodAST->getName());
+            runtime->setDictItem(classDictObj, methodNameStrObj, methodPyObj);
+            runtime->decRef(methodNameStrObj); // setDictItem should incref
+            runtime->decRef(methodPyObj);      // setDictItem should incref its new value
 
-            exprGen->setListElement(baseClassesList, index, baseClass, elementType);
+        } else if (auto* assignStmt = dynamic_cast<AssignStmtAST*>(bodyStmtNode.get())) {
+            // Class variable assignment
+            const std::string& varName = assignStmt->getName();
+            llvm::Value* varValue = cg->getExprGen()->handleExpr(assignStmt->getValue());
+            if (!varValue) {
+                cg->logError("Failed to generate value for class variable: " + varName + " in class " + className,
+                             assignStmt->line.value_or(0), assignStmt->column.value_or(0));
+                continue;
+            }
+            llvm::Value* varNameStrObj = cg->getExprGen()->createStringLiteral(varName);
+            runtime->setDictItem(classDictObj, varNameStrObj, varValue);
+            runtime->decRef(varNameStrObj);
+            // runtime->decRef(varValue); // Value's ref count handled by setDictItem
+        } else {
+            cg->logWarning("Unsupported statement type in class body for " + className +
+                           ". Only function definitions and assignments are currently processed as class attributes.",
+                           bodyStmtNode->line.value_or(0), bodyStmtNode->column.value_or(0));
         }
     }
 
-    // 创建类对象
-    llvm::Value* classObj = builder.CreateCall(
-            createClassFunc, {classNameValue, baseClassesList}, "class_obj");
+    // 3. Handle base classes
+    llvm::Value* basesListObj = nullptr; // Runtime expects a list/tuple of base class *objects*
+    if (stmt->getBaseClasses().empty()) {
+        // No base classes, create an empty list for the runtime
+        basesListObj = runtime->createList(builder.getInt32(0), builder.getInt32(PY_TYPE_CLASS)); // typeId for element is class
+    } else {
+        std::vector<llvm::Value*> baseClassObjVals;
+        for (const std::string& baseName : stmt->getBaseClasses()) {
+            llvm::Value* baseClassStorage = cg->getSymbolTable().getVariable(baseName);
+            if (!baseClassStorage) {
+                cg->logError("Base class '" + baseName + "' not found for class " + className,
+                             stmt->line.value_or(0), stmt->column.value_or(0));
+                runtime->decRef(classDictObj); // Cleanup dict
+                return;
+            }
+            llvm::Value* baseClassObj = nullptr;
+            if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(baseClassStorage)) {
+                baseClassObj = builder.CreateLoad(runtime->getPyObjectPtrType(), alloca, baseName + "_load");
+            } else if (auto* global = llvm::dyn_cast<llvm::GlobalVariable>(baseClassStorage)) {
+                baseClassObj = builder.CreateLoad(runtime->getPyObjectPtrType(), global, baseName + "_load");
+            } else { // Assume it's already a PyObject* (e.g. from another import)
+                baseClassObj = baseClassStorage;
+            }
+            
+            // TODO: Runtime check if baseClassObj is actually a class (PY_TYPE_CLASS)
+            baseClassObjVals.push_back(baseClassObj);
+        }
+        basesListObj = cg->getExprGen()->createListWithValues(baseClassObjVals, PyType::fromObjectType(TypeRegistry::getInstance().getType("class")));
+    }
+    if (!basesListObj) {
+        cg->logError("Failed to create base classes list for " + className, stmt->line.value_or(0), stmt->column.value_or(0));
+        runtime->decRef(classDictObj);
+        return;
+    }
+    runtime->incRef(basesListObj); // createListWithValues returns new obj, incRef for py_create_class
 
-    // 创建新作用域来处理类体
-    beginScope();
+    // 4. Call runtime py_create_class
+    llvm::Function* createClassFunc = cg->getOrCreateExternalFunction(
+        "py_create_class",
+        runtime->getPyObjectPtrType(),
+        {llvm::PointerType::get(llvm::Type::getInt8Ty(context), 0), runtime->getPyObjectPtrType(), runtime->getPyObjectPtrType()} // name, bases, dict <--- CORRECTED getInt8PtrTy
+    );
+    llvm::Value* classNameCStr = builder.CreateGlobalStringPtr(className, className + "_name_cstr");
+    llvm::Value* classObj = builder.CreateCall(createClassFunc, {classNameCStr, basesListObj, classDictObj}, className + "_class_obj");
 
-    // 将self添加到当前作用域
-    llvm::Function* getSelfFuncType = codeGen.getOrCreateExternalFunction(
-            "py_get_self_default",
-            llvm::PointerType::get(codeGen.getContext(), 0),
-            {});
+    runtime->decRef(basesListObj); // py_create_class should manage its own ref to bases
+    runtime->decRef(classDictObj); // py_create_class should manage its own ref to dict
 
-    llvm::Value* self = builder.CreateCall(getSelfFuncType, {}, "self");
-
-    codeGen.getSymbolTable().setVariable(
-            "self",
-            self,
-            typeGen->getClassInstanceType(className)->getObjectType());
-
-    // 处理类体中的方法和属性
-    auto* stmtGen = codeGen.getStmtGen();
-    for (auto& method : stmt->getMethods())
-    {
-        // 设置方法的类上下文
-        method->setClassContext(className);
-        stmtGen->handleMethod(method.get(), classObj);
+    if (!classObj) {
+        cg->logError("Runtime function py_create_class failed for " + className, stmt->line.value_or(0), stmt->column.value_or(0));
+        return;
     }
 
-    // 结束类作用域
-    endScope();
+    // 5. Store the new class object in the current scope
+    cg->getSymbolTable().setVariable(className, classObj, TypeRegistry::getInstance().getType("class"));
+    // Ref count of classObj from py_create_class is +1.
+    // If setVariable stores it in an AllocaInst, it might need another incRef/decRef pair logic
+    // similar to handleAssignStmt. For simplicity, assume py_create_class returns a +1 object
+    // and setVariable correctly manages it if it stores it in an Alloca.
+    // If setVariable just puts the PyObject* (classObj) into its map for a global,
+    // then the +1 ref from py_create_class is correct.
 
-    // 将类对象添加到当前作用域
-    codeGen.getSymbolTable().setVariable(
-            className,
-            classObj,
-            typeGen->getClassType(className)->getObjectType());
-
-    // 清理临时对象
-    auto* runtime = codeGen.getRuntimeGen();
-    runtime->cleanupTemporaryObjects();
+#ifdef DEBUG_CODEGEN_STMT
+    DEBUG_LOG_DETAIL("HdlClsStmt", "Finished class definition for: " + className + ". Class object: " + llvmObjToString(classObj));
+#endif
 }
 
 void CodeGenStmt::handleMethod(FunctionAST* method, llvm::Value* classObj)
@@ -2194,6 +2266,4 @@ void CodeGenStmt::assignVariable(const std::string& name,
     }
 }
 
-
 }  // namespace llvmpy
-

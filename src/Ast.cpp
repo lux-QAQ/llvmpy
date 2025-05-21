@@ -636,6 +636,54 @@ std::shared_ptr<PyType> IndexExprAST::getType() const
     return cachedType;
 }
 
+// 实现 ConditionalExprAST::getType()
+std::shared_ptr<PyType> ConditionalExprAST::getType() const
+{
+    if (cachedType)
+    {
+        return cachedType;
+    }
+
+    if (!trueExpr || !falseExpr)
+    {                                   // Condition expression type doesn't affect result type directly
+        cachedType = PyType::getAny();  // Fallback if expressions are missing
+        return cachedType;
+    }
+
+    auto typeA = trueExpr->getType();
+    auto typeB = falseExpr->getType();
+
+    if (!typeA || !typeB)
+    {
+        cachedType = PyType::getAny();  // Fallback if types of subexpressions cannot be determined
+        return cachedType;
+    }
+
+    cachedType = getCommonType(typeA, typeB);
+    if (!cachedType)
+    {                                   // If getCommonType returns nullptr
+        cachedType = PyType::getAny();  // Fallback to Any
+    }
+    return cachedType;
+}
+
+std::shared_ptr<PyType> AttributeExprAST::getType() const
+{
+    if (cachedType)
+    {
+        return cachedType;
+    }
+    //最初，属性类型推理很复杂。
+    //这取决于对象的类型和属性。
+    //目前，默认设置为“任意”。这应该通过类类型信息来改进。
+    //更高级的版本将：
+    //1.获取objectExpr的类型。
+    //2.如果它是已知的类类型，请在类的成员中查找attributeName。
+    //3.返回该成员的类型。
+    cachedType = PyType::getAny();  // Placeholder
+    return cachedType;
+}
+
 //========== 语句节点方法实现 ==========
 //被base/codegen接管
 /* void WhileStmtAST::beginScope(PyCodeGen& codegen)
@@ -902,9 +950,9 @@ void FunctionAST::resolveParamTypes()
         return;
     }
 
-    for (auto& param : params) // Ensure 'params' is a member that can be modified or 'param' is a reference
+    for (auto& param : params)  // Ensure 'params' is a member that can be modified or 'param' is a reference
     {
-        if (param.resolvedType) // 如果已经有解析好的类型，则跳过
+        if (param.resolvedType)  // 如果已经有解析好的类型，则跳过
         {
             continue;
         }
@@ -913,7 +961,8 @@ void FunctionAST::resolveParamTypes()
         {
             // 如果有类型注解字符串 (param.typeName)，尝试从字符串解析
             param.resolvedType = PyType::fromString(param.typeName);
-            if (!param.resolvedType || (param.resolvedType->isAny() && param.typeName != "any")) {
+            if (!param.resolvedType || (param.resolvedType->isAny() && param.typeName != "any"))
+            {
                 // 如果 fromString 返回 nullptr (表示无法识别类型名)
                 // 或者返回了 Any 但原始注解不是 "any" (说明解析可能不完全符合预期)
                 // 打印警告并回退到 Any

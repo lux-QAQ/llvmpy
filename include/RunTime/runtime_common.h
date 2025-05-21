@@ -3,16 +3,14 @@
 #define PY_RUNTIME_COMMON_H
 #include "TypeIDs.h"
 
-
-
 #include <cstddef>
 #include <vector>
-#include <cstddef> // For size_t, NULL
-#include <cstring> // For strcmp
+#include <cstddef>  // For size_t, NULL
+#include <cstring>  // For strcmp
 
-#include <gmp.h> // <--- 包含 GMP 头文件
-#include <mpfr.h>    // MPFR 头文件
-#include <ffi.h>  // 包含 libffi 头文件
+#include <gmp.h>   // <--- 包含 GMP 头文件
+#include <mpfr.h>  // MPFR 头文件
+#include <ffi.h>   // 包含 libffi 头文件
 #ifdef __cplusplus
 extern "C"
 {
@@ -85,6 +83,9 @@ extern "C"
         PyClassObject* base;       // 基类 (简单起见，先支持单继承)
         PyDictObject* class_dict;  // 类属性字典 (包含方法、类变量等)
         // 可以添加 PyTypeMethods* 指针，或者依赖基于 typeId 的动态查找
+        //可能：PyTypeMethods*type_methods；//用于自定义行为
+//可能：MRO（方法解析顺序）列表
+        // 可以添加其他字段，如 __name__, __doc__, 闭包变量等?
     };
 
     struct PyFunctionObject_t
@@ -93,7 +94,6 @@ extern "C"
         void* func_ptr;        /**< 指向编译后的 LLVM 函数的指针。*/
         int signature_type_id; /**< 来自编译器的 FunctionType 的类型 ID，描述函数签名。*/
         // 可以添加其他字段，如 __name__, __doc__, 闭包变量等
-
     };
 
     // 实例对象结构体
@@ -118,22 +118,22 @@ extern "C"
     /**
      * @brief 列表迭代器对象结构。
      */
-    typedef struct PyListIteratorObject_t {
-        PyObject header;      ///< 对象头 (PyObject_t)，包含引用计数和类型 ID (应为 PY_TYPE_LIST_ITERATOR)。
-        PyObject* iterable;         ///< 指向被迭代的列表对象 (PyListObject*)。迭代器持有对此对象的引用。
-        int current_index;          ///< 当前迭代到的列表索引。
+    typedef struct PyListIteratorObject_t
+    {
+        PyObject header;     ///< 对象头 (PyObject_t)，包含引用计数和类型 ID (应为 PY_TYPE_LIST_ITERATOR)。
+        PyObject* iterable;  ///< 指向被迭代的列表对象 (PyListObject*)。迭代器持有对此对象的引用。
+        int current_index;   ///< 当前迭代到的列表索引。
     } PyListIteratorObject;
-    
+
     /**
      * @brief 字符串迭代器对象结构。
      */
-    typedef struct PyStringIteratorObject_t {
-        PyObject header;      ///< 对象头 (PyObject_t)，包含引用计数和类型 ID (应为 PY_TYPE_STRING_ITERATOR)。
+    typedef struct PyStringIteratorObject_t
+    {
+        PyObject header;            ///< 对象头 (PyObject_t)，包含引用计数和类型 ID (应为 PY_TYPE_STRING_ITERATOR)。
         PyObject* iterable;         ///< 指向被迭代的字符串对象 (PyPrimitiveObject*)。迭代器持有对此对象的引用。
         size_t current_char_index;  ///< 当前迭代到的字符索引。
     } PyStringIteratorObject;
-
-    
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -1,6 +1,7 @@
+class A:
+    def test(self):
+        print("test")
+        return 1
 def main():
-    a=3
-    b=2
-    c=a//b
-    print(c)
-    
+    a = A()
+    a.test()

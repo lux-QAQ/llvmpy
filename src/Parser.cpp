@@ -20,7 +20,10 @@ bool PyParser::isInitialized = false;
 const int POWER_PRECEDENCE = 60;
 const int UNARY_PLUS_MINUS_PRECEDENCE = 55;  // 低于 **
 const int NOT_PRECEDENCE = 8;
-const int POSTFIX_PRECEDENCE = 70;  // Precedence for call (), index [], attribute .
+const int POSTFIX_PRECEDENCE = 70;                           // Precedence for call (), index [], attribute .
+const int CONDITIONAL_EXPR_PRECEDENCE = 3;                   // 新增：条件表达式优先级 (低于 OR (4))
+const int ATTRIBUTE_ACCESS_PRECEDENCE = POSTFIX_PRECEDENCE;  // Same as call/index
+
 //===----------------------------------------------------------------------===//
 // PyParseError 类实现
 //===----------------------------------------------------------------------===//
@@ -101,12 +104,12 @@ void PyParser::initializeRegistries()
                        { return p.parseImportStmt(); });
     registerStmtParser(TOK_PASS, [](PyParser& p)
                        { return p.parsePassStmt(); });
-    registerStmtParser(TOK_FOR, [](PyParser& p) // 新增：注册 for 语句解析器
+    registerStmtParser(TOK_FOR, [](PyParser& p)  // 新增：注册 for 语句解析器
                        { return p.parseForStmt(); });
 
-
     // --- 添加 Break 和 Continue 解析器 ---
-    registerStmtParser(TOK_BREAK, [](PyParser& p) -> std::unique_ptr<StmtAST> {
+    registerStmtParser(TOK_BREAK, [](PyParser& p) -> std::unique_ptr<StmtAST>
+                       {
         int line = p.getCurrentToken().line;
         int col = p.getCurrentToken().column;
         p.nextToken(); // Consume 'break'
@@ -115,10 +118,10 @@ void PyParser::initializeRegistries()
         if (!p.expectStatementEnd("break")) {
             return nullptr; // Error logged by expectStatementEnd
         }
-        return breakStmt;
-    });
+        return breakStmt; });
 
-    registerStmtParser(TOK_CONTINUE, [](PyParser& p) -> std::unique_ptr<StmtAST> {
+    registerStmtParser(TOK_CONTINUE, [](PyParser& p) -> std::unique_ptr<StmtAST>
+                       {
         int line = p.getCurrentToken().line;
         int col = p.getCurrentToken().column;
         p.nextToken(); // Consume 'continue'
@@ -127,8 +130,7 @@ void PyParser::initializeRegistries()
         if (!p.expectStatementEnd("continue")) {
             return nullptr; // Error logged by expectStatementEnd
         }
-        return continueStmt;
-    });
+        return continueStmt; });
 
     //    标识符启动的语句 (复杂情况：赋值、复合赋值、索引赋值、表达式语句)
     registerStmtParser(TOK_IDENTIFIER, [](PyParser& p) -> std::unique_ptr<StmtAST>
@@ -318,7 +320,7 @@ void PyParser::initializeRegistries()
                        { return p.parseExpressionStmt(); });  // e.g., -x
     registerStmtParser(TOK_NOT, [](PyParser& p)
                        { return p.parseExpressionStmt(); });  // e.g., not flag
-    
+
     registerStmtParser(TOK_BOOL, [](PyParser& p)
                        { return p.parseExpressionStmt(); });  // e.g., True
     registerStmtParser(TOK_NONE, [](PyParser& p)
@@ -372,6 +374,14 @@ void PyParser::initializeRegistries()
     registerOperator(TOK_DIV, 40);        // True division /
     registerOperator(TOK_FLOOR_DIV, 40);  // Floor division //
     registerOperator(TOK_MOD, 40);        // Modulo %
+
+    //registerSimpleOperator（'.'，TOK_DOT）；//已通过PyTokenRegistry在Lexer.h中注册
+    //注册'。'用于访问运算符注册表中的属性以进行优先级分析
+    //在解析流（lhs.rhs_identifier）方面，它就像一个二进制运算符
+    //但就AST结构而言，这是一种后缀操作。
+    //我们在parseExpressionPrecedence中特别处理它。
+    //对于Pratt解析，'。'是一个具有高优先级的左关联运算符。
+    registerOperator(TOK_DOT, ATTRIBUTE_ACCESS_PRECEDENCE);  // Same precedence as call/index
 
     // Unary Plus/Minus (handled in parsePrimary, precedence 55)
 
@@ -765,64 +775,107 @@ std::unique_ptr<ExprAST> PyParser::parseExpressionPrecedence(int minPrecedence)
     // 2. 循环处理优先级 >= minPrecedence 的后缀和二元运算符
     while (true)
     {
-        // --- ADDED: Check for postfix operators first ---
+        // --- 后缀操作符 ---
         if (currentToken.type == TOK_LBRACK && POSTFIX_PRECEDENCE >= minPrecedence)
         {
-            // Handle index operator []
             lhs = parseIndexSuffix(std::move(lhs));
-            if (!lhs) return nullptr;  // Propagate error
-            continue;                  // Continue checking for more operators on the new lhs
+            if (!lhs) return nullptr;
+            continue;
         }
         else if (currentToken.type == TOK_LPAREN && POSTFIX_PRECEDENCE >= minPrecedence)
         {
-            // Handle call operator ()
             lhs = parseCallSuffix(std::move(lhs));
-            if (!lhs) return nullptr;  // Propagate error
-            continue;                  // Continue checking for more operators on the new lhs
+            if (!lhs) return nullptr;
+            continue;
         }
-        // --- END ADDED ---
+        else if (currentToken.type == TOK_DOT && ATTRIBUTE_ACCESS_PRECEDENCE >= minPrecedence)
+        {
+            int dotLine = currentToken.line;
+            int dotCol = currentToken.column;
+            nextToken(); // Consume '.'
+            if (currentToken.type != TOK_IDENTIFIER)
+            {
+                return logParseError<ExprAST>("Expected attribute name after '.'");
+            }
+            std::string attrName = currentToken.value;
+            nextToken(); // Consume attribute identifier
 
-        // Check for binary operators (existing logic)
+            auto attrExpr = makeExpr<AttributeExprAST>(std::move(lhs), attrName);
+            attrExpr->setLocation(dotLine, dotCol); // Set location to the '.'
+            lhs = std::move(attrExpr);
+            continue; // Continue parsing for further operations on this new lhs
+        }
+        // --- 条件表达式 (A if C else B) ---
+        // 注意: 'lhs' 此时是 A (true_expr)
+        else if (currentToken.type == TOK_IF && CONDITIONAL_EXPR_PRECEDENCE >= minPrecedence)
+        {
+            auto trueExpr = std::move(lhs);
+            int ifLine = currentToken.line;
+            int ifCol = currentToken.column;
+
+            nextToken();  // 消费 'if'
+
+            // 解析条件 C
+            // 条件表达式的优先级应高于条件表达式本身，以正确解析如 (X or Y) if ...
+            auto conditionExpr = parseExpressionPrecedence(CONDITIONAL_EXPR_PRECEDENCE + 1);
+            if (!conditionExpr)
+            {
+                return logParseError<ExprAST>("Expected condition after 'if' in conditional expression");
+            }
+
+            if (!expectToken(TOK_ELSE, "Expected 'else' after condition in conditional expression"))
+            {
+                return nullptr;
+            }
+
+            // 解析 B (false_expr)
+            // 使用 CONDITIONAL_EXPR_PRECEDENCE 允许右结合链式： A if C1 else D if C2 else E
+            auto falseExpr = parseExpressionPrecedence(CONDITIONAL_EXPR_PRECEDENCE);
+            if (!falseExpr)
+            {
+                return logParseError<ExprAST>("Expected expression after 'else' in conditional expression");
+            }
+
+            lhs = makeExpr<ConditionalExprAST>(std::move(trueExpr), std::move(conditionExpr), std::move(falseExpr));
+            lhs->setLocation(ifLine, ifCol);  // 设置为 'if' 关键字的位置
+            continue;                         // 继续检查此新 lhs 是否有更高优先级的操作符
+        }
+
+        // --- 二元操作符 ---
         auto it = operatorRegistry.find(currentToken.type);
         if (it == operatorRegistry.end())
         {
-            break;  // Not a known binary operator
+            break;  // 不是已知的二元操作符
         }
 
         const PyOperatorInfo& opInfo = it->second;
         int currentPrec = opInfo.precedence;
 
-        // 如果当前运算符优先级低于要求的最低优先级，则停止
         if (currentPrec < minPrecedence)
         {
             break;
         }
 
-        // 记录操作符信息并消费
         PyTokenType opType = opInfo.opType;
         bool isRightAssoc = opInfo.rightAssoc;
         int opLine = currentToken.line;
         int opCol = currentToken.column;
         nextToken();  // 消费二元运算符
 
-        // 3. 解析右侧表达式
         int nextMinPrecedence = currentPrec + (isRightAssoc ? 0 : 1);
         auto rhs = parseExpressionPrecedence(nextMinPrecedence);
         if (!rhs)
         {
-            // Error logged by recursive call
             return nullptr;
-            // return logParseError<ExprAST>("Expected expression after binary operator '" + lexer.getTokenName(opType) + "'");
         }
 
-        // 4. 合并 LHS 和 RHS
         auto newLhs = makeExpr<BinaryExprAST>(opType, std::move(lhs), std::move(rhs));
-        newLhs->setLocation(opLine, opCol);  // 位置是操作符的位置
-        lhs = std::move(newLhs);             // 将新构建的二元表达式作为下一次循环的 LHS
-        // No continue here, the loop condition handles the next iteration
+        newLhs->setLocation(opLine, opCol);
+        lhs = std::move(newLhs);
+        // continue; // 循环的下一次迭代将处理新的 lhs
     }
 
-    return lhs;  // 返回最终构建的表达式树
+    return lhs;
 }
 
 std::unique_ptr<ExprAST> PyParser::parseBinOpRHS(int exprPrec, std::unique_ptr<ExprAST> LHS)
@@ -1339,7 +1392,7 @@ std::unique_ptr<StmtAST> PyParser::parseElsePart(std::vector<std::unique_ptr<Stm
 
 std::unique_ptr<StmtAST> PyParser::parseWhileStmt()
 {
-    int line = currentToken.line; // Capture start location
+    int line = currentToken.line;  // Capture start location
     int col = currentToken.column;
     nextToken();  // 消费'while'
 
@@ -1362,7 +1415,8 @@ std::unique_ptr<StmtAST> PyParser::parseWhileStmt()
 
     // 解析while语句体
     auto body = parseBlock();
-    if (body.empty()) {
+    if (body.empty())
+    {
         // Assuming parseBlock logs errors for missing INDENT/DEDENT.
         // Add specific error if the block itself is required but empty.
         return logParseError<StmtAST>("Expected an indented block after 'while' statement");
@@ -1374,7 +1428,7 @@ std::unique_ptr<StmtAST> PyParser::parseWhileStmt()
     {
         int elseLine = currentToken.line;
         int elseCol = currentToken.column;
-        nextToken(); // Consume 'else'
+        nextToken();  // Consume 'else'
 
         if (!expectToken(TOK_COLON, "Expected ':' after 'else'"))
             return nullptr;
@@ -1384,20 +1438,21 @@ std::unique_ptr<StmtAST> PyParser::parseWhileStmt()
 
         // Parse the else block
         auto elseBodyStmts = parseBlock();
-        if (elseBodyStmts.empty()) {
+        if (elseBodyStmts.empty())
+        {
             return logParseError<StmtAST>("Expected an indented block after 'else' statement");
         }
 
         // Wrap the else statements in a BlockStmtAST
         // Note: WhileStmtAST expects a single StmtAST for the else part.
         elseNode = std::make_unique<BlockStmtAST>(std::move(elseBodyStmts));
-        elseNode->setLocation(elseLine, elseCol); // Set location for the else block itself
+        elseNode->setLocation(elseLine, elseCol);  // Set location for the else block itself
     }
     // --- END NEW ---
 
     // Create WhileStmtAST, passing the optional elseNode
     auto whileStmt = makeStmt<WhileStmtAST>(std::move(condition), std::move(body), std::move(elseNode));
-    whileStmt->setLocation(line, col); // Set location to the 'while' keyword
+    whileStmt->setLocation(line, col);  // Set location to the 'while' keyword
     return whileStmt;
 }
 
@@ -1465,7 +1520,7 @@ std::unique_ptr<StmtAST> PyParser::parseForStmt()
 {
     int line = currentToken.line;
     int col = currentToken.column;
-    nextToken(); // 消费 'for'
+    nextToken();  // 消费 'for'
 
     // 1. 解析循环变量 (必须是标识符)
     if (currentToken.type != TOK_IDENTIFIER)
@@ -1473,7 +1528,7 @@ std::unique_ptr<StmtAST> PyParser::parseForStmt()
         return logParseError<StmtAST>("Expected identifier for loop variable after 'for'");
     }
     std::string loopVarName = currentToken.value;
-    nextToken(); // 消费循环变量名
+    nextToken();  // 消费循环变量名
 
     // 2. 期望 'in' 关键字
     if (!expectToken(TOK_IN, "Expected 'in' after loop variable in for statement"))
@@ -1511,7 +1566,7 @@ std::unique_ptr<StmtAST> PyParser::parseForStmt()
     {
         int elseLine = currentToken.line;
         int elseCol = currentToken.column;
-        nextToken(); // 消费 'else'
+        nextToken();  // 消费 'else'
 
         if (!expectToken(TOK_COLON, "Expected ':' after 'else' in for statement"))
             return nullptr;
@@ -1578,109 +1633,88 @@ std::unique_ptr<StmtAST> PyParser::parsePassStmt()
     return makeStmt<PassStmtAST>();
 }
 
-std::unique_ptr<StmtAST> PyParser::parseClassDefinition()
-{
-    nextToken();  // 消费'class'
+std::unique_ptr<StmtAST> PyParser::parseClassDefinition() {
+    int classLine = currentToken.line;
+    int classCol = currentToken.column;
+    nextToken(); // Consume 'class'
 
-    // 类名必须是标识符
-    if (currentToken.type != TOK_IDENTIFIER)
-    {
-        return logParseError<StmtAST>("Expected class name after 'class'");
+    if (currentToken.type != TOK_IDENTIFIER) {
+        return logParseError<StmtAST>("Expected class name after 'class' keyword.");
     }
-
     std::string className = currentToken.value;
-    nextToken();  // 消费类名
+    nextToken(); // Consume class name
 
-    // 解析可能的基类列表
-    std::vector<std::string> baseClasses;
-    if (currentToken.type == TOK_LPAREN)
-    {
-        nextToken();  // 消费'('
-
-        // 空的基类列表
-        if (currentToken.type != TOK_RPAREN)
-        {
-            while (true)
-            {
-                if (currentToken.type != TOK_IDENTIFIER)
-                {
-                    return logParseError<StmtAST>("Expected base class name in inheritance list");
+    std::vector<std::string> baseClassNames; // Storing names for now, could be ExprASTs
+    // std::vector<std::unique_ptr<ExprAST>> baseClassExprs;
+    if (currentToken.type == TOK_LPAREN) {
+        nextToken(); // Consume '('
+        if (currentToken.type != TOK_RPAREN) {
+            while (true) {
+                if (currentToken.type != TOK_IDENTIFIER) { // Assuming base classes are simple names for now
+                    return logParseError<StmtAST>("Expected base class name (identifier).");
                 }
+                baseClassNames.push_back(currentToken.value);
+                // auto baseExpr = parseExpression(); // If parsing full expressions for bases
+                // if (!baseExpr) return nullptr;
+                // baseClassExprs.push_back(std::move(baseExpr));
+                nextToken(); // Consume base class name/expr
 
-                baseClasses.push_back(currentToken.value);
-                nextToken();  // 消费基类名
-
-                if (currentToken.type == TOK_RPAREN)
+                if (currentToken.type == TOK_RPAREN) break;
+                if (!expectToken(TOK_COMMA, "Expected ',' or ')' in base class list.")) return nullptr;
+                if (currentToken.type == TOK_RPAREN) { // Trailing comma
+                     std::cerr << "Warning: Trailing comma in base class list at line "
+                               << currentToken.line << ", col " << currentToken.column << std::endl;
                     break;
-
-                if (!expectToken(TOK_COMMA, "Expected ')' or ',' in base class list"))
-                    return nullptr;
+                }
             }
         }
-
-        nextToken();  // 消费')'
+        if (!expectToken(TOK_RPAREN, "Expected ')' after base class list.")) return nullptr;
     }
 
-    // 检查冒号
-    if (!expectToken(TOK_COLON, "Expected ':' after class definition"))
-        return nullptr;
+    if (!expectToken(TOK_COLON, "Expected ':' after class definition header.")) return nullptr;
+    if (!expectToken(TOK_NEWLINE, "Expected newline after class definition header ':'.")) return nullptr;
 
-    // 跳过到行尾的所有token
-    while (currentToken.type != TOK_NEWLINE && currentToken.type != TOK_EOF)
-        nextToken();
+    // The body of the class is a suite (indented block)
+    auto bodyStmts = parseBlock(); // parseBlock should handle INDENT and DEDENT
+    if (bodyStmts.empty() && currentToken.type != TOK_DEDENT && currentToken.type != TOK_EOF) {
+        // If parseBlock returns empty but we didn't get a DEDENT, it means an error occurred within parseBlock
+        // or the block was genuinely empty but not properly terminated by DEDENT.
+        // parseBlock itself should log errors for missing INDENT/DEDENT.
+        // If it returns empty and no error was logged, it might mean an empty pass block.
+        // For now, assume parseBlock handles its errors.
+        // If an empty block is not allowed (e.g. must have 'pass'), add check here.
+    }
 
-    // 检查换行
-    if (!expectToken(TOK_NEWLINE, "Expected newline after ':'"))
-        return nullptr;
 
-    // 检查缩进
-    if (!expectToken(TOK_INDENT, "Expected indented block after class definition"))
-        return nullptr;
-
-    // 解析类体
-    std::vector<std::unique_ptr<StmtAST>> classBody;
+    // Extract methods and other statements from bodyStmts
     std::vector<std::unique_ptr<FunctionAST>> methods;
+    std::vector<std::unique_ptr<StmtAST>> classBodyFiltered;
 
-    while (currentToken.type != TOK_DEDENT && currentToken.type != TOK_EOF)
-    {
-        // 跳过空行
-        if (currentToken.type == TOK_NEWLINE)
-        {
-            nextToken();
-            continue;
-        }
+    for (auto& stmt : bodyStmts) {
+        if (stmt->kind() == ASTKind::FunctionDefStmt) {
+            // Move the FunctionAST out of FunctionDefStmtAST
+            // This assumes FunctionDefStmtAST has a way to release its FunctionAST
+            // or ClassStmtAST can take FunctionDefStmtAST directly.
+            // For simplicity, let's assume we extract FunctionAST.
+            // This part needs careful handling of unique_ptr ownership.
+            // A safer way might be for ClassStmtAST to store FunctionDefStmtASTs.
+            // Or, FunctionDefStmtAST::getFunctionAST() returns a raw pointer,
+            // and ClassStmtAST makes a copy or takes ownership if needed.
+            // For now, this is a conceptual step.
+            auto funcDefStmt = static_cast<FunctionDefStmtAST*>(stmt.release()); // Risky, manage ownership
+            // methods.push_back(std::unique_ptr<FunctionAST>(const_cast<FunctionAST*>(funcDefStmt->getFunctionAST()))); // Problematic
+            // A better approach: ClassStmtAST stores StmtAST, and CodeGen figures out methods.
+            classBodyFiltered.push_back(std::unique_ptr<StmtAST>(funcDefStmt));
 
-        // 如果遇到dedent，说明块结束了
-        if (currentToken.type == TOK_DEDENT || currentToken.type == TOK_EOF)
-            break;
-
-        // 解析方法定义 (以def开头)
-        if (currentToken.type == TOK_DEF)
-        {
-            auto method = parseFunction();
-            if (!method)
-                return nullptr;
-
-            methods.push_back(std::move(method));
-        }
-        // 解析其他类体语句
-        else
-        {
-            auto stmt = parseStatement();
-            if (!stmt)
-                return nullptr;
-
-            classBody.push_back(std::move(stmt));
+        } else {
+            classBodyFiltered.push_back(std::move(stmt));
         }
     }
 
-    // 检查dedent
-    if (!expectToken(TOK_DEDENT, "Expected dedent after class body"))
-        return nullptr;
 
-    return makeStmt<ClassStmtAST>(className, baseClasses,
-                                  std::move(classBody),
-                                  std::move(methods));
+    auto classStmtNode = makeStmt<ClassStmtAST>(className, baseClassNames, std::move(classBodyFiltered), std::move(methods));
+    classStmtNode->setLocation(classLine, classCol);
+    return classStmtNode;
 }
 
 std::vector<ParamAST> PyParser::parseParameters()
@@ -1688,7 +1722,7 @@ std::vector<ParamAST> PyParser::parseParameters()
     std::vector<ParamAST> params;
 
     if (!expectToken(TOK_LPAREN, "Expected '(' in parameter list"))
-        return params; // Error already logged by expectToken, return empty or partially parsed
+        return params;  // Error already logged by expectToken, return empty or partially parsed
 
     // 空参数列表
     if (currentToken.type == TOK_RPAREN)
@@ -1706,7 +1740,7 @@ std::vector<ParamAST> PyParser::parseParameters()
             // However, since it throws, this path might not be strictly necessary
             // if all callers handle the exception.
             logParseError<ParamAST>("Expected parameter name");
-            return params; // Return whatever params were collected before the error
+            return params;  // Return whatever params were collected before the error
         }
 
         std::string paramName = currentToken.value;
@@ -1716,15 +1750,15 @@ std::vector<ParamAST> PyParser::parseParameters()
         nextToken();  // 消费参数名
 
         // 检查是否有类型注解
-        std::string typeName = ""; // Default to no type name
+        std::string typeName = "";  // Default to no type name
         if (currentToken.type == TOK_COLON)
         {
             nextToken();  // 消费':'
 
-            if (currentToken.type != TOK_IDENTIFIER) // Assuming type names are identifiers for now
+            if (currentToken.type != TOK_IDENTIFIER)  // Assuming type names are identifiers for now
             {
                 logParseError<ParamAST>("Expected type name after ':'");
-                return params; // Return collected params
+                return params;  // Return collected params
             }
 
             typeName = currentToken.value;
@@ -1738,31 +1772,35 @@ std::vector<ParamAST> PyParser::parseParameters()
             break;
 
         if (!expectToken(TOK_COMMA, "Expected ')' or ',' in parameter list"))
-            return params; // Error logged, return collected params
+            return params;  // Error logged, return collected params
 
         // Handle trailing comma before ')'
-        if (currentToken.type == TOK_RPAREN) {
+        if (currentToken.type == TOK_RPAREN)
+        {
             // Optional: Log a warning for trailing comma if desired
             // std::cerr << "Warning: Trailing comma in parameter list at line " << ... << std::endl;
-            break; 
+            break;
         }
     }
 
-    if (currentToken.type == TOK_RPAREN) { // Ensure we consume the final ')' if loop broke due to it
+    if (currentToken.type == TOK_RPAREN)
+    {                 // Ensure we consume the final ')' if loop broke due to it
         nextToken();  // 消费')'
-    } else if (currentToken.type != TOK_EOF) { // If loop broke for other reasons and not at RPAREN
+    }
+    else if (currentToken.type != TOK_EOF)
+    {  // If loop broke for other reasons and not at RPAREN
         // This case might indicate an earlier error or an unexpected token.
         // If expectToken for comma failed, it would have thrown or returned.
         // If we are here and not at RPAREN, it's likely an issue.
         // However, the loop structure and expectToken should handle most cases.
         // If a logParseError was caught and we are continuing, this might be a recovery point.
         // For robustness, ensure ')' is consumed if present, or log if it's missing.
-        if (!match(TOK_RPAREN)) { // Use match to consume if present, or log if not
-             logParseError<ParamAST>("Expected ')' to close parameter list after parsing parameters.");
-             // Depending on error strategy, might return params or let throw propagate.
+        if (!match(TOK_RPAREN))
+        {  // Use match to consume if present, or log if not
+            logParseError<ParamAST>("Expected ')' to close parameter list after parsing parameters.");
+            // Depending on error strategy, might return params or let throw propagate.
         }
     }
-
 
     return params;
 }
@@ -1839,9 +1877,6 @@ std::unique_ptr<FunctionAST> PyParser::parseFunction()
 // 在parseBlock函数中添加作用域管理
 std::vector<std::unique_ptr<StmtAST>> PyParser::parseBlock()
 {
-
-
-    
 #ifdef DEBUG_PARSER_Block
     std::cerr << "Debug [parseBlock]: Entering parseBlock. Expecting INDENT. Current token: "
               << lexer.getTokenName(currentToken.type) << " ('" << currentToken.value << "') at L"
@@ -1855,7 +1890,7 @@ std::vector<std::unique_ptr<StmtAST>> PyParser::parseBlock()
         std::cerr << "Debug [parseBlock]: Skipping leading NEWLINE before INDENT." << std::endl;
 #endif
         nextToken();
-    }// 这个地方做的其实并不好，按道理这一块应该由lexer负责格式化好，可能诱发bug
+    }  // 这个地方做的其实并不好，按道理这一块应该由lexer负责格式化好，可能诱发bug
 
     if (!expectToken(TOK_INDENT, "Expected indented block"))
     {

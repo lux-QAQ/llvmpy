@@ -12,8 +12,6 @@
 namespace llvmpy
 {
 
-
-    
 // 表达式处理器类型
 using ExprHandlerFunc = std::function<llvm::Value*(CodeGenBase&, ExprAST*)>;
 
@@ -57,6 +55,12 @@ private:
     // 处理索引表达式
     llvm::Value* handleIndexExpr(IndexExprAST* expr);
 
+    // 处理条件表达式
+    llvm::Value* handleConditionalExpr(ConditionalExprAST* expr); 
+
+    // 处理属性访问表达式 (新增)
+    llvm::Value* handleAttributeExpr(AttributeExprAST* expr);
+
     // 初始化表达式处理器
     static void initializeHandlers();
 
@@ -97,9 +101,8 @@ public:
     llvm::Value* createStringLiteral(const std::string& value);
     llvm::Value* createNoneLiteral();
     // 创建整数字面量
-llvm::Value* createIntLiteralFromString(const std::string& value);
-llvm::Value* createDoubleLiteralFromString(const std::string& value);
-
+    llvm::Value* createIntLiteralFromString(const std::string& value);
+    llvm::Value* createDoubleLiteralFromString(const std::string& value);
 
     // 列表操作
     llvm::Value* createList(int size, std::shared_ptr<PyType> elemType);
