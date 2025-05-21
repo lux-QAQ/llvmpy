@@ -56,6 +56,7 @@ public:
     llvm::Value* createBoolObject(llvm::Value* value);
     llvm::Value* createStringObject(llvm::Value* value);
     llvm::Value* createList(llvm::Value* initialCapacity, llvm::Value* elemTypeIdValue);
+     llvm::Value* createTuple(llvm::Value* const* elements, size_t count); // Added
     llvm::Value* createIntObjectFromString(llvm::Value* strPtr);
     llvm::Value* createDoubleObjectFromString(llvm::Value* strPtr);
     llvm::Value* getListElement(llvm::Value* list, llvm::Value* index);

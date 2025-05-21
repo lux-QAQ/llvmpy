@@ -109,11 +109,11 @@ public:
     PyScope* currentScope();
     void pushScope();
     void popScope(CodeGenBase& codeGen);
-    void generateScopeCleanups(CodeGenBase& codeGen); // New method for generating decrefs
+    void generateScopeCleanups(CodeGenBase& codeGen);  // New method for generating decrefs
 
     bool hasVariable(const std::string& name) const;
     llvm::Value* getVariable(const std::string& name);
-    llvm::AllocaInst* lookupAlloca(const std::string& name); // Added
+    llvm::AllocaInst* lookupAlloca(const std::string& name);  // Added
     void setVariable(const std::string& name, llvm::Value* value, ObjectType* type = nullptr);
     ObjectType* getVariableType(const std::string& name);
 
@@ -140,14 +140,15 @@ public:
      */
     size_t getCurrentScopeDepth() const;  // <--- 添加声明
 
-private: // Added private section for loop context stack
-    struct LoopContext {
+private:  // Added private section for loop context stack
+    struct LoopContext
+    {
         llvm::BasicBlock* breakTarget;
         llvm::BasicBlock* continueTarget;
     };
     std::stack<LoopContext> loopContextStack;
 
-public: // Back to public for remaining methods
+public:  // Back to public for remaining methods
     // --- 函数 AST 定义相关 ---
     /**
      * @brief 在当前作用域定义一个函数 AST。
@@ -246,8 +247,6 @@ protected:
     llvm::Value* lastExprValue;
     std::shared_ptr<PyType> lastExprType;
 
-    
-
     // 验证生成的LLVM IR是否有效
     bool verifyModule();
 
@@ -288,14 +287,24 @@ public:
     {
         return variableUpdateContext;
     }
-/**
+    /**
      * @brief 在当前函数的入口块创建一个 alloca 指令。
      *
      * @param type 要分配的类型。
      * @param varName 变量名，用于 alloca 指令的命名。
      * @return llvm::AllocaInst* 指向创建的 alloca 指令，如果不在函数内则返回 nullptr。
      */
-     llvm::AllocaInst* createEntryBlockAlloca(llvm::Type* type, const std::string& varName); 
+    llvm::AllocaInst* createEntryBlockAlloca(llvm::Type* type, const std::string& varName);
+
+    /**
+     * @brief 在指定的目标函数的入口块创建一个 alloca 指令。
+     *
+     * @param type 要分配的类型。
+     * @param varName 变量名，用于 alloca 指令的命名。
+     * @param targetFunc 目标函数，alloca 将在其入口块创建。
+     * @return llvm::AllocaInst* 指向创建的 alloca 指令，如果目标函数为空则返回 nullptr。
+     */
+    llvm::AllocaInst* createEntryBlockAlloca(llvm::Type* type, const std::string& varName, llvm::Function* targetFunc);  // <--- 修改这里
     // 基本块管理
     llvm::BasicBlock* createBasicBlock(const std::string& name, llvm::Function* parent = nullptr);
 

@@ -21,6 +21,7 @@ extern "C"
     typedef struct PyListObject_t PyListObject;
     typedef struct PyDictEntry_t PyDictEntry;
     typedef struct PyDictObject_t PyDictObject;
+    typedef struct PyTupleObject_t PyTupleObject;  // Forward declaration
     typedef struct PyPrimitiveObject_t PyPrimitiveObject;
 
     typedef struct PyClassObject_t PyClassObject;
@@ -84,7 +85,7 @@ extern "C"
         PyDictObject* class_dict;  // 类属性字典 (包含方法、类变量等)
         // 可以添加 PyTypeMethods* 指针，或者依赖基于 typeId 的动态查找
         //可能：PyTypeMethods*type_methods；//用于自定义行为
-//可能：MRO（方法解析顺序）列表
+        //可能：MRO（方法解析顺序）列表
         // 可以添加其他字段，如 __name__, __doc__, 闭包变量等?
     };
 
@@ -103,7 +104,18 @@ extern "C"
         PyClassObject* cls;           // 指向该实例所属的类对象
         PyDictObject* instance_dict;  // 实例属性字典
     };
-
+    /**
+     * @brief 元组对象结构。
+     * items 是一个柔性数组成员，或者如果编译器不支持，则为 PyObject**。
+     * 如果是 PyObject**，则 items 指针本身需要在 PyTupleObject 之后分配。
+     * 这里我们使用柔性数组成员的风格。
+     */
+    struct PyTupleObject_t
+    {
+        PyObject header;    ///< 对象头 (PyObject_t)，包含引用计数和类型 ID (应为 PY_TYPE_TUPLE)。
+        int size;           ///< 元组中的元素数量。
+        PyObject* items[];  ///< 指向元组元素的指针数组 (柔性数组成员)。
+    };
     // 比较操作符枚举
     typedef enum
     {

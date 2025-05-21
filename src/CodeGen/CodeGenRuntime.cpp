@@ -365,6 +365,50 @@ llvm::Value* CodeGenRuntime::createList(llvm::Value* initialCapacity, llvm::Valu
             createListFunc, {initialCapacity, elemTypeIdValue}, "list_obj");
 }
 
+llvm::Value* CodeGenRuntime::createTuple(llvm::Value* const* elements, size_t count)
+{
+    auto& context = codeGen.getContext();
+    auto& builder = codeGen.getBuilder();
+    llvm::Module* module = codeGen.getModule();
+
+    llvm::Type* pyObjectType = getPyObjectPtrType(); // PyObject*
+    llvm::Type* pyObjectPtrPtrType = llvm::PointerType::getUnqual(pyObjectType); // PyObject**
+    llvm::Type* int32Type = llvm::Type::getInt32Ty(context);
+
+    // Assume a C runtime function: PyObject* py_build_tuple_from_array(PyObject** items, int count)
+    llvm::FunctionType* runtimeFuncType = llvm::FunctionType::get(
+        pyObjectType,
+        {pyObjectPtrPtrType, int32Type},
+        false);
+    llvm::FunctionCallee funcCallee = module->getOrInsertFunction("py_build_tuple_from_array", runtimeFuncType);
+    llvm::Function* pyBuildTupleFunc = llvm::dyn_cast<llvm::Function>(funcCallee.getCallee());
+
+    if (!pyBuildTupleFunc) {
+        codeGen.logError("Failed to get or insert runtime function 'py_build_tuple_from_array'.");
+        return nullptr;
+    }
+
+    llvm::Value* argsArrayAlloca = nullptr;
+    llvm::Value* numArgs = llvm::ConstantInt::get(int32Type, count);
+
+    if (count > 0 && elements) {
+        llvm::Function* currentFunc = builder.GetInsertBlock()->getParent();
+        llvm::IRBuilder<> entryBuilder(&currentFunc->getEntryBlock(),
+                                       currentFunc->getEntryBlock().getFirstInsertionPt());
+        argsArrayAlloca = entryBuilder.CreateAlloca(pyObjectType, numArgs, "tuple_elements_array");
+
+        for (size_t i = 0; i < count; ++i) {
+            llvm::Value* index = llvm::ConstantInt::get(int32Type, i);
+            llvm::Value* elemPtr = builder.CreateGEP(pyObjectType, argsArrayAlloca, index, "tuple_elem_ptr_" + std::to_string(i));
+            builder.CreateStore(elements[i], elemPtr);
+        }
+    } else {
+        argsArrayAlloca = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(pyObjectPtrPtrType));
+    }
+
+    return builder.CreateCall(pyBuildTupleFunc, {argsArrayAlloca, numArgs}, "new_py_tuple");
+}
+
 llvm::Value* CodeGenRuntime::getListElement(llvm::Value* list, llvm::Value* index)
 {
     /* if (runtime)

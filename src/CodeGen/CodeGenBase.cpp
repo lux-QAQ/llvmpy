@@ -559,6 +559,19 @@ llvm::AllocaInst* CodeGenBase::createEntryBlockAlloca(llvm::Type* type, const st
     llvm::IRBuilder<> entryBuilder(&func->getEntryBlock(), func->getEntryBlock().getFirstInsertionPt());
     return entryBuilder.CreateAlloca(type, nullptr, varName + ".addr");
 }
+
+llvm::AllocaInst* CodeGenBase::createEntryBlockAlloca(llvm::Type* type, const std::string& varName, llvm::Function* targetFunc) // <--- 修改这里，添加 targetFunc 参数
+{
+    if (!targetFunc) // <--- 使用传入的 targetFunc
+    {
+        logError("Cannot create alloca: target function is null for variable '" + varName + "'.", 0, 0);
+        return nullptr;
+    }
+
+    // 创建一个临时的 builder，指向目标函数入口块的开头
+    llvm::IRBuilder<> entryBuilder(&targetFunc->getEntryBlock(), targetFunc->getEntryBlock().getFirstInsertionPt());
+    return entryBuilder.CreateAlloca(type, nullptr, varName + ".addr");
+}
 // 新增：logWarning 实现
 void CodeGenBase::logWarning(const std::string& message, int line, int column)
 {

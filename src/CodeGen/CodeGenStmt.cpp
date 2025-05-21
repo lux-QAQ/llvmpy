@@ -227,16 +227,16 @@ void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
     const FunctionAST* dbgFuncAST = stmt->getFunctionAST();
     std::string dbgPyFuncName = dbgFuncAST ? dbgFuncAST->getName() : "<null AST>";
-    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Entering handleFunctionDefStmt for Python func '" + dbgPyFuncName + "'");
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Entering for Python func '" + dbgPyFuncName + "'");
 #endif
-    // --- 获取 AST 信息 ---
+
     const FunctionAST* funcAST = stmt->getFunctionAST();
     if (!funcAST)
     {
         codeGen.logError("Null FunctionAST in FunctionDefStmt", stmt->line.value_or(0), stmt->column.value_or(0));
         return;
     }
-    std::string pyFuncName = funcAST->getName();  // Python name for binding
+    std::string pyFuncName = funcAST->getName();
     int line = stmt->line.value_or(0);
     int col = stmt->column.value_or(0);
 
@@ -244,231 +244,175 @@ void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
     auto& context = codeGen.getContext();
     auto* runtime = codeGen.getRuntimeGen();
     auto& symTable = codeGen.getSymbolTable();
-    llvm::Type* pyObjectPtrType = llvm::PointerType::get(context, 0);  // PyObject*
+    auto* moduleGen = codeGen.getModuleGen();
+    llvm::Type* pyObjectPtrType = runtime->getPyObjectPtrType();
 
-    // --- 将 FunctionAST 注册到符号表 ---
+    llvm::Function* outerFuncContextLLVM = codeGen.getCurrentFunction();
+    llvm::BasicBlock* originalInsertBlock = builder.GetInsertBlock();
+    llvm::DebugLoc originalDebugLoc = builder.getCurrentDebugLocation();
+
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Defining FunctionAST '" + pyFuncName + "' in current symbol table scope.");
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Outer context: Func=" + (outerFuncContextLLVM ? outerFuncContextLLVM->getName().str() : "null") +
+                                     ", Block=" + llvmObjToString(originalInsertBlock) +
+                                     (originalInsertBlock ? (std::string(", ParentFuncOfBlock=") + (originalInsertBlock->getParent() ? originalInsertBlock->getParent()->getName().str() : "null")) : ""));
 #endif
+
     symTable.defineFunctionAST(pyFuncName, funcAST);
 
-    // --- 新增步骤：为顶层函数预声明 GlobalVariable ---
     llvm::GlobalVariable* preDeclaredFuncObjGV = nullptr;
-    llvm::Function* currentDefiningFunction = codeGen.getCurrentFunction();  // The function context where 'def' occurs
-    bool isTopLevelDefinition = !currentDefiningFunction || currentDefiningFunction->getName() == "__llvmpy_entry";
+    bool isTopLevelDefinition = !outerFuncContextLLVM || outerFuncContextLLVM->getName() == "__llvmpy_entry";
     std::string gvNameForLookup;
 
-    if (isTopLevelDefinition)  // Or any other condition that implies GV storage
+    if (isTopLevelDefinition)
     {
         gvNameForLookup = pyFuncName + "_obj_gv";
         preDeclaredFuncObjGV = codeGen.getModule()->getGlobalVariable(gvNameForLookup, true);
         if (!preDeclaredFuncObjGV)
         {
             preDeclaredFuncObjGV = new llvm::GlobalVariable(
-                    *codeGen.getModule(),
-                    pyObjectPtrType,
-                    false,  // isConstant
-                    llvm::GlobalValue::InternalLinkage,
-                    llvm::Constant::getNullValue(pyObjectPtrType),  // Initializer = null for now
-                    gvNameForLookup);
+                    *codeGen.getModule(), pyObjectPtrType, false,
+                    llvm::GlobalValue::InternalLinkage, llvm::Constant::getNullValue(pyObjectPtrType), gvNameForLookup);
             preDeclaredFuncObjGV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "PRE-DECLARED GlobalVariable: " + llvmObjToString(preDeclaredFuncObjGV) + " for '" + pyFuncName + "'");
-#endif
         }
-        // At this point, the GlobalVariable exists in the module.
-        // CodeGenExpr::handleVariableExpr will be able to find it by name.
     }
 
-    // --- 步骤 1: 调用 CodeGenModule 生成唯一的 LLVM 函数 (函数体在这里生成) ---
+    llvm::Function* generatedLLVMFunc = moduleGen->handleFunctionDef(funcAST);
+
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling ModuleGen->handleFunctionDef for '" + pyFuncName + "'...");
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Restoring outer context. Original InsertBlock: " + llvmObjToString(originalInsertBlock) +
+                                     ", Original OuterFuncContextLLVM: " + (outerFuncContextLLVM ? outerFuncContextLLVM->getName().str() : "null"));
 #endif
-    llvm::Function* llvmFunc = codeGen.getModuleGen()->handleFunctionDef(funcAST);
-    if (!llvmFunc)
-    {
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "ModuleGen->handleFunctionDef FAILED for '" + pyFuncName + "'.");
-#endif
+
+    llvm::Function* parentOfOriginalBlock = nullptr;
+    if (originalInsertBlock) {
+        parentOfOriginalBlock = originalInsertBlock->getParent();
+    }
+
+    if (originalInsertBlock && parentOfOriginalBlock == outerFuncContextLLVM && !originalInsertBlock->getTerminator()) {
+        builder.SetInsertPoint(originalInsertBlock);
+    } else if (outerFuncContextLLVM && !outerFuncContextLLVM->empty()) {
+        llvm::BasicBlock* fallbackBlock = nullptr;
+        if (originalInsertBlock && parentOfOriginalBlock == outerFuncContextLLVM && !originalInsertBlock->getTerminator()){
+            fallbackBlock = originalInsertBlock;
+        } else {
+            fallbackBlock = &outerFuncContextLLVM->back();
+            if (fallbackBlock->getTerminator()) {
+                fallbackBlock = &outerFuncContextLLVM->getEntryBlock();
+                if (fallbackBlock->getTerminator()) {
+                    codeGen.logWarning("Outer function " + outerFuncContextLLVM->getName().str() +
+                                       " has all blocks terminated. Creating a new block for storing PyFuncObj for " + pyFuncName, line, col);
+                    fallbackBlock = llvm::BasicBlock::Create(context, "post_func_obj_store", outerFuncContextLLVM);
+                }
+            }
+        }
+        builder.SetInsertPoint(fallbackBlock);
+    } else if (isTopLevelDefinition && codeGen.getModule()->getFunction("__llvmpy_entry")) {
+        llvm::Function* entryFunc = codeGen.getModule()->getFunction("__llvmpy_entry");
+        llvm::BasicBlock* targetBlockInEntry = nullptr;
+        llvm::Function* parentOfOriginalForEntry = originalInsertBlock ? originalInsertBlock->getParent() : nullptr;
+
+        if (originalInsertBlock && parentOfOriginalForEntry == entryFunc && !originalInsertBlock->getTerminator()) {
+            targetBlockInEntry = originalInsertBlock;
+        } else if (entryFunc && !entryFunc->empty() && !entryFunc->back().getTerminator()){
+            targetBlockInEntry = &entryFunc->back();
+        } else if (entryFunc) {
+            targetBlockInEntry = llvm::BasicBlock::Create(context, "gv_store_block", entryFunc);
+        }
+        
+        if (targetBlockInEntry) {
+            builder.SetInsertPoint(targetBlockInEntry);
+        } else {
+            codeGen.logError("Cannot find __llvmpy_entry or valid insert point for top-level function " + pyFuncName, line, col);
+            return;
+        }
+    } else {
+        codeGen.logError("Cannot determine valid insert point for storing function object " + pyFuncName +
+                         ". Original block or outer function context is invalid/missing.", line, col);
         return;
     }
+    codeGen.setCurrentFunction(outerFuncContextLLVM);
+    if(originalDebugLoc) builder.SetCurrentDebugLocation(originalDebugLoc);
+
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-    std::string uniqueLLVMName = llvmFunc->getName().str();
-    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "ModuleGen->handleFunctionDef SUCCEEDED for '" + pyFuncName + "'. Got LLVM Func: " + llvmObjToString(llvmFunc) + " ('" + uniqueLLVMName + "')");
+    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Outer context RESTORED. Current InsertBlock: " + llvmObjToString(builder.GetInsertBlock()) +
+                                     ", Current Func in CodeGen: " + (codeGen.getCurrentFunction() ? codeGen.getCurrentFunction()->getName().str() : "null"));
 #endif
 
-    // --- 步骤 2: 调用 CodeGenType 获取 Python 函数类型 ---
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling TypeGen->getFunctionObjectType for '" + pyFuncName + "'...");
-#endif
+    if (!generatedLLVMFunc) {
+        return;
+    }
+
     ObjectType* funcObjectType = codeGen.getTypeGen()->getFunctionObjectType(funcAST);
-    if (!funcObjectType || funcObjectType->getCategory() != ObjectType::Function)
-    {
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "TypeGen->getFunctionObjectType FAILED for '" + pyFuncName + "'.");
-#endif
-        codeGen.logError("Failed to get valid FunctionType for function: " + pyFuncName, line, col);
+    if (!funcObjectType || funcObjectType->getCategory() != ObjectType::Function) {
+        codeGen.logError("Failed to get valid FunctionType for Python function: " + pyFuncName, line, col);
         return;
     }
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "TypeGen->getFunctionObjectType SUCCEEDED for '" + pyFuncName + "'. Type: " + funcObjectType->getName());
-#endif
 
-    // --- 步骤 3: 调用 CodeGenRuntime 创建 Python 函数对象 ---
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Calling RuntimeGen->createFunctionObject using LLVM func '" + llvmFunc->getName().str() + "'...");
-#endif
-    llvm::Value* pyFuncObj = runtime->createFunctionObject(llvmFunc, funcObjectType);
-    if (!pyFuncObj)
-    {
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "RuntimeGen->createFunctionObject FAILED for '" + pyFuncName + "'.");
-#endif
+    llvm::Value* pyFuncObj = runtime->createFunctionObject(generatedLLVMFunc, funcObjectType);
+    if (!pyFuncObj) {
         codeGen.logError("Failed to create Python function object for: " + pyFuncName, line, col);
         return;
     }
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-    DEBUG_LOG_DETAIL("HdlFuncDefStmt", "RuntimeGen->createFunctionObject SUCCEEDED for '" + pyFuncName + "'. Value: " + llvmObjToString(pyFuncObj));
-#endif
 
-    // --- 步骤 4: 确定存储位置 (Alloca 或 GlobalVariable) 并存储 Python 函数对象 ---
-    llvm::Value* storage = nullptr;
-
-    if (isTopLevelDefinition)
-    {
-        // --- 顶层函数：使用预声明的 GlobalVariable ---
-        storage = preDeclaredFuncObjGV;  // This is the llvm::GlobalVariable*
-
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Function '" + pyFuncName + "' is top-level. Using PRE-DECLARED GlobalVariable: " + llvmObjToString(storage));
-#endif
-        // Store the new function object into the GlobalVariable
-        llvm::BasicBlock* currentBlockForStore = builder.GetInsertBlock();
-        // Ensure we are in a valid block within the function where 'def' is processed (e.g., __llvmpy_entry)
-        if (currentBlockForStore && currentDefiningFunction)
-        {
-            builder.CreateStore(pyFuncObj, storage);
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* into GlobalVariable: " + llvmObjToString(storage) + " in block " + llvmObjToString(currentBlockForStore));
-#endif
-        }
-        else
-        {
-            codeGen.logWarning("Cannot find insert block in current function (" + (currentDefiningFunction ? currentDefiningFunction->getName().str() : "null") + ") to store GlobalVariable for top-level function " + pyFuncName + ". Storage might be delayed or require global ctor.", line, col);
-        }
+    llvm::Value* storageLocation = nullptr;
+    llvm::BasicBlock* currentBlockForStoreOp = builder.GetInsertBlock();
+    if (!currentBlockForStoreOp || currentBlockForStoreOp->getTerminator() || !currentBlockForStoreOp->getParent()) {
+        codeGen.logError("Invalid IRBuilder state: No valid non-terminated block to store PyFunctionObject for " + pyFuncName, line, col);
+        runtime->decRef(pyFuncObj);
+        return;
     }
-    else  // Nested function
-    {
-        // --- 嵌套函数：查找或创建 AllocaInst (现有逻辑) ---
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Function '" + pyFuncName + "' is nested. Looking for/Creating AllocaInst.");
-#endif
+
+    if (isTopLevelDefinition) {
+        storageLocation = preDeclaredFuncObjGV;
+        builder.CreateStore(pyFuncObj, storageLocation);
+    } else {
         llvm::AllocaInst* funcObjAlloca = nullptr;
         bool isNewAlloca = false;
+        llvm::Function* currentFunctionForAlloc = builder.GetInsertBlock()->getParent(); 
 
-        if (symTable.hasVariable(pyFuncName))
-        {
-            llvm::Value* existingVar = symTable.getVariable(pyFuncName);
-            if (llvm::isa<llvm::AllocaInst>(existingVar))
-            {
-                funcObjAlloca = llvm::cast<llvm::AllocaInst>(existingVar);
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-                DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Found existing AllocaInst for '" + pyFuncName + "': " + llvmObjToString(funcObjAlloca));
-#endif
-                if (funcObjAlloca->getAllocatedType() != pyObjectPtrType)
-                {
-                    codeGen.logError("AllocaInst '" + pyFuncName + "' exists with wrong type.", line, col);
-                    return;
+        if (symTable.hasVariable(pyFuncName)) {
+            llvm::Value* existingVarStorage = symTable.getVariable(pyFuncName);
+            if (auto* existingAlloca = llvm::dyn_cast<llvm::AllocaInst>(existingVarStorage)) {
+                // --- FIX: Compare alloca's function with the outer function context ---
+                if (existingAlloca->getFunction() == outerFuncContextLLVM) { 
+                     funcObjAlloca = existingAlloca;
+                     isNewAlloca = false;
+                } else { 
+                    funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName, outerFuncContextLLVM);
+                    isNewAlloca = true;
                 }
-                isNewAlloca = false;
-            }
-            else
-            {
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-                DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Variable '" + pyFuncName + "' exists but is not Alloca. Creating new Alloca for shadowing.");
-#endif
-                funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName);
-                if (!funcObjAlloca) return;
+            } else { 
+                funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName, outerFuncContextLLVM);
                 isNewAlloca = true;
             }
-        }
-        else
-        {
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "No existing variable/AllocaInst found for '" + pyFuncName + "'. Creating new AllocaInst.");
-#endif
-            funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName);
-            if (!funcObjAlloca) return;
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Created new AllocaInst for '" + pyFuncName + "': " + llvmObjToString(funcObjAlloca));
-#endif
+        } else { 
+            funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName, outerFuncContextLLVM);
             isNewAlloca = true;
         }
-        storage = funcObjAlloca;
 
-        llvm::BasicBlock* currentBlockForStore = builder.GetInsertBlock();
-        if (currentBlockForStore)
-        {
-            if (!isNewAlloca)
-            {
-                llvm::Value* oldValue = builder.CreateLoad(pyObjectPtrType, funcObjAlloca, pyFuncName + ".old");
-                llvm::Value* isNotNull = builder.CreateIsNotNull(oldValue, "isOldValueNotNull");
-                llvm::BasicBlock* decRefBlock = codeGen.createBasicBlock("decRefOldFunc", currentDefiningFunction);
-                llvm::BasicBlock* storeNewBlock = codeGen.createBasicBlock("storeNewFunc", currentDefiningFunction);
-
-                builder.CreateCondBr(isNotNull, decRefBlock, storeNewBlock);
-
-                builder.SetInsertPoint(decRefBlock);
-                runtime->decRef(oldValue);
-                builder.CreateBr(storeNewBlock);
-
-                builder.SetInsertPoint(storeNewBlock);
-            }
-            builder.CreateStore(pyFuncObj, funcObjAlloca);
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Stored PyObject* (" + llvmObjToString(pyFuncObj) + ") into AllocaInst: " + llvmObjToString(funcObjAlloca) + " in block " + llvmObjToString(builder.GetInsertBlock()));
-#endif
-            runtime->incRef(pyFuncObj);
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-            DEBUG_LOG_DETAIL("HdlFuncDefStmt", "IncRef'd new PyObject* (" + llvmObjToString(pyFuncObj) + ") for nested function storage.");
-#endif
+        if (!funcObjAlloca) { 
+            runtime->decRef(pyFuncObj); 
+            return;
         }
-        else
-        {
-            codeGen.logError("Cannot find insert block to store nested function object " + pyFuncName, line, col);
-            storage = nullptr;
+        storageLocation = funcObjAlloca;
+
+        if (!isNewAlloca) {
+            llvm::Value* oldValue = builder.CreateLoad(pyObjectPtrType, funcObjAlloca, pyFuncName + ".old_val");
+            runtime->decRef(oldValue); 
         }
+        builder.CreateStore(pyFuncObj, funcObjAlloca);
+        runtime->incRef(pyFuncObj); 
     }
 
-    // --- 步骤 5: 调用 PySymbolTable 绑定/更新存储位置 ---
-    if (storage)
-    {
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Binding/Rebinding SymbolTable entry for '" + pyFuncName + "' to storage: " + llvmObjToString(storage));
-#endif
-        symTable.setVariable(pyFuncName, storage, funcObjectType);
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "SymbolTable binding confirmed/updated for '" + pyFuncName + "'.");
-#endif
+    if (storageLocation) {
+        symTable.setVariable(pyFuncName, storageLocation, funcObjectType);
+    } else {
+        codeGen.logError("Internal error: Storage location for PyFunctionObject of " + pyFuncName + " is null.", line, col);
+        runtime->decRef(pyFuncObj);
     }
-    else
-    {
-#ifdef DEBUG_CODEGEN_handleFunctionDefStmt
-        DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Skipping SymbolTable update for '" + pyFuncName + "' due to storage failure.");
-#endif
-    }
-
 #ifdef DEBUG_CODEGEN_handleFunctionDefStmt
     DEBUG_LOG_DETAIL("HdlFuncDefStmt", "Leaving handleFunctionDefStmt for '" + pyFuncName + "'");
 #endif
-
-    // Reference Counting Summary:
-    // - py_create_function returns +1 ref (pyFuncObj).
-    // - Top-level: GV holds the ref. Overwriting GV needs careful DecRef (currently simplified).
-    // - Nested:
-    //    - Overwrite: Load old (+0), DecRef old (-1), Store new (+0), IncRef new (+1). Net: Alloca holds +1 ref to new obj.
-    //    - New: Store new (+0), IncRef new (+1). Net: Alloca holds +1 ref to new obj.
-    // - SymbolTable::popScope needs to load from AllocaInsts and DecRef them.
 }
 
 llvm::Value* CodeGenStmt::handleCondition(const ExprAST* condition)
@@ -2025,82 +1969,127 @@ void CodeGenStmt::handleImportStmt(ImportStmtAST* stmt)
 }
 
 void CodeGenStmt::handleClassStmt(ClassStmtAST* stmt) {
-    auto* cg = static_cast<PyCodeGen*>(&codeGen);
+    auto* cg = static_cast<PyCodeGen*>(&codeGen); // Assuming CodeGenBase has a way to get PyCodeGen or its components
     auto& builder = cg->getBuilder();
     auto* runtime = cg->getRuntimeGen();
     auto* moduleGen = cg->getModuleGen();
-    auto& context = cg->getContext(); // Get context for type creation
+    auto& context = cg->getContext();
+    auto& symTable = cg->getSymbolTable(); // Get symbol table from PyCodeGen
+    llvm::Type* pyObjectPtrType = runtime->getPyObjectPtrType();
 
     const std::string& className = stmt->getClassName();
+    int line = stmt->line.value_or(0);
+    int col = stmt->column.value_or(0);
+
 #ifdef DEBUG_CODEGEN_STMT
     DEBUG_LOG_DETAIL("HdlClsStmt", "Starting class definition for: " + className);
 #endif
 
-    // 1. Create a dictionary for the class body
+    // --- 保存外部上下文 (类定义语句所在的上下文) ---
+    llvm::Function* classCreationOuterFunc = cg->getCurrentFunction();
+    llvm::BasicBlock* classCreationInsertBlock = builder.GetInsertBlock();
+    llvm::DebugLoc classCreationDebugLoc = builder.getCurrentDebugLocation();
+
+#ifdef DEBUG_CODEGEN_STMT
+    DEBUG_LOG_DETAIL("HdlClsStmt", "Class creation outer context: Func=" + (classCreationOuterFunc ? classCreationOuterFunc->getName().str() : "null") +
+                                 ", Block=" + llvmObjToString(classCreationInsertBlock));
+#endif
+
     ObjectType* strType = TypeRegistry::getInstance().getType("string");
-    ObjectType* anyType = TypeRegistry::getInstance().getType("any"); // Methods and vars can be of any type
+    ObjectType* anyType = TypeRegistry::getInstance().getType("any");
     if (!strType || !anyType) {
-        cg->logError("Failed to get string/any types for class dictionary.", stmt->line.value_or(0), stmt->column.value_or(0));
+        cg->logError("Failed to get string/any types for class dictionary.", line, col);
         return;
     }
     llvm::Value* classDictObj = cg->getExprGen()->createDict(strType, anyType);
     if (!classDictObj) {
-        cg->logError("Failed to create dictionary for class " + className, stmt->line.value_or(0), stmt->column.value_or(0));
+        cg->logError("Failed to create dictionary for class " + className, line, col);
         return;
     }
-    runtime->incRef(classDictObj); // classDictObj is new, incRef until py_create_class takes it.
+    runtime->incRef(classDictObj); // createDict returns +1, incRef for py_create_class's ownership
 
-    // --- Python's class body execution scope ---
-    // Class body executes in a temporary namespace.
-    // We simulate this by pushing a scope, but variables defined go into classDictObj.
-    // This is a simplification; true Python class scope is more nuanced.
-    // For now, we won't create a new symbol table scope here,
-    // as methods are handled by handleFunctionDef (which creates its own scope)
-    // and class variables are directly put into the classDictObj.
-
-    // 2. Process the class body (methods and class variables)
+    // --- 处理类体 (方法和类变量) ---
     for (const auto& bodyStmtNode : stmt->getBody()) {
         if (auto* funcDefStmt = dynamic_cast<FunctionDefStmtAST*>(bodyStmtNode.get())) {
             const FunctionAST* methodAST = funcDefStmt->getFunctionAST();
             if (!methodAST) {
-                 cg->logError("Null FunctionAST in FunctionDefStmt within class " + className,
+                 cg->logError("Null FunctionAST for method in class " + className,
                              funcDefStmt->line.value_or(0), funcDefStmt->column.value_or(0));
                 continue;
             }
-            // Note: handleFunctionDef in CodeGenModule generates the LLVM function
-            // and handleFunctionDefStmt in CodeGenStmt creates the PyFunctionObject.
-            // For methods, the PyFunctionObject is what we need.
-            // We need to ensure that when handleFunctionDefStmt is called for a method,
-            // it doesn't try to store it in the current *lexical* scope's symbol table
-            // in the same way as a regular function.
-            // A simple way: CodeGenModule::handleFunctionDef generates the LLVM func.
-            // Then, here, we create the PyFunctionObject and add it to classDictObj.
 
-            // Generate the LLVM function for the method
+            // --- 方法的 LLVM 函数生成 ---
+            // moduleGen->handleFunctionDef 会改变 builder 的插入点和 cg 的当前函数
+#ifdef DEBUG_CODEGEN_STMT
+            DEBUG_LOG_DETAIL("HdlClsStmt", "Generating LLVM func for method '" + methodAST->getName() + "'...");
+#endif
             llvm::Function* llvmMethod = moduleGen->handleFunctionDef(methodAST);
-            if (!llvmMethod) {
-                 cg->logError("Failed to generate LLVM function for method: " + methodAST->getName() + " in class " + className,
+
+            // --- 重要：恢复外部（类定义）上下文的 IRBuilder 插入点和当前函数 ---
+            // 这一步至关重要，因为创建方法对应的PyFunctionObject和将其存入classDictObj
+            // 的操作必须在类定义的上下文中进行，而不是在刚刚生成的llvmMethod的上下文中。
+#ifdef DEBUG_CODEGEN_STMT
+            DEBUG_LOG_DETAIL("HdlClsStmt", "Restoring class creation context. Original Block: " + llvmObjToString(classCreationInsertBlock) +
+                                         ", Original Func: " + (classCreationOuterFunc ? classCreationOuterFunc->getName().str() : "null"));
+#endif
+            if (classCreationInsertBlock && classCreationInsertBlock->getParent() == classCreationOuterFunc && !classCreationInsertBlock->getTerminator()) {
+                builder.SetInsertPoint(classCreationInsertBlock);
+            } else if (classCreationOuterFunc && !classCreationOuterFunc->empty()) {
+                llvm::BasicBlock* fallbackBlock = &classCreationOuterFunc->back();
+                if (fallbackBlock->getTerminator()) fallbackBlock = &classCreationOuterFunc->getEntryBlock();
+                if (fallbackBlock->getTerminator()) {
+                     cg->logWarning("Class context function " + classCreationOuterFunc->getName().str() +
+                                   " has all blocks terminated. Creating new block for method PyObj for " + methodAST->getName(),
+                                   methodAST->line.value_or(0), methodAST->column.value_or(0));
+                    fallbackBlock = llvm::BasicBlock::Create(context, "post_method_obj_store", classCreationOuterFunc);
+                }
+                builder.SetInsertPoint(fallbackBlock);
+            } else {
+                cg->logError("Cannot determine valid insert point for method object creation for " + methodAST->getName() + " in class " + className,
+                             methodAST->line.value_or(0), methodAST->column.value_or(0));
+                if(llvmMethod) {} // llvmMethod is owned by module
+                // classDictObj ref count needs to be handled if we return early
+                runtime->decRef(classDictObj);
+                return; // Critical error, cannot proceed with class creation
+            }
+            cg->setCurrentFunction(classCreationOuterFunc);
+            if(classCreationDebugLoc) builder.SetCurrentDebugLocation(classCreationDebugLoc);
+#ifdef DEBUG_CODEGEN_STMT
+            DEBUG_LOG_DETAIL("HdlClsStmt", "Class creation context RESTORED. Current Block: " + llvmObjToString(builder.GetInsertBlock()) +
+                                         ", Current Func: " + (cg->getCurrentFunction() ? cg->getCurrentFunction()->getName().str() : "null"));
+#endif
+
+            if (!llvmMethod) { // Re-check after context restoration
+                cg->logError("Failed to generate LLVM function for method: " + methodAST->getName() + " in class " + className,
                              methodAST->line.value_or(0), methodAST->column.value_or(0));
                 continue;
             }
-            // Create the Python function object for this method
+
+            // 确保IRBuilder现在指向一个有效的、未终止的块
+            llvm::BasicBlock* currentBlockForMethodObj = builder.GetInsertBlock();
+            if (!currentBlockForMethodObj || currentBlockForMethodObj->getTerminator() || !currentBlockForMethodObj->getParent()){
+                cg->logError("Invalid IRBuilder state after restoring context for method " + methodAST->getName() + ". Cannot create PyFunctionObject.",
+                              methodAST->line.value_or(0), methodAST->column.value_or(0));
+                continue;
+            }
+
             ObjectType* methodObjType = cg->getTypeGen()->getFunctionObjectType(methodAST);
             llvm::Value* methodPyObj = runtime->createFunctionObject(llvmMethod, methodObjType);
-             if (!methodPyObj) {
+            if (!methodPyObj) {
                 cg->logError("Failed to create Python function object for method: " + methodAST->getName() + " in class " + className,
                              methodAST->line.value_or(0), methodAST->column.value_or(0));
                 continue;
             }
-            // Add method object to classDictObj
+
             llvm::Value* methodNameStrObj = cg->getExprGen()->createStringLiteral(methodAST->getName());
-            runtime->setDictItem(classDictObj, methodNameStrObj, methodPyObj);
-            runtime->decRef(methodNameStrObj); // setDictItem should incref
-            runtime->decRef(methodPyObj);      // setDictItem should incref its new value
+            runtime->setDictItem(classDictObj, methodNameStrObj, methodPyObj); // setDictItem handles ref counts of key & value
+            runtime->decRef(methodNameStrObj); // createStringLiteral returns +1, setDictItem takes ownership
+            runtime->decRef(methodPyObj);      // createFunctionObject returns +1, setDictItem takes ownership
 
         } else if (auto* assignStmt = dynamic_cast<AssignStmtAST*>(bodyStmtNode.get())) {
-            // Class variable assignment
+            // 类变量赋值 (这部分逻辑应该已经是正确的，因为它在类定义的上下文中执行)
             const std::string& varName = assignStmt->getName();
-            llvm::Value* varValue = cg->getExprGen()->handleExpr(assignStmt->getValue());
+            llvm::Value* varValue = cg->getExprGen()->handleExpr(assignStmt->getValue()); // handleExpr should be in classCreation context
             if (!varValue) {
                 cg->logError("Failed to generate value for class variable: " + varName + " in class " + className,
                              assignStmt->line.value_or(0), assignStmt->column.value_or(0));
@@ -2109,78 +2098,108 @@ void CodeGenStmt::handleClassStmt(ClassStmtAST* stmt) {
             llvm::Value* varNameStrObj = cg->getExprGen()->createStringLiteral(varName);
             runtime->setDictItem(classDictObj, varNameStrObj, varValue);
             runtime->decRef(varNameStrObj);
-            // runtime->decRef(varValue); // Value's ref count handled by setDictItem
+            // varValue's ref count is handled by setDictItem (it takes ownership of the +1 from handleExpr)
         } else {
-            cg->logWarning("Unsupported statement type in class body for " + className +
-                           ". Only function definitions and assignments are currently processed as class attributes.",
+            cg->logWarning("Unsupported statement type in class body for " + className,
                            bodyStmtNode->line.value_or(0), bodyStmtNode->column.value_or(0));
         }
     }
 
-    // 3. Handle base classes
-    llvm::Value* basesListObj = nullptr; // Runtime expects a list/tuple of base class *objects*
+    // --- 处理基类 ---
+    llvm::Value* basesTupleObj = nullptr; // Python's __build_class__ expects a tuple of bases
     if (stmt->getBaseClasses().empty()) {
-        // No base classes, create an empty list for the runtime
-        basesListObj = runtime->createList(builder.getInt32(0), builder.getInt32(PY_TYPE_CLASS)); // typeId for element is class
+        basesTupleObj = runtime->createTuple(nullptr, 0); // Empty tuple
     } else {
         std::vector<llvm::Value*> baseClassObjVals;
         for (const std::string& baseName : stmt->getBaseClasses()) {
-            llvm::Value* baseClassStorage = cg->getSymbolTable().getVariable(baseName);
+            llvm::Value* baseClassStorage = symTable.getVariable(baseName); // Look up base class name
             if (!baseClassStorage) {
-                cg->logError("Base class '" + baseName + "' not found for class " + className,
-                             stmt->line.value_or(0), stmt->column.value_or(0));
-                runtime->decRef(classDictObj); // Cleanup dict
+                cg->logError("Base class '" + baseName + "' not found for class " + className, line, col);
+                runtime->decRef(classDictObj);
                 return;
             }
             llvm::Value* baseClassObj = nullptr;
+            // Base class could be an AllocaInst (if defined in same scope) or GlobalVariable (if imported/toplevel)
+            // or directly a PyObject* if passed around. We need to load if it's a storage pointer.
             if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(baseClassStorage)) {
-                baseClassObj = builder.CreateLoad(runtime->getPyObjectPtrType(), alloca, baseName + "_load");
+                baseClassObj = builder.CreateLoad(pyObjectPtrType, alloca, baseName + "_load");
             } else if (auto* global = llvm::dyn_cast<llvm::GlobalVariable>(baseClassStorage)) {
-                baseClassObj = builder.CreateLoad(runtime->getPyObjectPtrType(), global, baseName + "_load");
-            } else { // Assume it's already a PyObject* (e.g. from another import)
+                baseClassObj = builder.CreateLoad(pyObjectPtrType, global, baseName + "_load");
+            } else if (baseClassStorage->getType() == pyObjectPtrType) { // Already a PyObject*
                 baseClassObj = baseClassStorage;
             }
-            
-            // TODO: Runtime check if baseClassObj is actually a class (PY_TYPE_CLASS)
+            else {
+                 cg->logError("Base class '" + baseName + "' for class " + className + " is not a valid PyObject pointer or storage.", line, col);
+                 runtime->decRef(classDictObj);
+                 return;
+            }
+            // TODO: Runtime check if baseClassObj is actually a class (type object)
             baseClassObjVals.push_back(baseClassObj);
         }
-        basesListObj = cg->getExprGen()->createListWithValues(baseClassObjVals, PyType::fromObjectType(TypeRegistry::getInstance().getType("class")));
+        basesTupleObj = runtime->createTuple(baseClassObjVals.data(), baseClassObjVals.size());
     }
-    if (!basesListObj) {
-        cg->logError("Failed to create base classes list for " + className, stmt->line.value_or(0), stmt->column.value_or(0));
+    if (!basesTupleObj) {
+        cg->logError("Failed to create base classes tuple for " + className, line, col);
         runtime->decRef(classDictObj);
         return;
     }
-    runtime->incRef(basesListObj); // createListWithValues returns new obj, incRef for py_create_class
+    runtime->incRef(basesTupleObj); // createTuple returns +1, incRef for py_create_class's ownership
 
-    // 4. Call runtime py_create_class
+    // --- 调用运行时 py_create_class ---
+    // Python's type creation is complex (metaclasses, __build_class__).
+    // We simplify by calling a runtime helper that mimics parts of it.
+    // py_create_class(name_str, bases_tuple, dict_obj) -> new_class_obj
     llvm::Function* createClassFunc = cg->getOrCreateExternalFunction(
         "py_create_class",
-        runtime->getPyObjectPtrType(),
-        {llvm::PointerType::get(llvm::Type::getInt8Ty(context), 0), runtime->getPyObjectPtrType(), runtime->getPyObjectPtrType()} // name, bases, dict <--- CORRECTED getInt8PtrTy
+        pyObjectPtrType, // Returns PyObject* (the new class object)
+        {
+            llvm::PointerType::get(llvm::Type::getInt8Ty(context), 0), // const char* name
+            pyObjectPtrType, // PyObject* bases_tuple
+            pyObjectPtrType  // PyObject* class_dict
+        }
     );
     llvm::Value* classNameCStr = builder.CreateGlobalStringPtr(className, className + "_name_cstr");
-    llvm::Value* classObj = builder.CreateCall(createClassFunc, {classNameCStr, basesListObj, classDictObj}, className + "_class_obj");
+    llvm::Value* newClassObj = builder.CreateCall(createClassFunc, {classNameCStr, basesTupleObj, classDictObj}, className + "_class_obj");
 
-    runtime->decRef(basesListObj); // py_create_class should manage its own ref to bases
-    runtime->decRef(classDictObj); // py_create_class should manage its own ref to dict
+    runtime->decRef(basesTupleObj); // py_create_class took ownership
+    runtime->decRef(classDictObj);  // py_create_class took ownership
 
-    if (!classObj) {
-        cg->logError("Runtime function py_create_class failed for " + className, stmt->line.value_or(0), stmt->column.value_or(0));
+    if (!newClassObj) {
+        cg->logError("Runtime function py_create_class failed for " + className, line, col);
         return;
     }
+    // newClassObj has +1 ref count from py_create_class
 
-    // 5. Store the new class object in the current scope
-    cg->getSymbolTable().setVariable(className, classObj, TypeRegistry::getInstance().getType("class"));
-    // Ref count of classObj from py_create_class is +1.
-    // If setVariable stores it in an AllocaInst, it might need another incRef/decRef pair logic
-    // similar to handleAssignStmt. For simplicity, assume py_create_class returns a +1 object
-    // and setVariable correctly manages it if it stores it in an Alloca.
-    // If setVariable just puts the PyObject* (classObj) into its map for a global,
-    // then the +1 ref from py_create_class is correct.
+    // --- 存储新类对象到当前作用域的符号表 ---
+    // Determine if class is top-level or nested for storage (GV or Alloca)
+    bool isTopLevelClass = !classCreationOuterFunc || classCreationOuterFunc->getName() == "__llvmpy_entry";
+    llvm::Value* classStorageLocation = nullptr;
+
+    if (isTopLevelClass) {
+        std::string classGvName = className + "_class_gv";
+        llvm::GlobalVariable* classGv = codeGen.getModule()->getGlobalVariable(classGvName, true);
+        if (!classGv) {
+            classGv = new llvm::GlobalVariable(
+                *cg->getModule(), pyObjectPtrType, false,
+                llvm::GlobalValue::InternalLinkage, llvm::Constant::getNullValue(pyObjectPtrType), classGvName);
+        }
+        builder.CreateStore(newClassObj, classGv);
+        classStorageLocation = classGv;
+    } else { // Nested class
+        llvm::AllocaInst* classAlloca = cg->createEntryBlockAlloca(pyObjectPtrType, className + "_alloca");
+        if (!classAlloca) { runtime->decRef(newClassObj); return; }
+        // If classAlloca redefines an existing var, old value in alloca needs decRef
+        // Simplified: assume new alloca or previous content is null/handled
+        builder.CreateStore(newClassObj, classAlloca);
+        runtime->incRef(newClassObj); // Alloca takes a new reference
+        classStorageLocation = classAlloca;
+    }
+
+    symTable.setVariable(className, classStorageLocation, TypeRegistry::getInstance().getType("class"));
+    // newClassObj's +1 ref is now managed by the GV (implicitly) or by the incRef for Alloca.
 
 #ifdef DEBUG_CODEGEN_STMT
-    DEBUG_LOG_DETAIL("HdlClsStmt", "Finished class definition for: " + className + ". Class object: " + llvmObjToString(classObj));
+    DEBUG_LOG_DETAIL("HdlClsStmt", "Finished class definition for: " + className + ". Class object: " + llvmObjToString(newClassObj));
 #endif
 }
 

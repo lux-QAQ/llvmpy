@@ -642,7 +642,52 @@ int py_get_list_element_type_id(PyObject* list)
 
     return 0;  // 未知元素类型
 }
+//===----------------------------------------------------------------------===//
+// 元组操作函数 (Tuple Operations)
+//===----------------------------------------------------------------------===//
 
+PyObject* py_build_tuple_from_array(PyObject** items, int count) {
+    if (count < 0) {
+        LOG_ERROR("py_build_tuple_from_array: Negative count (%d) is invalid.", count);
+        // Or raise ValueError
+        return NULL;
+    }
+
+    // 为 PyTupleObject 结构本身和 items 数组分配内存
+    // 使用柔性数组成员，所以 items 的空间紧随 PyTupleObject 之后
+    PyTupleObject* tuple = (PyTupleObject*)malloc(sizeof(PyTupleObject) + count * sizeof(PyObject*));
+    if (!tuple) {
+        LOG_ERROR("MemoryError: Failed to allocate memory for tuple object (count: %d)", count);
+        return NULL;
+    }
+
+    tuple->header.refCount = 1;
+    tuple->header.typeId = llvmpy::PY_TYPE_TUPLE; // Make sure PY_TYPE_TUPLE is defined
+    tuple->size = count;
+
+    LOG_DEBUG("py_build_tuple_from_array: Created tuple %p, size %d", (void*)tuple, count);
+
+    for (int i = 0; i < count; ++i) {
+        if (items[i]) {
+            py_incref(items[i]);
+            tuple->items[i] = items[i];
+            LOG_DEBUG("  Tuple item %d: %p (type: %s, refcnt after incref: %d)", i, (void*)items[i], py_type_name(items[i]->typeId), items[i]->refCount);
+        } else {
+            // Python tuples can contain None, which might be represented as NULL internally
+            // or as a specific None object. If your None is a singleton, use py_get_none().
+            // For simplicity, if an item is NULL, we store NULL and assume it means None.
+            // If None is a distinct object, this needs adjustment.
+            PyObject* none_obj = py_get_none(); // Assuming py_get_none() returns the singleton None
+            py_incref(none_obj); // py_get_none() might not incref, or it's a static object.
+                                 // If it's a static object with high refcount, this incref might be benign.
+                                 // If it's a normal object, this is correct.
+            tuple->items[i] = none_obj;
+            LOG_DEBUG("  Tuple item %d: Storing None (%p)", i, (void*)none_obj);
+        }
+    }
+
+    return (PyObject*)tuple;
+}
 //===----------------------------------------------------------------------===//
 // 字典操作函数
 //===----------------------------------------------------------------------===//

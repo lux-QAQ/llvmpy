@@ -39,6 +39,18 @@ PyObject* py_string_get_char(PyObject* strObj, PyObject* indexObj); // <-- 新�
 void py_set_index_result_type(PyObject* result, int typeId);
 int py_get_container_type_info(PyObject* container);
 
+
+/**
+ * @brief 从 PyObject* 数组创建一个新的元组对象。
+ *
+ * @param items 指向 PyObject* 元素数组的指针。
+ * @param count 数组中的元素数量。
+ * @return 新创建的元组对象 (PyObject*)，如果失败则返回 NULL。
+ *         返回的元组对象引用计数为 1。
+ *         元组中的每个元素都会被 py_incref。
+ */
+PyObject* py_build_tuple_from_array(PyObject** items, int count);
+
 // 哈希操作
 unsigned int py_hash_object(PyObject* obj);
 
