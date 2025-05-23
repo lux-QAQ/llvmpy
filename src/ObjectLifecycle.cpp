@@ -318,12 +318,11 @@ llvm::Value* ObjectLifecycleManager::createObject(PyCodeGen& gen, llvm::Value* v
                     llvm::PointerType::get(context, 0),
                     {llvm::Type::getDoubleTy(context)},
                     false);
-                    llvm::Function* createDoubleFunc = gen.getOrCreateExternalFunction(
-                        "py_create_double",
-                        llvm::PointerType::get(context, 0),
-                        {llvm::Type::getDoubleTy(context)},
-                        false
-                    );
+            llvm::Function* createDoubleFunc = gen.getOrCreateExternalFunction(
+                    "py_create_double",
+                    llvm::PointerType::get(context, 0),
+                    {llvm::Type::getDoubleTy(context)},
+                    false);
             return builder.CreateCall(createDoubleFunc, {value}, "double_obj");
         }
 
@@ -333,12 +332,11 @@ llvm::Value* ObjectLifecycleManager::createObject(PyCodeGen& gen, llvm::Value* v
                     llvm::PointerType::get(context, 0),
                     {llvm::Type::getInt1Ty(context)},
                     false);
-                    llvm::Function* createBoolFunc = gen.getOrCreateExternalFunction(
-                        "py_create_bool",
-                        llvm::PointerType::get(context, 0),
-                        {llvm::Type::getInt1Ty(context)},
-                        false
-                    );
+            llvm::Function* createBoolFunc = gen.getOrCreateExternalFunction(
+                    "py_create_bool",
+                    llvm::PointerType::get(context, 0),
+                    {llvm::Type::getInt1Ty(context)},
+                    false);
             return builder.CreateCall(createBoolFunc, {value}, "bool_obj");
         }
 
@@ -348,12 +346,11 @@ llvm::Value* ObjectLifecycleManager::createObject(PyCodeGen& gen, llvm::Value* v
                     llvm::PointerType::get(context, 0),
                     {llvm::PointerType::get(context, 0)},
                     false);
-                    llvm::Function* createStringFunc = gen.getOrCreateExternalFunction(
-                        "py_create_string",
-                        llvm::PointerType::get(context, 0),
-                        {llvm::PointerType::get(context, 0)},
-                        false
-                    );
+            llvm::Function* createStringFunc = gen.getOrCreateExternalFunction(
+                    "py_create_string",
+                    llvm::PointerType::get(context, 0),
+                    {llvm::PointerType::get(context, 0)},
+                    false);
             return builder.CreateCall(createStringFunc, {value}, "string_obj");
         }
 
@@ -399,11 +396,11 @@ llvm::Value* ObjectLifecycleManager::adjustObject(
                 {llvm::PointerType::get(context, 0),
                  llvm::Type::getInt32Ty(context)},
                 false);
-                llvm::Function* copyFunc = gen.getOrCreateExternalFunction(
-                    "py_object_copy",
-                    llvm::PointerType::get(context, 0),
-                    {llvm::PointerType::get(context, 0), llvm::Type::getInt32Ty(context)},
-                    false);
+        llvm::Function* copyFunc = gen.getOrCreateExternalFunction(
+                "py_object_copy",
+                llvm::PointerType::get(context, 0),
+                {llvm::PointerType::get(context, 0), llvm::Type::getInt32Ty(context)},
+                false);
 
         // 重要：使用对象的真实类型ID，而不是硬编码或错误的类型ID
         llvm::Value* typeIdVal = llvm::ConstantInt::get(
@@ -421,11 +418,11 @@ llvm::Value* ObjectLifecycleManager::adjustObject(
                 llvm::Type::getVoidTy(context),
                 {llvm::PointerType::get(context, 0)},
                 false);
-                llvm::Function* incRefFunc = gen.getOrCreateExternalFunction(
-                    "py_incref",
-                    llvm::Type::getVoidTy(context),
-                    {llvm::PointerType::get(context, 0)},
-                    false);
+        llvm::Function* incRefFunc = gen.getOrCreateExternalFunction(
+                "py_incref",
+                llvm::Type::getVoidTy(context),
+                {llvm::PointerType::get(context, 0)},
+                false);
 
         builder.CreateCall(incRefFunc, {value});
     }
@@ -480,11 +477,11 @@ llvm::Value* ObjectLifecycleManager::handleReturnValue(
                 {llvm::PointerType::get(context, 0),
                  llvm::Type::getInt32Ty(context)},
                 false);
-                llvm::Function* copyFunc = gen.getOrCreateExternalFunction(
-                    "py_object_copy",
-                    llvm::PointerType::get(context, 0),
-                    {llvm::PointerType::get(context, 0), llvm::Type::getInt32Ty(context)},
-                    false);
+        llvm::Function* copyFunc = gen.getOrCreateExternalFunction(
+                "py_object_copy",
+                llvm::PointerType::get(context, 0),
+                {llvm::PointerType::get(context, 0), llvm::Type::getInt32Ty(context)},
+                false);
 
         // 使用正确的类型ID
         llvm::Value* typeIdVal = llvm::ConstantInt::get(
@@ -511,11 +508,11 @@ llvm::Value* ObjectFactory::createInt(PyCodeGen& gen, llvm::Value* value)
             llvm::PointerType::get(context, 0),
             {llvm::Type::getInt32Ty(context)},
             false);
-            llvm::Function* createIntFunc = gen.getOrCreateExternalFunction(
-                "py_create_int",
-                llvm::PointerType::get(context, 0),
-                {llvm::Type::getInt32Ty(context)},
-                false);
+    llvm::Function* createIntFunc = gen.getOrCreateExternalFunction(
+            "py_create_int",
+            llvm::PointerType::get(context, 0),
+            {llvm::Type::getInt32Ty(context)},
+            false);
 
     return gen.getBuilder().CreateCall(createIntFunc, {value}, "int_obj");
 }
@@ -528,11 +525,11 @@ llvm::Value* ObjectFactory::createDouble(PyCodeGen& gen, llvm::Value* value)
             llvm::PointerType::get(context, 0),
             {llvm::Type::getDoubleTy(context)},
             false);
-            llvm::Function* createDoubleFunc = gen.getOrCreateExternalFunction(
-                "py_create_double",
-                llvm::PointerType::get(context, 0),
-                {llvm::Type::getDoubleTy(context)},
-                false);
+    llvm::Function* createDoubleFunc = gen.getOrCreateExternalFunction(
+            "py_create_double",
+            llvm::PointerType::get(context, 0),
+            {llvm::Type::getDoubleTy(context)},
+            false);
 
     return gen.getBuilder().CreateCall(createDoubleFunc, {value}, "double_obj");
 }
@@ -545,11 +542,11 @@ llvm::Value* ObjectFactory::createBool(PyCodeGen& gen, llvm::Value* value)
             llvm::PointerType::get(context, 0),
             {llvm::Type::getInt1Ty(context)},
             false);
-            llvm::Function* createBoolFunc = gen.getOrCreateExternalFunction(
-                "py_create_bool",
-                llvm::PointerType::get(context, 0),
-                {llvm::Type::getInt1Ty(context)},
-                false);
+    llvm::Function* createBoolFunc = gen.getOrCreateExternalFunction(
+            "py_create_bool",
+            llvm::PointerType::get(context, 0),
+            {llvm::Type::getInt1Ty(context)},
+            false);
 
     return gen.getBuilder().CreateCall(createBoolFunc, {value}, "bool_obj");
 }
@@ -562,11 +559,11 @@ llvm::Value* ObjectFactory::createString(PyCodeGen& gen, llvm::Value* value)
             llvm::PointerType::get(context, 0),
             {llvm::PointerType::get(context, 0)},
             false);
-            llvm::Function* createStringFunc = gen.getOrCreateExternalFunction(
-                "py_create_string",
-                llvm::PointerType::get(context, 0),
-                {llvm::PointerType::get(context, 0)},
-                false);
+    llvm::Function* createStringFunc = gen.getOrCreateExternalFunction(
+            "py_create_string",
+            llvm::PointerType::get(context, 0),
+            {llvm::PointerType::get(context, 0)},
+            false);
 
     return gen.getBuilder().CreateCall(createStringFunc, {value}, "string_obj");
 }
@@ -581,11 +578,11 @@ llvm::Value* ObjectFactory::createList(PyCodeGen& gen, llvm::Value* size, Object
             {llvm::Type::getInt32Ty(context),
              llvm::Type::getInt32Ty(context)},
             false);
-            llvm::Function* createListFunc = gen.getOrCreateExternalFunction(
-                "py_create_list",
-                llvm::PointerType::get(context, 0),
-                {llvm::Type::getInt32Ty(context), llvm::Type::getInt32Ty(context)},
-                false);
+    llvm::Function* createListFunc = gen.getOrCreateExternalFunction(
+            "py_create_list",
+            llvm::PointerType::get(context, 0),
+            {llvm::Type::getInt32Ty(context), llvm::Type::getInt32Ty(context)},
+            false);
 
     llvm::Value* elemTypeIdVal = llvm::ConstantInt::get(
             llvm::Type::getInt32Ty(context),
@@ -604,11 +601,11 @@ llvm::Value* ObjectFactory::createDict(PyCodeGen& gen, ObjectType* keyType, Obje
             {llvm::Type::getInt32Ty(context),
              llvm::Type::getInt32Ty(context)},
             false);
-            llvm::Function* createDictFunc = gen.getOrCreateExternalFunction(
-                "py_create_dict",
-                llvm::PointerType::get(context, 0),
-                {llvm::Type::getInt32Ty(context), llvm::Type::getInt32Ty(context)},
-                false);
+    llvm::Function* createDictFunc = gen.getOrCreateExternalFunction(
+            "py_create_dict",
+            llvm::PointerType::get(context, 0),
+            {llvm::Type::getInt32Ty(context), llvm::Type::getInt32Ty(context)},
+            false);
 
     llvm::Value* initialCapacity = llvm::ConstantInt::get(
             llvm::Type::getInt32Ty(context),
@@ -648,11 +645,11 @@ bool ObjectTypeChecker::isOfType(PyCodeGen& gen, llvm::Value* value, ObjectType*
             {llvm::PointerType::get(context, 0),
              llvm::Type::getInt32Ty(context)},
             false);
-            llvm::Function* checkTypeFunc = gen.getOrCreateExternalFunction(
-                "py_check_type",
-                llvm::Type::getInt1Ty(context),
-                {llvm::PointerType::get(context, 0), llvm::Type::getInt32Ty(context)},
-                false);
+    llvm::Function* checkTypeFunc = gen.getOrCreateExternalFunction(
+            "py_check_type",
+            llvm::Type::getInt1Ty(context),
+            {llvm::PointerType::get(context, 0), llvm::Type::getInt32Ty(context)},
+            false);
 
     llvm::Value* typeIdVal = llvm::ConstantInt::get(
             llvm::Type::getInt32Ty(context),

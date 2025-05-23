@@ -302,9 +302,10 @@ public:
      * @param type 要分配的类型。
      * @param varName 变量名，用于 alloca 指令的命名。
      * @param targetFunc 目标函数，alloca 将在其入口块创建。
+     * @param initializeToNull 是否初始化为 nullptr (默认为 true)。
      * @return llvm::AllocaInst* 指向创建的 alloca 指令，如果目标函数为空则返回 nullptr。
      */
-    llvm::AllocaInst* createEntryBlockAlloca(llvm::Type* type, const std::string& varName, llvm::Function* targetFunc);  // <--- 修改这里
+    llvm::AllocaInst* createEntryBlockAlloca(llvm::Type* type, const std::string& varName, llvm::Function* targetFunc, bool initializeToNull=true);
     // 基本块管理
     llvm::BasicBlock* createBasicBlock(const std::string& name, llvm::Function* parent = nullptr);
 

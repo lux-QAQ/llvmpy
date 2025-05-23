@@ -476,7 +476,6 @@ PyObject* py_object_subtract(PyObject* a, PyObject* b)
 }
 // 乘法操作符
 
-
 // 乘法操作符
 PyObject* py_object_multiply(PyObject* a, PyObject* b)
 {
@@ -547,7 +546,10 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
             else
             { /* Error */
                 fprintf(stderr, "Internal Error: Unexpected type A in numeric multiply\n");
-                mpf_clear(result_f); mpf_clear(temp_a); mpf_clear(temp_b); return NULL;
+                mpf_clear(result_f);
+                mpf_clear(temp_a);
+                mpf_clear(temp_b);
+                return NULL;
             }
 
             if (b_float)
@@ -566,8 +568,11 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
             }
             else
             { /* Error */
-                 fprintf(stderr, "Internal Error: Unexpected type B in numeric multiply\n");
-                 mpf_clear(result_f); mpf_clear(temp_a); mpf_clear(temp_b); return NULL;
+                fprintf(stderr, "Internal Error: Unexpected type B in numeric multiply\n");
+                mpf_clear(result_f);
+                mpf_clear(temp_a);
+                mpf_clear(temp_b);
+                return NULL;
             }
 
             mpf_mul(result_f, op_a, op_b);
@@ -603,8 +608,11 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
             }
             else
             { /* Error */
-                 fprintf(stderr, "Internal Error: Unexpected type A in int multiply\n");
-                 mpz_clear(result_z); mpz_clear(temp_a_z); mpz_clear(temp_b_z); return NULL;
+                fprintf(stderr, "Internal Error: Unexpected type A in int multiply\n");
+                mpz_clear(result_z);
+                mpz_clear(temp_a_z);
+                mpz_clear(temp_b_z);
+                return NULL;
             }
 
             if (b_int)
@@ -617,8 +625,11 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
             }
             else
             { /* Error */
-                 fprintf(stderr, "Internal Error: Unexpected type B in int multiply\n");
-                 mpz_clear(result_z); mpz_clear(temp_a_z); mpz_clear(temp_b_z); return NULL;
+                fprintf(stderr, "Internal Error: Unexpected type B in int multiply\n");
+                mpz_clear(result_z);
+                mpz_clear(temp_a_z);
+                mpz_clear(temp_b_z);
+                return NULL;
             }
 
             mpz_mul(result_z, op_a_z, op_b_z);
@@ -638,13 +649,13 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
     PyObject* countObj = NULL;
     int seqTypeId = 0;
 
-    if ((aTypeId == PY_TYPE_STRING || aTypeId == PY_TYPE_LIST) && (bTypeId == PY_TYPE_INT || bTypeId == PY_TYPE_BOOL)) // Allow bool as count
+    if ((aTypeId == PY_TYPE_STRING || aTypeId == PY_TYPE_LIST) && (bTypeId == PY_TYPE_INT || bTypeId == PY_TYPE_BOOL))  // Allow bool as count
     {
         seq = a;
         countObj = b;
         seqTypeId = aTypeId;
     }
-    else if ((aTypeId == PY_TYPE_INT || aTypeId == PY_TYPE_BOOL) && (bTypeId == PY_TYPE_STRING || bTypeId == PY_TYPE_LIST)) // Allow bool as count
+    else if ((aTypeId == PY_TYPE_INT || aTypeId == PY_TYPE_BOOL) && (bTypeId == PY_TYPE_STRING || bTypeId == PY_TYPE_LIST))  // Allow bool as count
     {
         seq = b;
         countObj = a;
@@ -661,28 +672,33 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
         mpz_ptr count_z = py_extract_int(countObj);
         long count_val;
 
-        if (count_z) { // If countObj is int
-             if (!mpz_fits_slong_p(count_z) || (count_val = mpz_get_si(count_z)) < 0)
-             {
-                 if (mpz_sgn(count_z) < 0)
-                 {
-                     count_val = 0;
+        if (count_z)
+        {  // If countObj is int
+            if (!mpz_fits_slong_p(count_z) || (count_val = mpz_get_si(count_z)) < 0)
+            {
+                if (mpz_sgn(count_z) < 0)
+                {
+                    count_val = 0;
 #ifdef DEBUG_RUNTIME_OPERATORS
-                     fprintf(stderr, "DEBUG:   Negative int count treated as 0.\n");
+                    fprintf(stderr, "DEBUG:   Negative int count treated as 0.\n");
 #endif
-                 }
-                 else
-                 {
-                     fprintf(stderr, "OverflowError: cannot fit 'int' count into C long for sequence repetition\n");
-                     return NULL;
-                 }
-             }
-        } else if (py_get_safe_type_id(countObj) == PY_TYPE_BOOL) { // If countObj is bool
+                }
+                else
+                {
+                    fprintf(stderr, "OverflowError: cannot fit 'int' count into C long for sequence repetition\n");
+                    return NULL;
+                }
+            }
+        }
+        else if (py_get_safe_type_id(countObj) == PY_TYPE_BOOL)
+        {  // If countObj is bool
             count_val = py_extract_bool(countObj) ? 1 : 0;
 #ifdef DEBUG_RUNTIME_OPERATORS
             fprintf(stderr, "DEBUG:   Bool count extracted as %ld.\n", count_val);
 #endif
-        } else { // Not int or bool
+        }
+        else
+        {  // Not int or bool
             fprintf(stderr, "TypeError: can't multiply sequence by non-int, non-bool of type '%s'\n", py_type_name(py_get_safe_type_id(countObj)));
             return NULL;
         }
@@ -785,8 +801,8 @@ PyObject* py_object_multiply(PyObject* a, PyObject* b)
                     // fprintf(stderr, "DEBUG:     Copying item %p from original index %d to new index %ld\n",
                     //         (void*)item, i, (long)(dest_ptr - resultList->data));
 #endif
-                    if (item) py_incref(item); // Incref item from original list
-                    *dest_ptr++ = item;        // Copy pointer to new list
+                    if (item) py_incref(item);  // Incref item from original list
+                    *dest_ptr++ = item;         // Copy pointer to new list
                 }
             }
 #ifdef DEBUG_RUNTIME_OPERATORS
@@ -951,9 +967,12 @@ PyObject* py_object_modulo(PyObject* a, PyObject* b)
         {
             // --- Corrected Float Modulo Implementation ---
             // Python's float % definition: result = a - floor(a/b) * b
-            mpf_t result_f; mpf_init2(result_f, RUNTIME_FLOATE_PRECISION);
-            mpf_t temp_a, temp_b; mpf_init2(temp_a, RUNTIME_FLOATE_PRECISION); mpf_init2(temp_b, RUNTIME_FLOATE_PRECISION);
-            mpf_t div_res, floor_div_res, term_to_sub; // Intermediate results
+            mpf_t result_f;
+            mpf_init2(result_f, RUNTIME_FLOATE_PRECISION);
+            mpf_t temp_a, temp_b;
+            mpf_init2(temp_a, RUNTIME_FLOATE_PRECISION);
+            mpf_init2(temp_b, RUNTIME_FLOATE_PRECISION);
+            mpf_t div_res, floor_div_res, term_to_sub;  // Intermediate results
             mpf_init2(div_res, RUNTIME_FLOATE_PRECISION);
             mpf_init2(floor_div_res, RUNTIME_FLOATE_PRECISION);
             mpf_init2(term_to_sub, RUNTIME_FLOATE_PRECISION);
@@ -962,35 +981,72 @@ PyObject* py_object_modulo(PyObject* a, PyObject* b)
             mpf_srcptr op_a, op_b;
 
             // Convert A to float
-            if (a_float) op_a = a_float;
-            else if (a_int) { mpf_set_z(temp_a, a_int); op_a = temp_a; use_temp_a = true; }
-            else if (a_is_bool) { mpf_set_ui(temp_a, a_bool_val ? 1 : 0); op_a = temp_a; use_temp_a = true; }
-            else { /* Error */
+            if (a_float)
+                op_a = a_float;
+            else if (a_int)
+            {
+                mpf_set_z(temp_a, a_int);
+                op_a = temp_a;
+                use_temp_a = true;
+            }
+            else if (a_is_bool)
+            {
+                mpf_set_ui(temp_a, a_bool_val ? 1 : 0);
+                op_a = temp_a;
+                use_temp_a = true;
+            }
+            else
+            { /* Error */
                 fprintf(stderr, "Internal Error: Unexpected type A in float modulo\n");
-                mpf_clear(result_f); mpf_clear(temp_a); mpf_clear(temp_b);
-                mpf_clear(div_res); mpf_clear(floor_div_res); mpf_clear(term_to_sub);
+                mpf_clear(result_f);
+                mpf_clear(temp_a);
+                mpf_clear(temp_b);
+                mpf_clear(div_res);
+                mpf_clear(floor_div_res);
+                mpf_clear(term_to_sub);
                 return NULL;
             }
 
             // Convert B to float
-            if (b_float) op_b = b_float;
-            else if (b_int) { mpf_set_z(temp_b, b_int); op_b = temp_b; use_temp_b = true; }
-            else if (b_is_bool) { mpf_set_ui(temp_b, b_bool_val ? 1 : 0); op_b = temp_b; use_temp_b = true; }
-            else { /* Error */
-                 fprintf(stderr, "Internal Error: Unexpected type B in float modulo\n");
-                 mpf_clear(result_f); mpf_clear(temp_a); mpf_clear(temp_b);
-                 mpf_clear(div_res); mpf_clear(floor_div_res); mpf_clear(term_to_sub);
-                 if (use_temp_a) mpf_clear(temp_a); // Clear temp_a if used
-                 return NULL;
+            if (b_float)
+                op_b = b_float;
+            else if (b_int)
+            {
+                mpf_set_z(temp_b, b_int);
+                op_b = temp_b;
+                use_temp_b = true;
+            }
+            else if (b_is_bool)
+            {
+                mpf_set_ui(temp_b, b_bool_val ? 1 : 0);
+                op_b = temp_b;
+                use_temp_b = true;
+            }
+            else
+            { /* Error */
+                fprintf(stderr, "Internal Error: Unexpected type B in float modulo\n");
+                mpf_clear(result_f);
+                mpf_clear(temp_a);
+                mpf_clear(temp_b);
+                mpf_clear(div_res);
+                mpf_clear(floor_div_res);
+                mpf_clear(term_to_sub);
+                if (use_temp_a) mpf_clear(temp_a);  // Clear temp_a if used
+                return NULL;
             }
 
             // Check for division by zero
             if (mpf_sgn(op_b) == 0)
             {
                 fprintf(stderr, "ZeroDivisionError: float modulo by zero\n");
-                mpf_clear(result_f); mpf_clear(temp_a); mpf_clear(temp_b);
-                mpf_clear(div_res); mpf_clear(floor_div_res); mpf_clear(term_to_sub);
-                if (use_temp_a) mpf_clear(temp_a); if (use_temp_b) mpf_clear(temp_b);
+                mpf_clear(result_f);
+                mpf_clear(temp_a);
+                mpf_clear(temp_b);
+                mpf_clear(div_res);
+                mpf_clear(floor_div_res);
+                mpf_clear(term_to_sub);
+                if (use_temp_a) mpf_clear(temp_a);
+                if (use_temp_b) mpf_clear(temp_b);
                 return NULL;
             }
 
@@ -1052,12 +1108,12 @@ PyObject* py_object_modulo(PyObject* a, PyObject* b)
             }
             else
             { /* Error */
-                 fprintf(stderr, "Internal Error: Unexpected type B in int modulo\n");
-                 mpz_clear(result_z);
-                 mpz_clear(temp_a_z);
-                 mpz_clear(temp_b_z);
-                 if (use_temp_a_z) mpz_clear(temp_a_z); // Clear temp_a_z if used
-                 return NULL;
+                fprintf(stderr, "Internal Error: Unexpected type B in int modulo\n");
+                mpz_clear(result_z);
+                mpz_clear(temp_a_z);
+                mpz_clear(temp_b_z);
+                if (use_temp_a_z) mpz_clear(temp_a_z);  // Clear temp_a_z if used
+                return NULL;
             }
 
             if (mpz_sgn(op_b_z) == 0)
@@ -1255,10 +1311,8 @@ PyObject* py_object_floor_divide(PyObject* a, PyObject* b)
     return NULL;
 }
 
-
-
-
-static void mpf_set_from_mpfr(mpf_t rop, const mpfr_t op) {
+static void mpf_set_from_mpfr(mpf_t rop, const mpfr_t op)
+{
     // 直接调用 MPFR 库函数进行转换，避免通过字符串中转
     mpfr_get_f(rop, op, MPFR_RNDN);
 }
@@ -1283,12 +1337,14 @@ static void mpf_set_from_mpfr(mpf_t rop, const mpfr_t op) {
 } */
 
 // 辅助函数：安全地将mpf_t转换为long整数，如果超出范围返回非零错误码
-static int mpf_get_si_checked(long *result, const mpf_t op) {
+static int mpf_get_si_checked(long* result, const mpf_t op)
+{
     // 检查是否在long范围内
-    if (mpf_cmp_si(op, LONG_MAX) > 0 || mpf_cmp_si(op, LONG_MIN) < 0) {
+    if (mpf_cmp_si(op, LONG_MAX) > 0 || mpf_cmp_si(op, LONG_MIN) < 0)
+    {
         return -1;  // 超出范围
     }
-    
+
     // 转换为长整型
     *result = mpf_get_si(op);
     return 0;  // 成功
@@ -1296,68 +1352,84 @@ static int mpf_get_si_checked(long *result, const mpf_t op) {
 
 // 幂运算操作符
 // 优化后的幂运算操作符
-PyObject* py_object_power(PyObject* a, PyObject* b) {
-    if (!a || !b) {
+PyObject* py_object_power(PyObject* a, PyObject* b)
+{
+    if (!a || !b)
+    {
         fprintf(stderr, "TypeError: Cannot perform power operation with None\n");
         return NULL;
     }
 
     int aTypeId = getBaseTypeId(a->typeId);
     int bTypeId = getBaseTypeId(b->typeId);
-    bool aIsNumeric = (aTypeId==PY_TYPE_INT||aTypeId==PY_TYPE_DOUBLE||aTypeId==PY_TYPE_BOOL);
-    bool bIsNumeric = (bTypeId==PY_TYPE_INT||bTypeId==PY_TYPE_DOUBLE||bTypeId==PY_TYPE_BOOL);
-    if (!aIsNumeric || !bIsNumeric) {
+    bool aIsNumeric = (aTypeId == PY_TYPE_INT || aTypeId == PY_TYPE_DOUBLE || aTypeId == PY_TYPE_BOOL);
+    bool bIsNumeric = (bTypeId == PY_TYPE_INT || bTypeId == PY_TYPE_DOUBLE || bTypeId == PY_TYPE_BOOL);
+    if (!aIsNumeric || !bIsNumeric)
+    {
         fprintf(stderr,
-            "TypeError: Unsupported operand types for **: %s and %s\n",
-            py_type_name(aTypeId), py_type_name(bTypeId));
+                "TypeError: Unsupported operand types for **: %s and %s\n",
+                py_type_name(aTypeId), py_type_name(bTypeId));
         return NULL;
     }
 
     // 提取原始值
-    mpz_ptr a_int   = py_extract_int(a);
+    mpz_ptr a_int = py_extract_int(a);
     mpf_ptr a_float = py_extract_double(a);
-    bool   a_is_bool= (aTypeId==PY_TYPE_BOOL);
-    bool   a_bool_v = a_is_bool?py_extract_bool(a):false;
-    mpz_ptr b_int   = py_extract_int(b);
+    bool a_is_bool = (aTypeId == PY_TYPE_BOOL);
+    bool a_bool_v = a_is_bool ? py_extract_bool(a) : false;
+    mpz_ptr b_int = py_extract_int(b);
     mpf_ptr b_float = py_extract_double(b);
-    bool   b_is_bool= (bTypeId==PY_TYPE_BOOL);
-    bool   b_bool_v = b_is_bool?py_extract_bool(b):false;
+    bool b_is_bool = (bTypeId == PY_TYPE_BOOL);
+    bool b_bool_v = b_is_bool ? py_extract_bool(b) : false;
 
     // 快速路径1: 特殊情况处理
     // x^0 = 1 (x != 0)
-    if ((b_int && mpz_sgn(b_int) == 0) || (b_is_bool && !b_bool_v)) {
-        if ((a_int && mpz_sgn(a_int) == 0) || (a_is_bool && !a_bool_v)) {
+    if ((b_int && mpz_sgn(b_int) == 0) || (b_is_bool && !b_bool_v))
+    {
+        if ((a_int && mpz_sgn(a_int) == 0) || (a_is_bool && !a_bool_v))
+        {
             // Python中 0^0 = 1
             return py_create_int(1);
         }
         return py_create_int(1);
     }
-    
+
     // x^1 = x
-    if ((b_int && mpz_cmp_ui(b_int, 1) == 0) || (b_is_bool && b_bool_v)) {
+    if ((b_int && mpz_cmp_ui(b_int, 1) == 0) || (b_is_bool && b_bool_v))
+    {
         // 直接返回底数
-        if (a_int) {
+        if (a_int)
+        {
             py_incref(a);  // 因为不创建新对象，需要增加引用计数
             return a;
-        } else if (a_float) {
+        }
+        else if (a_float)
+        {
             py_incref(a);
             return a;
-        } else if (a_is_bool) {
+        }
+        else if (a_is_bool)
+        {
             py_incref(a);
             return a;
         }
     }
-    
+
     // 1^x = 1
-    if ((a_int && mpz_cmp_ui(a_int, 1) == 0) || (a_is_bool && a_bool_v && b_int && mpz_sgn(b_int) >= 0)) {
+    if ((a_int && mpz_cmp_ui(a_int, 1) == 0) || (a_is_bool && a_bool_v && b_int && mpz_sgn(b_int) >= 0))
+    {
         return py_create_int(1);
     }
-    
+
     // 0^x = 0 (x > 0)
-    if ((a_int && mpz_sgn(a_int) == 0) || (a_is_bool && !a_bool_v)) {
-        if ((b_int && mpz_sgn(b_int) > 0) || (b_is_bool && b_bool_v)) {
+    if ((a_int && mpz_sgn(a_int) == 0) || (a_is_bool && !a_bool_v))
+    {
+        if ((b_int && mpz_sgn(b_int) > 0) || (b_is_bool && b_bool_v))
+        {
             return py_create_int(0);
-        } else if ((b_int && mpz_sgn(b_int) < 0) || (b_float && mpf_sgn(b_float) < 0)) {
+        }
+        else if ((b_int && mpz_sgn(b_int) < 0) || (b_float && mpf_sgn(b_float) < 0))
+        {
             // 0^负数 -> 错误
             fprintf(stderr, "ZeroDivisionError: 0 cannot be raised to a negative power\n");
             return NULL;
@@ -1365,16 +1437,21 @@ PyObject* py_object_power(PyObject* a, PyObject* b) {
     }
 
     // 快速路径2: 整型底数 + 小正整数指数 (针对常见情况优化)
-    if ((a_int || a_is_bool) && (b_int || b_is_bool)) {
+    if ((a_int || a_is_bool) && (b_int || b_is_bool))
+    {
         mpz_t base_z, exp_z, result_z;
-        mpz_init(base_z); 
-        
-        if (a_int) mpz_set(base_z, a_int);
-        else mpz_set_ui(base_z, a_bool_v?1:0);
-        
+        mpz_init(base_z);
+
+        if (a_int)
+            mpz_set(base_z, a_int);
+        else
+            mpz_set_ui(base_z, a_bool_v ? 1 : 0);
+
         // 只有当指数是正整数且可存入unsigned long时才使用快速路径
-        if (b_int) {
-            if (mpz_sgn(b_int) >= 0 && mpz_fits_ulong_p(b_int)) {
+        if (b_int)
+        {
+            if (mpz_sgn(b_int) >= 0 && mpz_fits_ulong_p(b_int))
+            {
                 unsigned long e = mpz_get_ui(b_int);
                 mpz_init(result_z);
                 mpz_pow_ui(result_z, base_z, e);
@@ -1382,86 +1459,106 @@ PyObject* py_object_power(PyObject* a, PyObject* b) {
                 mpz_clear(result_z);
                 mpz_clear(base_z);
                 return ret;
-            } else if (mpz_sgn(b_int) < 0 && mpz_sgn(base_z) == 0) {
+            }
+            else if (mpz_sgn(b_int) < 0 && mpz_sgn(base_z) == 0)
+            {
                 // 0^负数 -> 错误
                 mpz_clear(base_z);
                 fprintf(stderr, "ZeroDivisionError: 0 cannot be raised to a negative power\n");
                 return NULL;
             }
-        } else if (b_is_bool && b_bool_v) { // b是True，即b=1
+        }
+        else if (b_is_bool && b_bool_v)
+        {  // b是True，即b=1
             PyObject* ret = py_create_int_from_mpz(base_z);
             mpz_clear(base_z);
             return ret;
-        } else if (b_is_bool && !b_bool_v) { // b是False，即b=0
-            mpz_clear(base_z);
-            return py_create_int(1); // x^0 = 1
         }
-        
+        else if (b_is_bool && !b_bool_v)
+        {  // b是False，即b=0
+            mpz_clear(base_z);
+            return py_create_int(1);  // x^0 = 1
+        }
+
         mpz_clear(base_z);
     }
 
     // 快速路径3: 整数/布尔底数 + 浮点指数，且指数为整数值
-    if ((a_int || a_is_bool) && b_float) {
+    if ((a_int || a_is_bool) && b_float)
+    {
         mpf_t result_f;
         long exp_val;
-        
+
         // 检查浮点指数是否为整数，并且可以表示为long
-        if (mpf_integer_p(b_float) && mpf_get_si_checked(&exp_val, b_float) == 0) {
-            if (exp_val >= 0) {
+        if (mpf_integer_p(b_float) && mpf_get_si_checked(&exp_val, b_float) == 0)
+        {
+            if (exp_val >= 0)
+            {
                 // 使用整数幂算法
                 mpz_t base_z, result_z;
                 mpz_init(base_z);
                 mpz_init(result_z);
-                
-                if (a_int) mpz_set(base_z, a_int);
-                else mpz_set_ui(base_z, a_bool_v?1:0);
-                
+
+                if (a_int)
+                    mpz_set(base_z, a_int);
+                else
+                    mpz_set_ui(base_z, a_bool_v ? 1 : 0);
+
                 // 如果底数为0且指数为负，则报错
-                if (mpz_sgn(base_z) == 0 && exp_val < 0) {
+                if (mpz_sgn(base_z) == 0 && exp_val < 0)
+                {
                     mpz_clears(base_z, result_z, NULL);
                     fprintf(stderr, "ZeroDivisionError: 0 cannot be raised to a negative power\n");
                     return NULL;
                 }
-                
+
                 mpz_pow_ui(result_z, base_z, (unsigned long)exp_val);
                 PyObject* ret = py_create_int_from_mpz(result_z);
                 mpz_clears(base_z, result_z, NULL);
                 return ret;
-            } else if (exp_val < 0) {
+            }
+            else if (exp_val < 0)
+            {
                 // 负指数，结果是浮点数
                 mpf_init2(result_f, RUNTIME_FLOATE_PRECISION);
-                
+
                 // 计算整数底数^正整数指数，然后取倒数
                 mpz_t base_z;
                 mpz_init(base_z);
-                if (a_int) mpz_set(base_z, a_int);
-                else mpz_set_ui(base_z, a_bool_v?1:0);
-                
+                if (a_int)
+                    mpz_set(base_z, a_int);
+                else
+                    mpz_set_ui(base_z, a_bool_v ? 1 : 0);
+
                 // 如果底数为0且指数为负，则报错
-                if (mpz_sgn(base_z) == 0) {
+                if (mpz_sgn(base_z) == 0)
+                {
                     mpz_clear(base_z);
                     mpf_clear(result_f);
                     fprintf(stderr, "ZeroDivisionError: 0 cannot be raised to a negative power\n");
                     return NULL;
                 }
-                
+
                 // 计算base^(-exp_val)的倒数
-                if (mpz_fits_sint_p(base_z)) {
+                if (mpz_fits_sint_p(base_z))
+                {
                     // 对于小整数底数，可以直接用浮点运算
                     long base_val = mpz_get_si(base_z);
                     mpf_set_d(result_f, pow(base_val, exp_val));
-                } else {
+                }
+                else
+                {
                     // 对于大整数底数，先计算base^|exp_val|，然后取倒数
                     mpz_t temp;
                     mpz_init(temp);
                     mpz_pow_ui(temp, base_z, (unsigned long)(-exp_val));
-                    
+
                     // 将大整数结果转为浮点
                     mpf_set_z(result_f, temp);
                     mpf_ui_div(result_f, 1, result_f);  // 1/result
                     mpz_clear(temp);
                 }
-                
+
                 mpz_clear(base_z);
                 PyObject* ret = py_create_double_from_mpf(result_f);
                 mpf_clear(result_f);
@@ -1477,34 +1574,45 @@ PyObject* py_object_power(PyObject* a, PyObject* b) {
     mpfr_init2(result_f, RUNTIME_FLOATE_PRECISION);
 
     // 无损导入 GMP → MPFR
-    if (a_int)        mpfr_set_z(base_f, a_int, MPFR_RNDN);
-    else if (a_float) mpfr_set_f(base_f, a_float, MPFR_RNDN);
-    else              mpfr_set_ui(base_f, a_bool_v?1:0, MPFR_RNDN);
+    if (a_int)
+        mpfr_set_z(base_f, a_int, MPFR_RNDN);
+    else if (a_float)
+        mpfr_set_f(base_f, a_float, MPFR_RNDN);
+    else
+        mpfr_set_ui(base_f, a_bool_v ? 1 : 0, MPFR_RNDN);
 
-    if (b_int)        mpfr_set_z(exp_f, b_int, MPFR_RNDN);
-    else if (b_float) mpfr_set_f(exp_f, b_float, MPFR_RNDN);
-    else              mpfr_set_ui(exp_f, b_bool_v?1:0, MPFR_RNDN);
+    if (b_int)
+        mpfr_set_z(exp_f, b_int, MPFR_RNDN);
+    else if (b_float)
+        mpfr_set_f(exp_f, b_float, MPFR_RNDN);
+    else
+        mpfr_set_ui(exp_f, b_bool_v ? 1 : 0, MPFR_RNDN);
 
     // 0^负数 -> 错误
-    if (mpfr_zero_p(base_f) && mpfr_sgn(exp_f)<0) {
+    if (mpfr_zero_p(base_f) && mpfr_sgn(exp_f) < 0)
+    {
         mpfr_clears(base_f, exp_f, result_f, NULL);
-        fprintf(stderr,"ZeroDivisionError: 0.0 cannot be raised to a negative power\n");
+        fprintf(stderr, "ZeroDivisionError: 0.0 cannot be raised to a negative power\n");
         return NULL;
     }
 
     // 优化: 检查指数是否为整数，使用更高效的mpfr_pow_si
-    if (mpfr_integer_p(exp_f) && mpfr_fits_slong_p(exp_f, MPFR_RNDN)) {
+    if (mpfr_integer_p(exp_f) && mpfr_fits_slong_p(exp_f, MPFR_RNDN))
+    {
         long exp_val = mpfr_get_si(exp_f, MPFR_RNDN);
         mpfr_pow_si(result_f, base_f, exp_val, MPFR_RNDN);
-    } else {
+    }
+    else
+    {
         // 通用幂运算
         mpfr_pow(result_f, base_f, exp_f, MPFR_RNDN);
     }
 
     // 负底数+非整数指数 → NaN
-    if (mpfr_nan_p(result_f)) {
+    if (mpfr_nan_p(result_f))
+    {
         mpfr_clears(base_f, exp_f, result_f, NULL);
-        fprintf(stderr,"ValueError: negative number cannot be raised to a fractional power\n");
+        fprintf(stderr, "ValueError: negative number cannot be raised to a fractional power\n");
         return NULL;
     }
 
@@ -1600,62 +1708,80 @@ PyObject* py_object_compare(PyObject* a, PyObject* b, PyCompareOp op)
     // Step 0: Handle C NULL pointers.
     // These are distinct from Python's None object.
     // This check is for robustness against actual NULL pointers in the system.
-    if (a == NULL || b == NULL) {
+    if (a == NULL || b == NULL)
+    {
         bool result = false;
-        if (op == PY_CMP_EQ) result = (a == b);      // True if both are C NULL.
-        else if (op == PY_CMP_NE) result = (a != b); // False if both are C NULL.
-        else {
+        if (op == PY_CMP_EQ)
+            result = (a == b);  // True if both are C NULL.
+        else if (op == PY_CMP_NE)
+            result = (a != b);  // False if both are C NULL.
+        else
+        {
             // Ordering comparisons with a C NULL pointer should be an error.
             fprintf(stderr, "TypeError: '%s' not supported with NULL pointer operand\n", py_compare_op_name(op));
-            return NULL; // Indicate error
+            return NULL;  // Indicate error
         }
         return py_create_bool(result);
     }
 
-    PyObject* none_singleton = py_get_none(); // Get the unique None object
+    PyObject* none_singleton = py_get_none();  // Get the unique None object
 
     // Step 1: Handle comparisons involving Python's None object.
     bool a_is_python_none = (a == none_singleton);
     bool b_is_python_none = (b == none_singleton);
 
-    if (a_is_python_none || b_is_python_none) {
+    if (a_is_python_none || b_is_python_none)
+    {
         // If either operand is Python's None:
-        bool identity_match = (a == b); // Since None is a singleton, pointer comparison is key.
-        if (op == PY_CMP_EQ) {
+        bool identity_match = (a == b);  // Since None is a singleton, pointer comparison is key.
+        if (op == PY_CMP_EQ)
+        {
             return py_create_bool(identity_match);
-        } else if (op == PY_CMP_NE) {
+        }
+        else if (op == PY_CMP_NE)
+        {
             return py_create_bool(!identity_match);
-        } else {
+        }
+        else
+        {
             // Ordering comparisons (<, <=, >, >=) with None raise TypeError in Python 3.
             fprintf(stderr, "TypeError: '%s' not supported between instances of '%s' and '%s'\n",
                     py_compare_op_name(op),
-                    py_type_name(py_get_safe_type_id(a)), // py_get_safe_type_id should correctly name PY_TYPE_NONE
+                    py_type_name(py_get_safe_type_id(a)),  // py_get_safe_type_id should correctly name PY_TYPE_NONE
                     py_type_name(py_get_safe_type_id(b)));
-            return NULL; // Indicate TypeError
+            return NULL;  // Indicate TypeError
         }
     }
 
     // Step 2: Neither 'a' nor 'b' is Python's None. Proceed with rich comparison / other types.
     // Handle EQ and NE via type-specific 'equals' method or fallback to identity.
-    if (op == PY_CMP_EQ || op == PY_CMP_NE) {
+    if (op == PY_CMP_EQ || op == PY_CMP_NE)
+    {
         int typeIdA = py_get_safe_type_id(a);
         const PyTypeMethods* methodsA = py_get_type_methods(typeIdA);
 
-        if (methodsA && methodsA->equals) {
-            PyObject* resultObj = methodsA->equals(a, b); // 'a' and 'b' are not None here.
-            if (resultObj) {
-                if (py_get_safe_type_id(resultObj) == PY_TYPE_BOOL) {
+        if (methodsA && methodsA->equals)
+        {
+            PyObject* resultObj = methodsA->equals(a, b);  // 'a' and 'b' are not None here.
+            if (resultObj)
+            {
+                if (py_get_safe_type_id(resultObj) == PY_TYPE_BOOL)
+                {
                     bool eq_result = py_extract_bool(resultObj);
                     py_decref(resultObj);
                     return py_create_bool(op == PY_CMP_EQ ? eq_result : !eq_result);
-                } else {
+                }
+                else
+                {
                     // __eq__ should return a boolean or NotImplemented.
                     // If it's not bool, it's a TypeError.
                     fprintf(stderr, "TypeError: __eq__ returned non-boolean (type %s)\n", py_type_name(resultObj->typeId));
                     py_decref(resultObj);
                     return NULL;
                 }
-            } else {
+            }
+            else
+            {
                 // methodsA->equals returned NULL. This could mean an error,
                 // or it could be a way to signal NotImplemented.
                 // Python's rich comparison is complex. For now, fallback to identity.
@@ -1664,7 +1790,7 @@ PyObject* py_object_compare(PyObject* a, PyObject* b, PyCompareOp op)
             }
         }
         // Fallback to identity comparison if no specific 'equals' or if it returned NULL (simplified).
-        bool identity_result = (a == b); // C pointer comparison
+        bool identity_result = (a == b);  // C pointer comparison
         return py_create_bool(op == PY_CMP_EQ ? identity_result : !identity_result);
     }
 
@@ -1677,7 +1803,8 @@ PyObject* py_object_compare(PyObject* a, PyObject* b, PyCompareOp op)
     bool aIsNumeric = (aTypeId == PY_TYPE_INT || aTypeId == PY_TYPE_DOUBLE || aTypeId == PY_TYPE_BOOL);
     bool bIsNumeric = (bTypeId == PY_TYPE_INT || bTypeId == PY_TYPE_DOUBLE || bTypeId == PY_TYPE_BOOL);
 
-    if (aIsNumeric && bIsNumeric) {
+    if (aIsNumeric && bIsNumeric)
+    {
         // ... (Your existing GMP numeric comparison logic for LT, LE, GT, GE) ...
         // This logic is only reached if neither 'a' nor 'b' is None.
         // Ensure this part is correct and handles all numeric type combinations.
@@ -1695,38 +1822,97 @@ PyObject* py_object_compare(PyObject* a, PyObject* b, PyCompareOp op)
 
         int cmp_val;
 
-        if (a_float || b_float) {
+        if (a_float || b_float)
+        {
             mpf_t temp_a, temp_b;
-            mpf_init2(temp_a, RUNTIME_FLOATE_PRECISION); mpf_init2(temp_b, RUNTIME_FLOATE_PRECISION);
+            mpf_init2(temp_a, RUNTIME_FLOATE_PRECISION);
+            mpf_init2(temp_b, RUNTIME_FLOATE_PRECISION);
             bool use_temp_a = false, use_temp_b = false;
             mpf_srcptr op_a_f, op_b_f;
 
-            if (a_float) op_a_f = a_float;
-            else if (a_int) { mpf_set_z(temp_a, a_int); op_a_f = temp_a; use_temp_a = true; }
-            else if (a_is_bool) { mpf_set_ui(temp_a, a_bool_val ? 1 : 0); op_a_f = temp_a; use_temp_a = true; }
-            else { mpf_clear(temp_a); mpf_clear(temp_b); return NULL; }
+            if (a_float)
+                op_a_f = a_float;
+            else if (a_int)
+            {
+                mpf_set_z(temp_a, a_int);
+                op_a_f = temp_a;
+                use_temp_a = true;
+            }
+            else if (a_is_bool)
+            {
+                mpf_set_ui(temp_a, a_bool_val ? 1 : 0);
+                op_a_f = temp_a;
+                use_temp_a = true;
+            }
+            else
+            {
+                mpf_clear(temp_a);
+                mpf_clear(temp_b);
+                return NULL;
+            }
 
-            if (b_float) op_b_f = b_float;
-            else if (b_int) { mpf_set_z(temp_b, b_int); op_b_f = temp_b; use_temp_b = true; }
-            else if (b_is_bool) { mpf_set_ui(temp_b, b_bool_val ? 1 : 0); op_b_f = temp_b; use_temp_b = true; }
-            else { if(use_temp_a) mpf_clear(temp_a); mpf_clear(temp_b); return NULL; }
-            
+            if (b_float)
+                op_b_f = b_float;
+            else if (b_int)
+            {
+                mpf_set_z(temp_b, b_int);
+                op_b_f = temp_b;
+                use_temp_b = true;
+            }
+            else if (b_is_bool)
+            {
+                mpf_set_ui(temp_b, b_bool_val ? 1 : 0);
+                op_b_f = temp_b;
+                use_temp_b = true;
+            }
+            else
+            {
+                if (use_temp_a) mpf_clear(temp_a);
+                mpf_clear(temp_b);
+                return NULL;
+            }
+
             cmp_val = mpf_cmp(op_a_f, op_b_f);
             if (use_temp_a) mpf_clear(temp_a);
             if (use_temp_b) mpf_clear(temp_b);
-        } else { 
+        }
+        else
+        {
             mpz_t temp_a_z, temp_b_z;
-            mpz_init(temp_a_z); mpz_init(temp_b_z);
+            mpz_init(temp_a_z);
+            mpz_init(temp_b_z);
             bool use_temp_a_z = false, use_temp_b_z = false;
             mpz_srcptr op_a_z, op_b_z;
 
-            if (a_int) op_a_z = a_int;
-            else if (a_is_bool) { mpz_set_ui(temp_a_z, a_bool_val ? 1 : 0); op_a_z = temp_a_z; use_temp_a_z = true; }
-            else { mpz_clear(temp_a_z); mpz_clear(temp_b_z); return NULL; }
+            if (a_int)
+                op_a_z = a_int;
+            else if (a_is_bool)
+            {
+                mpz_set_ui(temp_a_z, a_bool_val ? 1 : 0);
+                op_a_z = temp_a_z;
+                use_temp_a_z = true;
+            }
+            else
+            {
+                mpz_clear(temp_a_z);
+                mpz_clear(temp_b_z);
+                return NULL;
+            }
 
-            if (b_int) op_b_z = b_int;
-            else if (b_is_bool) { mpz_set_ui(temp_b_z, b_bool_val ? 1 : 0); op_b_z = temp_b_z; use_temp_b_z = true; }
-            else { if(use_temp_a_z) mpz_clear(temp_a_z); mpz_clear(temp_b_z); return NULL; }
+            if (b_int)
+                op_b_z = b_int;
+            else if (b_is_bool)
+            {
+                mpz_set_ui(temp_b_z, b_bool_val ? 1 : 0);
+                op_b_z = temp_b_z;
+                use_temp_b_z = true;
+            }
+            else
+            {
+                if (use_temp_a_z) mpz_clear(temp_a_z);
+                mpz_clear(temp_b_z);
+                return NULL;
+            }
 
             cmp_val = mpz_cmp(op_a_z, op_b_z);
             if (use_temp_a_z) mpz_clear(temp_a_z);
@@ -1734,18 +1920,30 @@ PyObject* py_object_compare(PyObject* a, PyObject* b, PyCompareOp op)
         }
 
         bool final_result = false;
-        switch (op) {
-            case PY_CMP_LT: final_result = (cmp_val < 0); break;
-            case PY_CMP_LE: final_result = (cmp_val <= 0); break;
-            case PY_CMP_GT: final_result = (cmp_val > 0); break;
-            case PY_CMP_GE: final_result = (cmp_val >= 0); break;
-            default: fprintf(stderr, "Internal Error: Unhandled numeric comparison op %d\n", op); return NULL;
+        switch (op)
+        {
+            case PY_CMP_LT:
+                final_result = (cmp_val < 0);
+                break;
+            case PY_CMP_LE:
+                final_result = (cmp_val <= 0);
+                break;
+            case PY_CMP_GT:
+                final_result = (cmp_val > 0);
+                break;
+            case PY_CMP_GE:
+                final_result = (cmp_val >= 0);
+                break;
+            default:
+                fprintf(stderr, "Internal Error: Unhandled numeric comparison op %d\n", op);
+                return NULL;
         }
         return py_create_bool(final_result);
     }
 
     // --- String Comparison ---
-    if (aTypeId == PY_TYPE_STRING && bTypeId == PY_TYPE_STRING) {
+    if (aTypeId == PY_TYPE_STRING && bTypeId == PY_TYPE_STRING)
+    {
         // ... (Your existing string comparison logic for LT, LE, GT, GE) ...
         // This logic is only reached if neither 'a' nor 'b' is None.
         const char* strA = py_extract_string(a);
@@ -1753,14 +1951,25 @@ PyObject* py_object_compare(PyObject* a, PyObject* b, PyCompareOp op)
         // Since a and b are not C NULL here, strA and strB should not be NULL
         // unless py_extract_string can return NULL for valid string objects (which it shouldn't).
 
-        int cmpResult_str = strcmp(strA, strB); // Assuming strA and strB are valid
+        int cmpResult_str = strcmp(strA, strB);  // Assuming strA and strB are valid
         bool final_result_str = false;
-        switch (op) {
-            case PY_CMP_LT: final_result_str = (cmpResult_str < 0); break;
-            case PY_CMP_LE: final_result_str = (cmpResult_str <= 0); break;
-            case PY_CMP_GT: final_result_str = (cmpResult_str > 0); break;
-            case PY_CMP_GE: final_result_str = (cmpResult_str >= 0); break;
-            default: fprintf(stderr, "Internal Error: Unhandled string comparison op %d\n", op); return NULL;
+        switch (op)
+        {
+            case PY_CMP_LT:
+                final_result_str = (cmpResult_str < 0);
+                break;
+            case PY_CMP_LE:
+                final_result_str = (cmpResult_str <= 0);
+                break;
+            case PY_CMP_GT:
+                final_result_str = (cmpResult_str > 0);
+                break;
+            case PY_CMP_GE:
+                final_result_str = (cmpResult_str >= 0);
+                break;
+            default:
+                fprintf(stderr, "Internal Error: Unhandled string comparison op %d\n", op);
+                return NULL;
         }
         return py_create_bool(final_result_str);
     }
@@ -1769,7 +1978,7 @@ PyObject* py_object_compare(PyObject* a, PyObject* b, PyCompareOp op)
     fprintf(stderr, "TypeError: '%s' not supported between instances of '%s' and '%s'\n",
             py_compare_op_name(op),
             py_type_name(aTypeId), py_type_name(bTypeId));
-    return NULL; // Indicate TypeError
+    return NULL;  // Indicate TypeError
 }
 
 // 获取compare_op名字的赋值函数
@@ -1808,56 +2017,70 @@ bool py_compare_eq(PyObject* a, PyObject* b)
     return eq;
 }
 
-bool py_compare_ne(PyObject* a, PyObject* b) {
+bool py_compare_ne(PyObject* a, PyObject* b)
+{
     PyObject* result = py_object_compare(a, b, PY_CMP_NE);
-    if (!result){
+    if (!result)
+    {
         fprintf(stderr, "Error: py_object_compare(NE) failed\n");
-         return true;
-     } // Error occurred, maybe treat as unequal? Or propagate error?
+        return true;
+    }  // Error occurred, maybe treat as unequal? Or propagate error?
     bool ne = py_extract_bool(result);
     py_decref(result);
     return ne;
 }
 
 // 小于比较辅助函数
-bool py_compare_lt(PyObject* a, PyObject* b) {
+bool py_compare_lt(PyObject* a, PyObject* b)
+{
     PyObject* result = py_object_compare(a, b, PY_CMP_LT);
-    if (!result) {
+    if (!result)
+    {
         fprintf(stderr, "Error: py_object_compare(LT) failed\n");
-        return false;} // Error (TypeError) occurred
+        return false;
+    }  // Error (TypeError) occurred
     bool lt = py_extract_bool(result);
     py_decref(result);
     return lt;
 }
 
 // 小于等于比较辅助函数
-bool py_compare_le(PyObject* a, PyObject* b) {
+bool py_compare_le(PyObject* a, PyObject* b)
+{
     PyObject* result = py_object_compare(a, b, PY_CMP_LE);
-    if (!result){
+    if (!result)
+    {
         fprintf(stderr, "Error: py_object_compare(LE) failed\n");
-        return false; }// Error (TypeError) occurred
+        return false;
+    }  // Error (TypeError) occurred
     bool le = py_extract_bool(result);
     py_decref(result);
     return le;
 }
 
 // 大于比较辅助函数
-bool py_compare_gt(PyObject* a, PyObject* b) {
+bool py_compare_gt(PyObject* a, PyObject* b)
+{
     PyObject* result = py_object_compare(a, b, PY_CMP_GT);
-    if (!result) {
+    if (!result)
+    {
         fprintf(stderr, "Error: py_object_compare(GT) failed\n");
-        return false;} // Error (TypeError) occurred
+        return false;
+    }  // Error (TypeError) occurred
     bool gt = py_extract_bool(result);
     py_decref(result);
     return gt;
 }
 
 // 大于等于比较辅助函数
-bool py_compare_ge(PyObject* a, PyObject* b) {
+bool py_compare_ge(PyObject* a, PyObject* b)
+{
     PyObject* result = py_object_compare(a, b, PY_CMP_GE);
-    if (!result) {
+    if (!result)
+    {
         fprintf(stderr, "Error: py_object_compare(GE) failed\n");
-        return false;} // Error (TypeError) occurred
+        return false;
+    }  // Error (TypeError) occurred
     bool ge = py_extract_bool(result);
     py_decref(result);
     return ge;
@@ -1870,11 +2093,13 @@ bool py_compare_ge(PyObject* a, PyObject* b) {
 // 按位与操作符
 PyObject* py_object_bitwise_and(PyObject* a, PyObject* b)
 {
-    if (!a || !b) {
+    if (!a || !b)
+    {
         fprintf(stderr, "TypeError: Cannot perform bitwise AND with None\n");
         return NULL;
     }
-    if (py_get_safe_type_id(a) != PY_TYPE_INT || py_get_safe_type_id(b) != PY_TYPE_INT) {
+    if (py_get_safe_type_id(a) != PY_TYPE_INT || py_get_safe_type_id(b) != PY_TYPE_INT)
+    {
         fprintf(stderr, "TypeError: unsupported operand type(s) for &: '%s' and '%s'\n",
                 py_type_name(py_get_safe_type_id(a)), py_type_name(py_get_safe_type_id(b)));
         return NULL;
@@ -1882,7 +2107,10 @@ PyObject* py_object_bitwise_and(PyObject* a, PyObject* b)
 
     mpz_ptr a_int = py_extract_int(a);
     mpz_ptr b_int = py_extract_int(b);
-    if (!a_int || !b_int) { /* Error extracting */ return NULL; }
+    if (!a_int || !b_int)
+    { /* Error extracting */
+        return NULL;
+    }
 
     mpz_t result_z;
     mpz_init(result_z);
@@ -1895,11 +2123,13 @@ PyObject* py_object_bitwise_and(PyObject* a, PyObject* b)
 // 按位或操作符
 PyObject* py_object_bitwise_or(PyObject* a, PyObject* b)
 {
-    if (!a || !b) {
+    if (!a || !b)
+    {
         fprintf(stderr, "TypeError: Cannot perform bitwise OR with None\n");
         return NULL;
     }
-    if (py_get_safe_type_id(a) != PY_TYPE_INT || py_get_safe_type_id(b) != PY_TYPE_INT) {
+    if (py_get_safe_type_id(a) != PY_TYPE_INT || py_get_safe_type_id(b) != PY_TYPE_INT)
+    {
         fprintf(stderr, "TypeError: unsupported operand type(s) for |: '%s' and '%s'\n",
                 py_type_name(py_get_safe_type_id(a)), py_type_name(py_get_safe_type_id(b)));
         return NULL;
@@ -1907,11 +2137,14 @@ PyObject* py_object_bitwise_or(PyObject* a, PyObject* b)
 
     mpz_ptr a_int = py_extract_int(a);
     mpz_ptr b_int = py_extract_int(b);
-    if (!a_int || !b_int) { /* Error extracting */ return NULL; }
+    if (!a_int || !b_int)
+    { /* Error extracting */
+        return NULL;
+    }
 
     mpz_t result_z;
     mpz_init(result_z);
-    mpz_ior(result_z, a_int, b_int); // ior = inclusive or
+    mpz_ior(result_z, a_int, b_int);  // ior = inclusive or
     PyObject* resultObj = py_create_int_from_mpz(result_z);
     mpz_clear(result_z);
     return resultObj;
@@ -1920,11 +2153,13 @@ PyObject* py_object_bitwise_or(PyObject* a, PyObject* b)
 // 按位异或操作符
 PyObject* py_object_bitwise_xor(PyObject* a, PyObject* b)
 {
-     if (!a || !b) {
+    if (!a || !b)
+    {
         fprintf(stderr, "TypeError: Cannot perform bitwise XOR with None\n");
         return NULL;
     }
-    if (py_get_safe_type_id(a) != PY_TYPE_INT || py_get_safe_type_id(b) != PY_TYPE_INT) {
+    if (py_get_safe_type_id(a) != PY_TYPE_INT || py_get_safe_type_id(b) != PY_TYPE_INT)
+    {
         fprintf(stderr, "TypeError: unsupported operand type(s) for ^: '%s' and '%s'\n",
                 py_type_name(py_get_safe_type_id(a)), py_type_name(py_get_safe_type_id(b)));
         return NULL;
@@ -1932,7 +2167,10 @@ PyObject* py_object_bitwise_xor(PyObject* a, PyObject* b)
 
     mpz_ptr a_int = py_extract_int(a);
     mpz_ptr b_int = py_extract_int(b);
-    if (!a_int || !b_int) { /* Error extracting */ return NULL; }
+    if (!a_int || !b_int)
+    { /* Error extracting */
+        return NULL;
+    }
 
     mpz_t result_z;
     mpz_init(result_z);
@@ -1945,18 +2183,23 @@ PyObject* py_object_bitwise_xor(PyObject* a, PyObject* b)
 // 按位取反操作符
 PyObject* py_object_bitwise_not(PyObject* a)
 {
-    if (!a) {
+    if (!a)
+    {
         fprintf(stderr, "TypeError: bad operand type for unary ~: 'NoneType'\n");
         return NULL;
     }
-    if (py_get_safe_type_id(a) != PY_TYPE_INT) {
-         fprintf(stderr, "TypeError: bad operand type for unary ~: '%s'\n",
+    if (py_get_safe_type_id(a) != PY_TYPE_INT)
+    {
+        fprintf(stderr, "TypeError: bad operand type for unary ~: '%s'\n",
                 py_type_name(py_get_safe_type_id(a)));
         return NULL;
     }
 
     mpz_ptr a_int = py_extract_int(a);
-    if (!a_int) { /* Error extracting */ return NULL; }
+    if (!a_int)
+    { /* Error extracting */
+        return NULL;
+    }
 
     mpz_t result_z;
     mpz_init(result_z);
@@ -1970,32 +2213,38 @@ PyObject* py_object_bitwise_not(PyObject* a)
     return resultObj;
 }
 
-
 // 左移操作符
 PyObject* py_object_left_shift(PyObject* a, PyObject* b)
 {
-    if (!a || !b) {
+    if (!a || !b)
+    {
         fprintf(stderr, "TypeError: Cannot perform left shift with None\n");
         return NULL;
     }
-    if (py_get_safe_type_id(a) != PY_TYPE_INT || py_get_safe_type_id(b) != PY_TYPE_INT) {
+    if (py_get_safe_type_id(a) != PY_TYPE_INT || py_get_safe_type_id(b) != PY_TYPE_INT)
+    {
         fprintf(stderr, "TypeError: unsupported operand type(s) for <<: '%s' and '%s'\n",
                 py_type_name(py_get_safe_type_id(a)), py_type_name(py_get_safe_type_id(b)));
         return NULL;
     }
 
     mpz_ptr a_int = py_extract_int(a);
-    mpz_ptr b_int = py_extract_int(b); // Shift amount
-    if (!a_int || !b_int) { /* Error extracting */ return NULL; }
+    mpz_ptr b_int = py_extract_int(b);  // Shift amount
+    if (!a_int || !b_int)
+    { /* Error extracting */
+        return NULL;
+    }
 
     // Check if shift amount is negative
-    if (mpz_sgn(b_int) < 0) {
+    if (mpz_sgn(b_int) < 0)
+    {
         fprintf(stderr, "ValueError: negative shift count\n");
         return NULL;
     }
 
     // Check if shift amount fits in unsigned long
-    if (!mpz_fits_ulong_p(b_int)) {
+    if (!mpz_fits_ulong_p(b_int))
+    {
         // Python raises OverflowError here if it's huge, but practically it might lead to MemoryError.
         // We'll raise OverflowError for consistency.
         fprintf(stderr, "OverflowError: shift count too large\n");
@@ -2016,37 +2265,47 @@ PyObject* py_object_left_shift(PyObject* a, PyObject* b)
 // 右移操作符
 PyObject* py_object_right_shift(PyObject* a, PyObject* b)
 {
-    if (!a || !b) {
+    if (!a || !b)
+    {
         fprintf(stderr, "TypeError: Cannot perform right shift with None\n");
         return NULL;
     }
-     if (py_get_safe_type_id(a) != PY_TYPE_INT || py_get_safe_type_id(b) != PY_TYPE_INT) {
+    if (py_get_safe_type_id(a) != PY_TYPE_INT || py_get_safe_type_id(b) != PY_TYPE_INT)
+    {
         fprintf(stderr, "TypeError: unsupported operand type(s) for >>: '%s' and '%s'\n",
                 py_type_name(py_get_safe_type_id(a)), py_type_name(py_get_safe_type_id(b)));
         return NULL;
     }
 
     mpz_ptr a_int = py_extract_int(a);
-    mpz_ptr b_int = py_extract_int(b); // Shift amount
-    if (!a_int || !b_int) { /* Error extracting */ return NULL; }
+    mpz_ptr b_int = py_extract_int(b);  // Shift amount
+    if (!a_int || !b_int)
+    { /* Error extracting */
+        return NULL;
+    }
 
     // Check if shift amount is negative
-    if (mpz_sgn(b_int) < 0) {
+    if (mpz_sgn(b_int) < 0)
+    {
         fprintf(stderr, "ValueError: negative shift count\n");
         return NULL;
     }
 
     // Check if shift amount fits in unsigned long
-    if (!mpz_fits_ulong_p(b_int)) {
+    if (!mpz_fits_ulong_p(b_int))
+    {
         // If shift count is huge, result is likely 0 or -1.
         // Python doesn't raise OverflowError here.
         // We can handle large shifts by checking the sign.
-        if (mpz_sgn(a_int) < 0) {
-             // Shifting negative number by huge amount -> -1
-             return py_create_int(-1);
-        } else {
-             // Shifting non-negative number by huge amount -> 0
-             return py_create_int(0);
+        if (mpz_sgn(a_int) < 0)
+        {
+            // Shifting negative number by huge amount -> -1
+            return py_create_int(-1);
+        }
+        else
+        {
+            // Shifting non-negative number by huge amount -> 0
+            return py_create_int(0);
         }
         // fprintf(stderr, "OverflowError: shift count too large\n"); // Or just calculate?
         // return NULL;

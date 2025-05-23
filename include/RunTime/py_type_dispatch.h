@@ -20,6 +20,8 @@ typedef int       (*py_len_func)(PyObject* obj);
 
 
 
+typedef PyObject* (*py_tpcall_func)(PyObject* callable, int num_args, PyObject** args_array);// 调用函数
+
 
 
 typedef PyObject* (*py_getattr_func)(PyObject* obj, const char* attr_name); // 获取属性
@@ -46,7 +48,7 @@ typedef struct PyTypeMethods {
     // ---  Hash 和 Equals 槽位 ---
     py_hash_func      hash;      // Handler for hash(obj)
     py_eq_func        equals;    // Handler for obj == other
-
+     py_tpcall_func    tp_call;   // 新增：用于实现 __call__
 
     // Add slots for other operations like binary_add, compare_eq, etc.
     // py_binary_op_func binary_add;
@@ -98,6 +100,11 @@ static int       py_list_len_handler(PyObject* obj);
 static PyObject* py_dict_index_get_handler(PyObject* container, PyObject* index);
 static void      py_dict_index_set_handler(PyObject* container, PyObject* index, PyObject* value);
 static int       py_dict_len_handler(PyObject* obj);
+
+// 前置声明新的 tp_call 处理器
+ PyObject* py_function_tp_call_handler(PyObject* callable_func_obj, int num_args, PyObject** args_array);
+ PyObject* py_bound_method_tp_call_handler(PyObject* callable_bm_obj, int num_args, PyObject** args_array);
+ PyObject* py_class_tp_call_handler(PyObject* callable_class_obj, int num_args, PyObject** args_array); // 用于类实例化
 
 
 static PyObject* py_instance_getattr_handler(PyObject* obj, const char* attr_name);

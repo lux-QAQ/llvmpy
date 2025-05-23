@@ -44,7 +44,7 @@ PyObject* py_create_function(void* func_ptr, int signature_type_id);
  */
  PyObject* py_call_function(PyObject* callable, int num_args, PyObject** args_array);
 
- 
+ static PyObject* py_function_call_via_ffi(PyFunctionObject* py_func, int num_args, PyObject** args_array);
 
 static ffi_type* map_pytype_to_ffitype(int typeId);
 

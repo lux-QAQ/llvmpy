@@ -87,9 +87,39 @@ static const PyTypeMethods none_methods = {
         /*getattr*/ NULL, /*setattr*/ NULL,
         /*hash*/ _py_none_hash, /*equals*/ _py_none_eq};
 
+// 为 PyFunctionObject 定义方法表
+static const PyTypeMethods function_methods = {
+    /*.index_get =*/NULL, /*.index_set =*/NULL, /*.len =*/NULL,
+    /*.getattr   =*/NULL, /*.setattr   =*/NULL, // TODO: 函数属性如 __name__
+    /*.hash      =*/NULL,    // TODO: 函数哈希 (通常基于地址)
+    /*.equals    =*/NULL,  // TODO: 函数比较 (通常基于标识)
+    /*.tp_call   =*/py_function_tp_call_handler // 指向新的 FFI 调用处理器
+};
+
+// 为 PyBoundMethodObject 定义方法表
+static const PyTypeMethods bound_method_methods = {
+    /*.index_get =*/NULL, /*.index_set =*/NULL, /*.len =*/NULL,
+    /*.getattr   =*/NULL, /*.setattr   =*/NULL, // TODO: 绑定方法属性
+    /*.hash      =*/NULL,    // 绑定方法通常不可哈希或基于 self 和 func
+    /*.equals    =*/NULL,  // TODO: 绑定方法比较
+    /*.tp_call   =*/py_bound_method_tp_call_handler
+};
+
+// 为 PyClassObject 定义方法表 (主要用于实例化)
+static const PyTypeMethods class_tpcall_methods = { // 注意：class_methods 已存在，这个是专门用于 tp_call 的
+    /*.index_get =*/NULL, /*.index_set =*/NULL, /*.len =*/NULL,
+    /*.getattr   =*/py_class_getattr_handler, // class_methods 已有
+    /*.setattr   =*/py_class_setattr_handler, // class_methods 已有
+    /*.hash      =*/NULL,
+    /*.equals    =*/NULL,
+    /*.tp_call   =*/py_class_tp_call_handler // 用于类实例化
+};
+
+        
 // --- 新增: 实例属性访问处理器实现 ---
 static PyObject* py_instance_getattr_handler(PyObject* obj, const char* attr_name)
 {
+    // 已修正的条件判断 (来自步骤1)
     if (!obj || obj->typeId != llvmpy::PY_TYPE_INSTANCE || !attr_name)
     {
         fprintf(stderr, "TypeError: getattr called on non-instance or with NULL name (obj type: %s, typeId: %d)\n",
@@ -101,11 +131,15 @@ static PyObject* py_instance_getattr_handler(PyObject* obj, const char* attr_nam
     if (!attr_name_obj) return NULL;
 
     PyObject* value = NULL;
+    bool found_in_instance_dict = false;
 
     // 1. 在实例字典中查找
     if (instance->instance_dict)
     {
         value = py_dict_get_item((PyObject*)instance->instance_dict, attr_name_obj);
+        if (value) {
+            found_in_instance_dict = true;
+        }
     }
 
     // 2. 如果实例字典中没有，在类字典中查找 (以及基类)
@@ -118,6 +152,7 @@ static PyObject* py_instance_getattr_handler(PyObject* obj, const char* attr_nam
             {
                 value = py_dict_get_item((PyObject*)current_cls->class_dict, attr_name_obj);
             }
+            if (value) break; 
             current_cls = current_cls->base;
         }
     }
@@ -126,13 +161,26 @@ static PyObject* py_instance_getattr_handler(PyObject* obj, const char* attr_nam
 
     if (value)
     {
-        py_incref(value);
-        return value;
+        // 如果找到的是函数，并且不是在实例字典中直接找到的（即它是一个类方法/普通函数）
+        // 则需要创建绑定方法对象
+        if (!found_in_instance_dict && 
+            (py_get_safe_type_id(value) == llvmpy::PY_TYPE_FUNC || llvmpy::getBaseTypeId(py_get_safe_type_id(value)) == llvmpy::PY_TYPE_FUNC_BASE) ) {
+            // 'obj' 是当前的实例 (self)
+            // 'value' 是 PyFunctionObject*
+            PyObject* bound_method = py_create_bound_method(obj, (PyFunctionObject*)value);
+            // py_create_bound_method 返回新引用，value 的引用由 bound_method 内部管理
+            // 此处不需要再对 value 调用 py_incref
+            return bound_method;
+        } else {
+            // 对于非函数属性或直接在实例字典中找到的属性（可能是已绑定的方法或普通数据），直接返回并增加引用计数
+            py_incref(value);
+            return value;
+        }
     }
     else
     {
         fprintf(stderr, "AttributeError: '%s' object has no attribute '%s'\n",
-                instance->cls ? instance->cls->name : "object", attr_name);
+                instance->cls ? instance->cls->name : py_type_name(instance->header.typeId), attr_name);
         return NULL;
     }
 }
@@ -243,7 +291,13 @@ void py_initialize_builtin_type_methods()
 
     // 注册 Instance 和 Class 的方法
     py_register_type_methods(llvmpy::PY_TYPE_INSTANCE, &instance_methods);
-    py_register_type_methods(llvmpy::PY_TYPE_CLASS, &class_methods);
+    //py_register_type_methods(llvmpy::PY_TYPE_CLASS, &class_methods);
+
+    py_register_type_methods(llvmpy::PY_TYPE_CLASS, &class_tpcall_methods); // 使用这个进行注册，它包含了 getattr/setattr 和 tp_call
+
+    py_register_type_methods(llvmpy::PY_TYPE_FUNC, &function_methods);
+    py_register_type_methods(llvmpy::PY_TYPE_BOUND_METHOD, &bound_method_methods);
+
 
     initialize_static_gmp_bools();
     // 注意：List 和 Dict 应该是不可哈希的，所以它们的 hash 槽位应该是 NULL
@@ -272,13 +326,23 @@ void py_initialize_builtin_log()
     // 获取当前实际设置的日志级别用于打印
     msg_type current_set_level = ulog_get_min_level();
     const char* level_name_str = "UNKNOWN";
-    switch (current_set_level) {
-        case MSG_DEBUG: level_name_str = "DEBUG"; break;
-        case MSG_INFO:  level_name_str = "INFO";  break;
-        case MSG_WARN:  level_name_str = "WARN";  break;
-        case MSG_ERROR: level_name_str = "ERROR"; break;
+    switch (current_set_level)
+    {
+        case MSG_DEBUG:
+            level_name_str = "DEBUG";
+            break;
+        case MSG_INFO:
+            level_name_str = "INFO";
+            break;
+        case MSG_WARN:
+            level_name_str = "WARN";
+            break;
+        case MSG_ERROR:
+            level_name_str = "ERROR";
+            break;
         default:
-            level_name_str = "UNKNOWN"; break;
+            level_name_str = "UNKNOWN";
+            break;
     }
 
     // 使用 LOG_INFO 记录调试模式已启用以及当前的日志级别。
@@ -289,7 +353,7 @@ void py_initialize_builtin_log()
     // 可以根据需要添加更详细的 DEBUG 级别日志
     LOG_DEBUG("py_initialize_builtin_log 函数执行完毕。");
 
-#else // 非 DEBUG 模式 (生产环境)
+#else  // 非 DEBUG 模式 (生产环境)
     // 在生产环境中，通常将日志级别设置为 MSG_ERROR。
     // ENABLE_LOGS_FOR_FUNCTION 列表仍然会被加载，但只有 ERROR 级别的日志会通过。
     py_log_init(MSG_ERROR);

@@ -26,6 +26,7 @@ extern "C"
 
     typedef struct PyClassObject_t PyClassObject;
     typedef struct PyInstanceObject_t PyInstanceObject;
+    typedef struct PyBoundMethodObject_t PyBoundMethodObject;
 
     typedef struct PyFunctionObject_t PyFunctionObject;
 
@@ -104,6 +105,14 @@ extern "C"
         PyClassObject* cls;           // 指向该实例所属的类对象
         PyDictObject* instance_dict;  // 实例属性字典
     };
+
+    struct PyBoundMethodObject_t
+    {
+        PyObject header;
+        PyObject* bm_self;          // 绑定的实例 ('self')
+        PyFunctionObject* bm_func;  // 原始的函数对象 (确保是 PyFunctionObject*)
+    };
+
     /**
      * @brief 元组对象结构。
      * items 是一个柔性数组成员，或者如果编译器不支持，则为 PyObject**。

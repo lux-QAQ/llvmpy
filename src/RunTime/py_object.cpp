@@ -95,7 +95,44 @@ PyObject* py_create_class(const char* name, PyObject* bases_tuple_obj, PyObject*
 
     return (PyObject*)cls;
 }
+PyObject* py_create_bound_method(PyObject* self_obj, PyFunctionObject* func_obj)
+{
+    if (!self_obj || !func_obj)
+    {
+        fprintf(stderr, "InternalError: py_create_bound_method called with NULL self or function.\n");
+        return NULL;
+    }
+    // 确保 func_obj 真的是一个函数
+    if (py_get_safe_type_id((PyObject*)func_obj) != llvmpy::PY_TYPE_FUNC && llvmpy::getBaseTypeId(py_get_safe_type_id((PyObject*)func_obj)) != llvmpy::PY_TYPE_FUNC_BASE)
+    {  // 检查是否为函数类型
+        fprintf(stderr, "InternalError: Attempting to bind a non-function type '%s' as a method.\n",
+                py_type_name(py_get_safe_type_id((PyObject*)func_obj)));
+        return NULL;
+    }
+    // 确保 self_obj 是一个实例
+    if (py_get_safe_type_id(self_obj) != llvmpy::PY_TYPE_INSTANCE && llvmpy::getBaseTypeId(py_get_safe_type_id(self_obj)) != llvmpy::PY_TYPE_INSTANCE_BASE)
+    {  // 检查是否为实例类型
+        fprintf(stderr, "InternalError: Attempting to bind method to a non-instance type '%s'.\n",
+                py_type_name(py_get_safe_type_id(self_obj)));
+        return NULL;
+    }
 
+    PyBoundMethodObject* bm = (PyBoundMethodObject*)malloc(sizeof(PyBoundMethodObject));
+    if (!bm)
+    {
+        fprintf(stderr, "MemoryError: Failed to allocate bound method object.\n");
+        return NULL;
+    }
+    bm->header.refCount = 1;
+    bm->header.typeId = llvmpy::PY_TYPE_BOUND_METHOD;
+    bm->bm_self = self_obj;
+    bm->bm_func = func_obj;
+
+    py_incref(bm->bm_self);
+    py_incref((PyObject*)bm->bm_func);
+
+    return (PyObject*)bm;
+}
 PyObject* py_create_instance(PyObject* cls_obj)
 {
     if (!cls_obj || cls_obj->typeId != llvmpy::PY_TYPE_CLASS)
@@ -540,6 +577,15 @@ void py_decref(PyObject* obj)
                 }
                 free(obj);
                 break;
+            case llvmpy::PY_TYPE_BOUND_METHOD:  
+            {
+                PyBoundMethodObject* bm = (PyBoundMethodObject*)obj;
+                LOG_DEBUG("py_decref (%p): Freeing BoundMethod. Decreffing self %p and func %p.", (void*)obj, (void*)bm->bm_self, (void*)bm->bm_func);
+                py_decref(bm->bm_self);
+                py_decref((PyObject*)bm->bm_func);
+                free(obj);
+            }
+            break;
             case llvmpy::PY_TYPE_CLASS:
             {
                 PyClassObject* cls = (PyClassObject*)obj;
@@ -586,7 +632,7 @@ void py_decref(PyObject* obj)
             case llvmpy::PY_TYPE_NONE:  // Should not reach here due to initial check
 
             default:  // 包含其他基本类型和未知类型
-                     LOG_WARN("py_decref on unhandled base typeId %d (original typeId %d, name: %s) for obj %p",
+                LOG_WARN("py_decref on unhandled base typeId %d (original typeId %d, name: %s) for obj %p",
                          baseTypeId, obj->typeId, py_type_name(obj->typeId), (void*)obj);
                 // fprintf(stderr, "Warning: py_decref on unhandled base typeId %d (original typeId %d, name: %s)\n", baseTypeId, obj->typeId, py_type_name(obj->typeId)); // Replaced
                 free(obj);
@@ -594,7 +640,7 @@ void py_decref(PyObject* obj)
         }
     }
     else if (obj->refCount < 0)
-   {
+    {
         LOG_ERROR("Object %p refCount fell below zero! (type: %s (%d))",
                   (void*)obj, py_type_name(obj->typeId), obj->typeId);
         // fprintf(stderr, "Error: Object refCount fell below zero! (type: %d, name: %s)\n", obj->typeId, py_type_name(obj->typeId)); // Replaced

@@ -378,15 +378,15 @@ void CodeGenStmt::handleFunctionDefStmt(FunctionDefStmtAST* stmt)
                      funcObjAlloca = existingAlloca;
                      isNewAlloca = false;
                 } else { 
-                    funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName, outerFuncContextLLVM);
+                    funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName, outerFuncContextLLVM,true);
                     isNewAlloca = true;
                 }
-            } else { 
-                funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName, outerFuncContextLLVM);
+            } else {
+                funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName, outerFuncContextLLVM,true);
                 isNewAlloca = true;
             }
-        } else { 
-            funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName, outerFuncContextLLVM);
+        } else {
+            funcObjAlloca = codeGen.createEntryBlockAlloca(pyObjectPtrType, pyFuncName, outerFuncContextLLVM,true);
             isNewAlloca = true;
         }
 

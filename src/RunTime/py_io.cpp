@@ -9,8 +9,6 @@ using namespace llvmpy;
 // 前向声明内部使用的辅助函数
 static void py_print_object_inline(PyObject* obj);
 
-
-
 // 打印Python对象函数实现
 void py_print_object(PyObject* obj)
 {
@@ -21,10 +19,10 @@ void py_print_object(PyObject* obj)
     }
 
     // 根据类型打印不同形式
-    int typeId = py_get_safe_type_id(obj); // 使用安全获取类型ID的函数
-    #ifdef DEBUG_RUNTIME_print
+    int typeId = py_get_safe_type_id(obj);  // 使用安全获取类型ID的函数
+#ifdef DEBUG_RUNTIME_print
     printf("py_print_object: typeId = %d\n", typeId);
-    #endif
+#endif
     switch (typeId)
     {
         case llvmpy::PY_TYPE_INT:
@@ -32,26 +30,29 @@ void py_print_object(PyObject* obj)
             gmp_printf("%Zd\n", ((PyPrimitiveObject*)obj)->value.intValue);
             break;
 
-            case llvmpy::PY_TYPE_DOUBLE:
+        case llvmpy::PY_TYPE_DOUBLE:
+        {
+            mpf_ptr val = ((PyPrimitiveObject*)obj)->value.doubleValue;
+            // 检查浮点数是否为整数
+            if (mpf_integer_p(val))
             {
-                mpf_ptr val = ((PyPrimitiveObject*)obj)->value.doubleValue;
-                // 检查浮点数是否为整数
-                if (mpf_integer_p(val)) {
-                    // 如果是整数，打印为 x.0 的形式
-                    // 先打印整数部分，再打印 ".0"
-            
-                    gmp_printf("%.0Ff.0\n", val);
-                } else {
-                    // 否则，使用通用格式打印
+                // 如果是整数，打印为 x.0 的形式
+                // 先打印整数部分，再打印 ".0"
 
-                    mpfr_t r;
-                    mpfr_init(r);                    // 默认 53 位精度
-                    mpfr_set_f(r, val, MPFR_RNDN);   // 转换并舍入
-                    mpfr_printf("%Rg\n", r);         // 最短回收输出
-                    mpfr_clear(r);                   // 释放资源
-                }
+                gmp_printf("%.0Ff.0\n", val);
             }
-            break;
+            else
+            {
+                // 否则，使用通用格式打印
+
+                mpfr_t r;
+                mpfr_init(r);                   // 默认 53 位精度
+                mpfr_set_f(r, val, MPFR_RNDN);  // 转换并舍入
+                mpfr_printf("%Rg\n", r);        // 最短回收输出
+                mpfr_clear(r);                  // 释放资源
+            }
+        }
+        break;
 
         case llvmpy::PY_TYPE_BOOL:
             // bool 类型保持不变
@@ -70,7 +71,7 @@ void py_print_object(PyObject* obj)
             for (int i = 0; i < list->length; i++)
             {
                 if (i > 0) printf(", ");
-                py_print_object_inline(list->data[i]); // 递归调用内联打印
+                py_print_object_inline(list->data[i]);  // 递归调用内联打印
             }
             printf("]\n");
             break;
@@ -107,14 +108,14 @@ void py_print_object(PyObject* obj)
 
         // 可以添加对 Class 和 Instance 的处理
         case llvmpy::PY_TYPE_CLASS:
-             printf("<class '%s'>\n", ((PyClassObject*)obj)->name ? ((PyClassObject*)obj)->name : "unknown");
-             break;
-        // case llvmpy::PY_TYPE_INSTANCE: // 实例的打印通常调用 __repr__ 或 __str__
+            printf("<class '%s'>\n", ((PyClassObject*)obj)->name ? ((PyClassObject*)obj)->name : "unknown");
+            break;
+            // case llvmpy::PY_TYPE_INSTANCE: // 实例的打印通常调用 __repr__ 或 __str__
 
         default:
             // 尝试获取基类类型
             int baseTypeId = py_get_base_type_id(typeId);
-            if (baseTypeId == llvmpy::PY_TYPE_LIST) // 处理派生列表类型
+            if (baseTypeId == llvmpy::PY_TYPE_LIST)  // 处理派生列表类型
             {
                 PyListObject* list = (PyListObject*)obj;
                 printf("[");
@@ -125,7 +126,7 @@ void py_print_object(PyObject* obj)
                 }
                 printf("]\n");
             }
-            else if (baseTypeId == llvmpy::PY_TYPE_DICT) // 处理派生字典类型
+            else if (baseTypeId == llvmpy::PY_TYPE_DICT)  // 处理派生字典类型
             {
                 PyDictObject* dict = (PyDictObject*)obj;
                 printf("{");
@@ -143,14 +144,14 @@ void py_print_object(PyObject* obj)
                 }
                 printf("}\n");
             }
-            else if (baseTypeId == llvmpy::PY_TYPE_INSTANCE) // 处理实例类型
+            else if (baseTypeId == llvmpy::PY_TYPE_INSTANCE)  // 处理实例类型
             {
-                 // 尝试调用 __repr__ 或 __str__ (如果实现了方法调用)
-                 // PyObject* repr_str = py_call_method(obj, "__repr__", 0, NULL);
-                 // if (repr_str) { ... print repr_str ...; py_decref(repr_str); } else { ... fallback ... }
-                 // Fallback:
-                 PyClassObject* cls = ((PyInstanceObject*)obj)->cls;
-                 printf("<%s object at %p>\n", cls && cls->name ? cls->name : "object", (void*)obj);
+                // 尝试调用 __repr__ 或 __str__ (如果实现了方法调用)
+                // PyObject* repr_str = py_call_method(obj, "__repr__", 0, NULL);
+                // if (repr_str) { ... print repr_str ...; py_decref(repr_str); } else { ... fallback ... }
+                // Fallback:
+                PyClassObject* cls = ((PyInstanceObject*)obj)->cls;
+                printf("<%s object at %p>\n", cls && cls->name ? cls->name : "object", (void*)obj);
             }
             else
             {
@@ -177,23 +178,25 @@ static void py_print_object_inline(PyObject* obj)
             mpz_out_str(stdout, 10, ((PyPrimitiveObject*)obj)->value.intValue);
             break;
 
-            case llvmpy::PY_TYPE_DOUBLE:
+        case llvmpy::PY_TYPE_DOUBLE:
+        {
+            mpf_ptr val = ((PyPrimitiveObject*)obj)->value.doubleValue;
+            // 检查浮点数是否为整数
+            if (mpf_integer_p(val))
             {
-                mpf_ptr val = ((PyPrimitiveObject*)obj)->value.doubleValue;
-                // 检查浮点数是否为整数
-                if (mpf_integer_p(val)) {
-                    // 如果是整数，打印为 x.0 的形式
-                    gmp_printf("%.0Ff.0", val);
-                } else {
-                 
-                    mpfr_t r;
-                    mpfr_init(r);                    // 默认 53 位精度
-                    mpfr_set_f(r, val, MPFR_RNDN);   // 转换并舍入
-                    mpfr_printf("%Rg", r);         // 最短回收输出
-                    mpfr_clear(r);                   // 释放资源
-                }
+                // 如果是整数，打印为 x.0 的形式
+                gmp_printf("%.0Ff.0", val);
             }
-            break;
+            else
+            {
+                mpfr_t r;
+                mpfr_init(r);                   // 默认 53 位精度
+                mpfr_set_f(r, val, MPFR_RNDN);  // 转换并舍入
+                mpfr_printf("%Rg", r);          // 最短回收输出
+                mpfr_clear(r);                  // 释放资源
+            }
+        }
+        break;
 
         case llvmpy::PY_TYPE_BOOL:
             printf("%s", ((PyPrimitiveObject*)obj)->value.boolValue ? "True" : "False");
@@ -212,7 +215,7 @@ static void py_print_object_inline(PyObject* obj)
             for (int i = 0; i < list->length; i++)
             {
                 if (i > 0) printf(", ");
-                py_print_object_inline(list->data[i]); // 递归调用
+                py_print_object_inline(list->data[i]);  // 递归调用
             }
             printf("]");
             break;
@@ -247,13 +250,13 @@ static void py_print_object_inline(PyObject* obj)
             break;
 
         case llvmpy::PY_TYPE_CLASS:
-             printf("<class '%s'>", ((PyClassObject*)obj)->name ? ((PyClassObject*)obj)->name : "unknown");
-             break;
+            printf("<class '%s'>", ((PyClassObject*)obj)->name ? ((PyClassObject*)obj)->name : "unknown");
+            break;
 
         default:
-             // 尝试获取基类类型
+            // 尝试获取基类类型
             int baseTypeId = py_get_base_type_id(typeId);
-            if (baseTypeId == llvmpy::PY_TYPE_LIST) // 处理派生列表类型
+            if (baseTypeId == llvmpy::PY_TYPE_LIST)  // 处理派生列表类型
             {
                 PyListObject* list = (PyListObject*)obj;
                 printf("[");
@@ -264,7 +267,7 @@ static void py_print_object_inline(PyObject* obj)
                 }
                 printf("]");
             }
-            else if (baseTypeId == llvmpy::PY_TYPE_DICT) // 处理派生字典类型
+            else if (baseTypeId == llvmpy::PY_TYPE_DICT)  // 处理派生字典类型
             {
                 PyDictObject* dict = (PyDictObject*)obj;
                 printf("{");
@@ -282,11 +285,11 @@ static void py_print_object_inline(PyObject* obj)
                 }
                 printf("}");
             }
-            else if (baseTypeId == llvmpy::PY_TYPE_INSTANCE) // 处理实例类型
+            else if (baseTypeId == llvmpy::PY_TYPE_INSTANCE)  // 处理实例类型
             {
-                 // Fallback representation for inline printing
-                 PyClassObject* cls = ((PyInstanceObject*)obj)->cls;
-                 printf("<%s object at %p>", cls && cls->name ? cls->name : "object", (void*)obj);
+                // Fallback representation for inline printing
+                PyClassObject* cls = ((PyInstanceObject*)obj)->cls;
+                printf("<%s object at %p>", cls && cls->name ? cls->name : "object", (void*)obj);
             }
             else
             {
@@ -305,7 +308,7 @@ void py_print_int(int value)
 void py_print_double(double value)
 {
     // 检查是否为整数
-    if (value == (long long)value) // Use long long for wider range check
+    if (value == (long long)value)  // Use long long for wider range check
     {
         printf("%lld\n", (long long)value);
     }
@@ -329,7 +332,7 @@ void py_print_string(const char* value)
     }
     else
     {
-        printf("None\n"); // 或者打印空行？保持 None 吧
+        printf("None\n");  // 或者打印空行？保持 None 吧
     }
 }
 
@@ -360,15 +363,18 @@ char* input(void)
     else
     {
         // 读取失败或 EOF
-        if (feof(stdin)) {
-             fprintf(stderr, "EOFError: EOF when reading a line\n");
-             // Decide behavior: return NULL, empty string, or raise specific error
-             free(buffer);
-             return NULL; // Indicate EOF error
-        } else if (ferror(stdin)) {
-             perror("Error reading input");
-             free(buffer);
-             return NULL; // Indicate read error
+        if (feof(stdin))
+        {
+            fprintf(stderr, "EOFError: EOF when reading a line\n");
+            // Decide behavior: return NULL, empty string, or raise specific error
+            free(buffer);
+            return NULL;  // Indicate EOF error
+        }
+        else if (ferror(stdin))
+        {
+            perror("Error reading input");
+            free(buffer);
+            return NULL;  // Indicate read error
         }
         // If fgets returns NULL without EOF or error, treat as empty input?
         buffer[0] = '\0';

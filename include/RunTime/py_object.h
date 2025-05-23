@@ -24,6 +24,8 @@ PyObject* py_create_double_bystring(const char* s, int base, mp_bitcnt_t precisi
 
 PyObject* py_create_class(const char* name, PyObject* base_cls_obj, PyObject* class_dict_obj);
 PyObject* py_create_instance(PyObject* cls_obj); // 参数是类对象
+PyObject* py_create_bound_method(PyObject* self_obj, PyFunctionObject* func_obj);// 绑定方法
+
 
 
 // 引用计数管理

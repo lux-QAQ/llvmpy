@@ -55,6 +55,7 @@ enum PyTypeId : int
 
     PY_TYPE_CLASS = 12,     // 类对象本身的类型 ID
     PY_TYPE_INSTANCE = 13,  // 通用实例类型 ID (或者作为基类)
+    PY_TYPE_BOUND_METHOD = 14, // 绑定方法类型
 
     // 迭代器类型 ID 基础
     PY_TYPE_ITERATOR_BASE = 50,                           // 新的基础 ID

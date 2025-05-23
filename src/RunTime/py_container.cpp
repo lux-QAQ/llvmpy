@@ -4,12 +4,13 @@
 #include <cstdlib>
 #include <cctype>
 
-
 //===----------------------------------------------------------------------===//
 // 迭代器相关
 //===----------------------------------------------------------------------===//
-PyObject* py_iter(PyObject* iterable_obj) {
-    if (!iterable_obj) {
+PyObject* py_iter(PyObject* iterable_obj)
+{
+    if (!iterable_obj)
+    {
         LOG_ERROR("py_iter called with NULL iterable_obj");
         py_runtime_error("TypeError_NotIterable", 0);
         return NULL;
@@ -18,9 +19,11 @@ PyObject* py_iter(PyObject* iterable_obj) {
 
     int type_id = llvmpy::getBaseTypeId(iterable_obj->typeId);
 
-    if (type_id == llvmpy::PY_TYPE_LIST) {
+    if (type_id == llvmpy::PY_TYPE_LIST)
+    {
         PyListIteratorObject* iter = (PyListIteratorObject*)malloc(sizeof(PyListIteratorObject));
-        if (!iter) {
+        if (!iter)
+        {
             LOG_ERROR("MemoryError: failed to allocate list iterator");
             // fprintf(stderr, "MemoryError: failed to allocate list iterator\n"); // Replaced
             return NULL;
@@ -32,9 +35,12 @@ PyObject* py_iter(PyObject* iterable_obj) {
         iter->current_index = 0;
         LOG_DEBUG("py_iter created PyListIteratorObject: %p, typeId: %d, for iterable: %p", (void*)iter, iter->header.typeId, (void*)iterable_obj);
         return (PyObject*)iter;
-    } else if (type_id == llvmpy::PY_TYPE_STRING) {
+    }
+    else if (type_id == llvmpy::PY_TYPE_STRING)
+    {
         PyStringIteratorObject* iter = (PyStringIteratorObject*)malloc(sizeof(PyStringIteratorObject));
-        if (!iter) {
+        if (!iter)
+        {
             LOG_ERROR("MemoryError: failed to allocate string iterator");
             // fprintf(stderr, "MemoryError: failed to allocate string iterator\n"); // Replaced
             return NULL;
@@ -47,72 +53,87 @@ PyObject* py_iter(PyObject* iterable_obj) {
         LOG_DEBUG("py_iter created PyStringIteratorObject: %p, typeId: %d, for iterable: %p", (void*)iter, iter->header.typeId, (void*)iterable_obj);
         return (PyObject*)iter;
     }
-    
+
     LOG_WARN("py_iter: Object of type %s (%d) is not iterable.", py_type_name(iterable_obj->typeId), iterable_obj->typeId);
     char error_msg_key[100];
-    snprintf(error_msg_key, sizeof(error_msg_key), "TypeError_NotIterable"); 
+    snprintf(error_msg_key, sizeof(error_msg_key), "TypeError_NotIterable");
     py_runtime_error(error_msg_key, 0);
     return NULL;
 }
 
-PyObject* py_next(PyObject* iterator_obj) {
-    if (!iterator_obj) {
+PyObject* py_next(PyObject* iterator_obj)
+{
+    if (!iterator_obj)
+    {
         LOG_ERROR("py_next called with NULL iterator_obj");
-        py_runtime_error("FatalError_NullIterator", 0); 
+        py_runtime_error("FatalError_NullIterator", 0);
         return NULL;
     }
     LOG_DEBUG("py_next called with iterator: %p, typeId: %d (%s)", (void*)iterator_obj, iterator_obj->typeId, py_type_name(iterator_obj->typeId));
 
-    int iterator_type_id = iterator_obj->typeId; 
+    int iterator_type_id = iterator_obj->typeId;
 
-    if (iterator_type_id == llvmpy::PY_TYPE_LIST_ITERATOR) {
+    if (iterator_type_id == llvmpy::PY_TYPE_LIST_ITERATOR)
+    {
         PyListIteratorObject* iter = (PyListIteratorObject*)iterator_obj;
-        PyListObject* list = (PyListObject*)iter->iterable; 
+        PyListObject* list = (PyListObject*)iter->iterable;
 
-        if (iter->current_index < list->length) {
+        if (iter->current_index < list->length)
+        {
             PyObject* item = list->data[iter->current_index];
             iter->current_index++;
-            if (item) {
-                py_incref(item); 
+            if (item)
+            {
+                py_incref(item);
                 LOG_DEBUG("py_next (list) returning item: %p, typeId: %d (%s)", (void*)item, item->typeId, py_type_name(item->typeId));
                 return item;
-            } else {
+            }
+            else
+            {
                 PyObject* none_val = py_get_none();
-                py_incref(none_val); 
+                py_incref(none_val);
                 LOG_DEBUG("py_next (list) returning None (original item was NULL) for iterator: %p", (void*)iterator_obj);
                 return none_val;
             }
-        } else {
+        }
+        else
+        {
             LOG_DEBUG("py_next (list) StopIteration for iterator: %p", (void*)iterator_obj);
             return NULL;
         }
-    } else if (iterator_type_id == llvmpy::PY_TYPE_STRING_ITERATOR) {
+    }
+    else if (iterator_type_id == llvmpy::PY_TYPE_STRING_ITERATOR)
+    {
         PyStringIteratorObject* iter = (PyStringIteratorObject*)iterator_obj;
-        PyPrimitiveObject* str_obj = (PyPrimitiveObject*)iter->iterable; 
+        PyPrimitiveObject* str_obj = (PyPrimitiveObject*)iter->iterable;
         const char* c_str = str_obj->value.stringValue;
-        
-        if (!c_str) { 
-             LOG_WARN("py_next (string) iterator %p has NULL c_str", (void*)iterator_obj);
-             return NULL; 
+
+        if (!c_str)
+        {
+            LOG_WARN("py_next (string) iterator %p has NULL c_str", (void*)iterator_obj);
+            return NULL;
         }
         size_t len = strlen(c_str);
 
-        if (iter->current_char_index < len) {
+        if (iter->current_char_index < len)
+        {
             char char_buf[2] = {c_str[iter->current_char_index], '\0'};
             iter->current_char_index++;
             PyObject* char_py_str = py_create_string(char_buf);
             LOG_DEBUG("py_next (string) returning char_str: %p, typeId: %d (%s)", (void*)char_py_str, char_py_str ? char_py_str->typeId : -1, char_py_str ? py_type_name(char_py_str->typeId) : "NULL");
             return char_py_str;
-        } else {
+        }
+        else
+        {
             LOG_DEBUG("py_next (string) StopIteration for iterator: %p", (void*)iterator_obj);
             return NULL;
         }
     }
-    
+
     LOG_ERROR("py_next: Object %p is not a known iterator type (typeId: %d, %s)", (void*)iterator_obj, iterator_obj->typeId, py_type_name(iterator_obj->typeId));
     char error_msg_key[100];
     snprintf(error_msg_key, sizeof(error_msg_key), "TypeError_NotIterator");
-    py_runtime_error(error_msg_key, 0); 
+    py_runtime_error(error_msg_key, 0);
     return NULL;
 }
 //===----------------------------------------------------------------------===//
@@ -646,8 +667,10 @@ int py_get_list_element_type_id(PyObject* list)
 // 元组操作函数 (Tuple Operations)
 //===----------------------------------------------------------------------===//
 
-PyObject* py_build_tuple_from_array(PyObject** items, int count) {
-    if (count < 0) {
+PyObject* py_build_tuple_from_array(PyObject** items, int count)
+{
+    if (count < 0)
+    {
         LOG_ERROR("py_build_tuple_from_array: Negative count (%d) is invalid.", count);
         // Or raise ValueError
         return NULL;
@@ -656,31 +679,36 @@ PyObject* py_build_tuple_from_array(PyObject** items, int count) {
     // 为 PyTupleObject 结构本身和 items 数组分配内存
     // 使用柔性数组成员，所以 items 的空间紧随 PyTupleObject 之后
     PyTupleObject* tuple = (PyTupleObject*)malloc(sizeof(PyTupleObject) + count * sizeof(PyObject*));
-    if (!tuple) {
+    if (!tuple)
+    {
         LOG_ERROR("MemoryError: Failed to allocate memory for tuple object (count: %d)", count);
         return NULL;
     }
 
     tuple->header.refCount = 1;
-    tuple->header.typeId = llvmpy::PY_TYPE_TUPLE; // Make sure PY_TYPE_TUPLE is defined
+    tuple->header.typeId = llvmpy::PY_TYPE_TUPLE;  // Make sure PY_TYPE_TUPLE is defined
     tuple->size = count;
 
     LOG_DEBUG("py_build_tuple_from_array: Created tuple %p, size %d", (void*)tuple, count);
 
-    for (int i = 0; i < count; ++i) {
-        if (items[i]) {
+    for (int i = 0; i < count; ++i)
+    {
+        if (items[i])
+        {
             py_incref(items[i]);
             tuple->items[i] = items[i];
             LOG_DEBUG("  Tuple item %d: %p (type: %s, refcnt after incref: %d)", i, (void*)items[i], py_type_name(items[i]->typeId), items[i]->refCount);
-        } else {
+        }
+        else
+        {
             // Python tuples can contain None, which might be represented as NULL internally
             // or as a specific None object. If your None is a singleton, use py_get_none().
             // For simplicity, if an item is NULL, we store NULL and assume it means None.
             // If None is a distinct object, this needs adjustment.
-            PyObject* none_obj = py_get_none(); // Assuming py_get_none() returns the singleton None
-            py_incref(none_obj); // py_get_none() might not incref, or it's a static object.
-                                 // If it's a static object with high refcount, this incref might be benign.
-                                 // If it's a normal object, this is correct.
+            PyObject* none_obj = py_get_none();  // Assuming py_get_none() returns the singleton None
+            py_incref(none_obj);                 // py_get_none() might not incref, or it's a static object.
+                                                 // If it's a static object with high refcount, this incref might be benign.
+                                                 // If it's a normal object, this is correct.
             tuple->items[i] = none_obj;
             LOG_DEBUG("  Tuple item %d: Storing None (%p)", i, (void*)none_obj);
         }
