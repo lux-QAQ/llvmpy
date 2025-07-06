@@ -1,7 +1,4 @@
 def test():
-    a=4**14
-    b=1
-    while b < a:
-        b += 1
-    print(b)
+    a=(-1.2)**0.3
+    print(a)
 test()
